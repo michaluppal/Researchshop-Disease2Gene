@@ -1,0 +1,69 @@
+# ResearchShop Disease2Gene Pipeline
+# Docker Compose configuration for easy deployment
+
+version: '3.8'
+
+services:
+  disease2gene:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: disease2gene-pipeline
+    
+    # Environment variables - loaded from .env file
+    env_file:
+      - .env
+    
+    # Override specific environment variables
+    environment:
+      - OUTPUT_DIR=/app/data/output
+      - PYTHONUNBUFFERED=1
+      # Performance tuning
+      - FETCH_MAX_WORKERS=3
+      - FETCH_THREAD_TIMEOUT=120
+      - AI_PER_PAPER_TIMEOUT_SECONDS=600
+    
+    # Mount volumes for persistent data
+    volumes:
+      # Output directory - results persist after container stops
+      - ./data/output:/app/data/output
+      # Reference data (HGNC database)
+      - ./data/reference:/app/data/reference
+    
+    # Resource limits (optional, adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    
+    # Default command - override with docker-compose run
+    command: >
+      --query "MIS-C gene expression"
+      --columns '{"Function": "The biological function of this gene", "Evidence": "Level of evidence from the paper"}'
+      --max-results 50
+      --top-n 5
+
+# Example usage:
+#
+# 1. Create .env file with required variables:
+#    GEMINI_API_KEY=your_key_here
+#    ENTREZ_EMAIL=your.email@example.com
+#
+# 2. Build and run with default query:
+#    docker-compose up --build
+#
+# 3. Run with custom query:
+#    docker-compose run disease2gene \
+#      --query "breast cancer BRCA1" \
+#      --columns '{"Mechanism": "Mechanism of action"}' \
+#      --top-n 10
+#
+# 4. Run specific PMIDs:
+#    docker-compose run disease2gene \
+#      --query "cancer genetics" \
+#      --pmids 37823896 34534994 \
+#      --columns '{"Function": "Gene function"}' \
+#      --top-n 5
+

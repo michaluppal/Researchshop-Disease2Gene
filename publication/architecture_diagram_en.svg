@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 650" class="root">
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&amp;display=swap');
+    .root { font-family: 'Roboto', sans-serif; }
+    .title { font-size: 32px; font-weight: 700; fill: #1a365d; }
+    .subtitle { font-size: 20px; fill: #4a5568; }
+    
+    /* Box Styles */
+    .stage-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
+    .ai-box { fill: #f3e8ff; stroke: #805ad5; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
+    .val-box { fill: #f0fff4; stroke: #38a169; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
+    .check-box { fill: #fffaf0; stroke: #dd6b20; stroke-width: 2; rx: 15; filter: url(#drop-shadow); }
+    .sub-process-box { fill: #e6fffa; stroke: #319795; stroke-width: 1.5; rx: 6; }
+    
+    /* Text Styles */
+    .stage-num { font-size: 14px; font-weight: 700; fill: #718096; text-transform: uppercase; letter-spacing: 1px; }
+    .stage-title { font-size: 16px; font-weight: 700; fill: #2d3748; }
+    .stage-desc { font-size: 13px; fill: #4a5568; text-anchor: middle; }
+    
+    .ai-text { fill: #553c9a; }
+    
+    .sub-process-text { font-size: 12px; font-weight: 600; fill: #285e61; text-anchor: middle; }
+    
+    .ext-pill { fill: #edf2f7; stroke: #cbd5e0; stroke-width: 1; rx: 12; }
+    .ext-text { font-size: 11px; font-weight: 500; fill: #4a5568; }
+    
+    .con-check-title { font-size: 12px; font-weight: 700; fill: #c05621; }
+    
+    /* Connector Styles */
+    .arrow-line { stroke: #cbd5e0; stroke-width: 3; fill: none; }
+</style>
+
+
+<defs>
+    <filter id="drop-shadow" dx="0" dy="2">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+        <feOffset dx="0" dy="4" result="offsetblur"/>
+        <feComponentTransfer>
+            <feFuncA type="linear" slope="0.1"/>
+        </feComponentTransfer>
+        <feMerge>
+            <feMergeNode/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L0,7 L9,3.5 z" fill="#cbd5e0" />
+    </marker>
+</defs>
+
+<text x="900.0" y="50" text-anchor="middle" class="title">ResearchShop Disease2Gene</text>
+<text x="900.0" y="80" text-anchor="middle" class="subtitle">Extraction &amp; Validation Architecture</text>
+<line x1="350.0" y1="195.0" x2="430.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="690.0" y1="195.0" x2="770.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="1030.0" y1="195.0" x2="1110.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="1370.0" y1="195.0" x2="1450.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="1580.0" y1="260" x2="1580.0" y2="395.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="1490.0" y1="415.0" x2="1370.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="1110.0" y1="415.0" x2="1000.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="800.0" y1="415.0" x2="690.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
+<line x1="430.0" y1="415.0" x2="350.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
+<rect x="90.0" y="130" width="260" height="130" class="stage-box"/>
+<text x="110.0" y="155" class="stage-num">01</text>
+<text x="220.0" y="180" text-anchor="middle" class="stage-title">Query Definition</text>
+<text x="220.0" y="210" class="stage-desc">Input Query &amp; Schema</text>
+<rect x="430.0" y="130" width="260" height="130" class="stage-box"/>
+<text x="450.0" y="155" class="stage-num">02</text>
+<text x="560.0" y="180" text-anchor="middle" class="stage-title">Literature Retrieval</text>
+<text x="560.0" y="210" class="stage-desc">Fetch Metadata</text>
+<line x1="560.0" y1="122" x2="560.0" y2="130" class="ext-line" />
+<rect x="490.0" y="98" width="140" height="24" class="ext-pill"/>
+<text x="560.0" y="114" text-anchor="middle" class="ext-text">PubMed API</text>
+<rect x="770.0" y="130" width="260" height="130" class="stage-box"/>
+<text x="790.0" y="155" class="stage-num">03</text>
+<text x="900.0" y="180" text-anchor="middle" class="stage-title">Full-Text Acquisition</text>
+<text x="900.0" y="210" class="stage-desc">Web Scraping</text>
+<line x1="900.0" y1="122" x2="900.0" y2="130" class="ext-line" />
+<rect x="830.0" y="98" width="140" height="24" class="ext-pill"/>
+<text x="900.0" y="114" text-anchor="middle" class="ext-text">PMC + Playwright</text>
+<rect x="1110.0" y="130" width="260" height="130" class="stage-box"/>
+<text x="1130.0" y="155" class="stage-num">04</text>
+<text x="1240.0" y="180" text-anchor="middle" class="stage-title">Citation Analysis</text>
+<text x="1240.0" y="210" class="stage-desc">Impact Prioritization</text>
+<line x1="1240.0" y1="122" x2="1240.0" y2="130" class="ext-line" />
+<rect x="1170.0" y="98" width="140" height="24" class="ext-pill"/>
+<text x="1240.0" y="114" text-anchor="middle" class="ext-text">Semantic Scholar</text>
+<rect x="1450.0" y="130" width="260" height="130" class="stage-box"/>
+<text x="1470.0" y="155" class="stage-num">05</text>
+<text x="1580.0" y="180" text-anchor="middle" class="stage-title">Abstract Screening</text>
+<text x="1580.0" y="210" class="stage-desc">Heuristic: Keyword Filter</text>
+<rect x="1490.0" y="395.0" width="180" height="40" class="check-box"/>
+<text x="1580.0" y="420.0" text-anchor="middle" class="con-check-title">Context Limit Check</text>
+<rect x="1110.0" y="350" width="260" height="130" class="ai-box"/>
+<text x="1130.0" y="375" class="stage-num">06</text>
+<text x="1240.0" y="400" text-anchor="middle" class="stage-title ai-text">Gene/Variant ID</text>
+<text x="1240.0" y="430" class="stage-desc">Initial Discovery</text>
+<line x1="1240.0" y1="488" x2="1240.0" y2="480" class="ext-line" />
+<rect x="1170.0" y="488" width="140" height="24" class="ext-pill"/>
+<text x="1240.0" y="504" text-anchor="middle" class="ext-text">Gemini 2.0 Flash</text>
+<rect x="800.0" y="395.0" width="200" height="40" class="check-box"/>
+<text x="900.0" y="420.0" text-anchor="middle" class="con-check-title">HGNC &amp; Gene Check</text>
+<rect x="430.0" y="350" width="260" height="130" class="ai-box"/>
+<text x="450.0" y="375" class="stage-num">07</text>
+<text x="560.0" y="400" text-anchor="middle" class="stage-title ai-text">Attribute Extraction</text>
+<text x="560.0" y="430" class="stage-desc">Detailed Schema</text>
+<line x1="560.0" y1="488" x2="560.0" y2="480" class="ext-line" />
+<rect x="490.0" y="488" width="140" height="24" class="ext-pill"/>
+<text x="560.0" y="504" text-anchor="middle" class="ext-text">Gemini 2.5 Flash</text>
+<rect x="90.0" y="340" width="260" height="150" class="val-box"/>
+<text x="110.0" y="365" class="stage-num">08</text>
+<text x="220.0" y="390" text-anchor="middle" class="stage-title">Validation &amp; Output</text>
+<rect x="110.0" y="400" width="220" height="24" class="sub-process-box"/>
+<text x="220.0" y="416" class="sub-process-text">Quote Verification</text>
+<rect x="110.0" y="428" width="220" height="24" class="sub-process-box"/>
+<text x="220.0" y="444" class="sub-process-text">Variant Pattern Norm.</text>
+<rect x="110.0" y="456" width="220" height="24" class="sub-process-box"/>
+<text x="220.0" y="472" class="sub-process-text">Final CSV Output</text>
+</svg>

@@ -1,0 +1,219 @@
+[
+  {
+    "pmid": "21533171",
+    "genes": [
+      "ITPKC"
+    ],
+    "gene_count": 1
+  },
+  {
+    "pmid": "33705359",
+    "genes": [
+      "TRBV11-2"
+    ],
+    "gene_count": 1
+  },
+  {
+    "pmid": "33891889",
+    "genes": [
+      "HLA-DP",
+      "S100A12",
+      "S100A8",
+      "S100A9"
+    ],
+    "gene_count": 4
+  },
+  {
+    "pmid": "34193364",
+    "genes": [
+      "CASP1",
+      "CD14",
+      "CD36",
+      "FCGR2A",
+      "HLA-DOB",
+      "IFI16",
+      "IFNAR1",
+      "IRAK4",
+      "IRF3",
+      "PELI1",
+      "PYCARD",
+      "STAT3",
+      "STING",
+      "TLR2",
+      "TLR7"
+    ],
+    "gene_count": 15
+  },
+  {
+    "pmid": "34224783",
+    "genes": [
+      "CYBB",
+      "SOCS1",
+      "XIAP"
+    ],
+    "gene_count": 3
+  },
+  {
+    "pmid": "34299101",
+    "genes": [
+      "SETDB1",
+      "TRIM28"
+    ],
+    "gene_count": 2
+  },
+  {
+    "pmid": "34414385",
+    "genes": [
+      "HIF1A",
+      "HMGB1"
+    ],
+    "gene_count": 2
+  },
+  {
+    "pmid": "34437303",
+    "genes": [
+      "IGHV1-69"
+    ],
+    "gene_count": 1
+  },
+  {
+    "pmid": "34534994",
+    "genes": [
+      "ABO",
+      "ACE2",
+      "CCR2",
+      "CCR3",
+      "CCR9",
+      "CXCR6",
+      "CYBB",
+      "FYCO1",
+      "IFNAR1",
+      "IFNAR2",
+      "IRF7",
+      "LYST",
+      "LZTFL1",
+      "PRF1",
+      "SLC6A20",
+      "SOCS1",
+      "STX11",
+      "TBK1",
+      "TLR7",
+      "TMPRSS2",
+      "UNC13D",
+      "XIAP"
+    ],
+    "gene_count": 22
+  },
+  {
+    "pmid": "35177862",
+    "genes": [
+      "CD4",
+      "TRBV11-2"
+    ],
+    "gene_count": 2
+  },
+  {
+    "pmid": "35336791",
+    "genes": [
+      "DOCK8"
+    ],
+    "gene_count": 1
+  },
+  {
+    "pmid": "35639375",
+    "genes": [
+      "CD163",
+      "CD84",
+      "IFI44",
+      "IFI44L",
+      "IFIH1",
+      "IFNA21",
+      "IFNA4",
+      "IFNA6",
+      "IFNB1",
+      "IL22RA2",
+      "IRAK3",
+      "LY9",
+      "NLRP12",
+      "NLRP2",
+      "RAB27A",
+      "TLR6"
+    ],
+    "gene_count": 16
+  },
+  {
+    "pmid": "35770252",
+    "genes": [
+      "AIM2",
+      "CUL2",
+      "SH2D1B",
+      "VWA8",
+      "ZEB2"
+    ],
+    "gene_count": 5
+  },
+  {
+    "pmid": "35877417",
+    "genes": [
+      "CFB",
+      "CFH"
+    ],
+    "gene_count": 2
+  },
+  {
+    "pmid": "36148243",
+    "genes": [
+      "IL27"
+    ],
+    "gene_count": 1
+  },
+  {
+    "pmid": "36510129",
+    "genes": [
+      "ABCA4",
+      "ABCC6",
+      "BSCL2",
+      "FREM1",
+      "MPO",
+      "POLG"
+    ],
+    "gene_count": 6
+  },
+  {
+    "pmid": "37255317",
+    "genes": [
+      "HSPBAP1",
+      "MX2",
+      "TGFB1",
+      "TRBV11-2",
+      "VPS37C"
+    ],
+    "gene_count": 5
+  },
+  {
+    "pmid": "37823896",
+    "genes": [
+      "DMTN",
+      "DSEA",
+      "GFI1B",
+      "GRAP2",
+      "ITGA2B",
+      "PF4",
+      "QSER1",
+      "TMCC2",
+      "TUBB1"
+    ],
+    "gene_count": 9
+  },
+  {
+    "pmid": "37896870",
+    "genes": [
+      "ACE2",
+      "CASP3",
+      "CD40",
+      "IFNAR2",
+      "OAS1"
+    ],
+    "gene_count": 5
+  }
+]

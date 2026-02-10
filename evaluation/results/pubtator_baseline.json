@@ -1,0 +1,341 @@
+{
+  "precision": 0.5121951219512195,
+  "recall": 0.6116504854368932,
+  "f1": 0.5575221238938053,
+  "per_paper": [
+    {
+      "pmid": "21533171",
+      "gt": 1,
+      "pt": 1,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 1
+    },
+    {
+      "pmid": "33705359",
+      "gt": 1,
+      "pt": 5,
+      "precision": 0.2,
+      "recall": 1.0,
+      "f1": 0.33333333333333337,
+      "tp": 1
+    },
+    {
+      "pmid": "33891889",
+      "gt": 4,
+      "pt": 3,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0
+    },
+    {
+      "pmid": "34193364",
+      "gt": 15,
+      "pt": 16,
+      "precision": 0.875,
+      "recall": 0.9333333333333333,
+      "f1": 0.9032258064516129,
+      "tp": 14
+    },
+    {
+      "pmid": "34224783",
+      "gt": 3,
+      "pt": 7,
+      "precision": 0.42857142857142855,
+      "recall": 1.0,
+      "f1": 0.6,
+      "tp": 3
+    },
+    {
+      "pmid": "34299101",
+      "gt": 2,
+      "pt": 7,
+      "precision": 0.2857142857142857,
+      "recall": 1.0,
+      "f1": 0.4444444444444445,
+      "tp": 2
+    },
+    {
+      "pmid": "34414385",
+      "gt": 2,
+      "pt": 6,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0
+    },
+    {
+      "pmid": "34437303",
+      "gt": 1,
+      "pt": 5,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0
+    },
+    {
+      "pmid": "34534994",
+      "gt": 22,
+      "pt": 5,
+      "precision": 0.8,
+      "recall": 0.18181818181818182,
+      "f1": 0.2962962962962963,
+      "tp": 4
+    },
+    {
+      "pmid": "35177862",
+      "gt": 2,
+      "pt": 3,
+      "precision": 0.3333333333333333,
+      "recall": 0.5,
+      "f1": 0.4,
+      "tp": 1
+    },
+    {
+      "pmid": "35336791",
+      "gt": 1,
+      "pt": 7,
+      "precision": 0.14285714285714285,
+      "recall": 1.0,
+      "f1": 0.25,
+      "tp": 1
+    },
+    {
+      "pmid": "35639375",
+      "gt": 16,
+      "pt": 5,
+      "precision": 0.8,
+      "recall": 0.25,
+      "f1": 0.38095238095238093,
+      "tp": 4
+    },
+    {
+      "pmid": "35770252",
+      "gt": 5,
+      "pt": 6,
+      "precision": 0.8333333333333334,
+      "recall": 1.0,
+      "f1": 0.9090909090909091,
+      "tp": 5
+    },
+    {
+      "pmid": "35877417",
+      "gt": 2,
+      "pt": 14,
+      "precision": 0.14285714285714285,
+      "recall": 1.0,
+      "f1": 0.25,
+      "tp": 2
+    },
+    {
+      "pmid": "36148243",
+      "gt": 1,
+      "pt": 3,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "f1": 0.5,
+      "tp": 1
+    },
+    {
+      "pmid": "36510129",
+      "gt": 6,
+      "pt": 7,
+      "precision": 0.8571428571428571,
+      "recall": 1.0,
+      "f1": 0.923076923076923,
+      "tp": 6
+    },
+    {
+      "pmid": "37255317",
+      "gt": 5,
+      "pt": 5,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 5
+    },
+    {
+      "pmid": "37823896",
+      "gt": 9,
+      "pt": 10,
+      "precision": 0.8,
+      "recall": 0.8888888888888888,
+      "f1": 0.8421052631578948,
+      "tp": 8
+    },
+    {
+      "pmid": "37896870",
+      "gt": 5,
+      "pt": 8,
+      "precision": 0.625,
+      "recall": 1.0,
+      "f1": 0.7692307692307693,
+      "tp": 5
+    }
+  ],
+  "pubtator": {
+    "21533171": [
+      "ITPKC"
+    ],
+    "33705359": [
+      "SPIKE",
+      "GLYCOPROTEIN",
+      "TCR",
+      "TRBV11-2",
+      "T CELL RECEPTOR"
+    ],
+    "33891889": [
+      "TCR",
+      "S100A",
+      "CD8"
+    ],
+    "34193364": [
+      "NLRP3",
+      "PYCARD",
+      "IFNAR1",
+      "PELI1",
+      "TLR2",
+      "FCGR2A",
+      "TLR7",
+      "IRAK4",
+      "TLR8",
+      "HLA-DOB",
+      "CASP1",
+      "IRF3",
+      "STAT3",
+      "STING",
+      "CD14",
+      "IFI16"
+    ],
+    "34224783": [
+      "CYBB",
+      "X-LINKED INHIBITOR OF APOPTOSIS",
+      "SOCS1",
+      "ONCOSTATIN M",
+      "XIAP",
+      "SUPPRESSOR OF CYTOKINE SIGNALING 1",
+      "IL-18"
+    ],
+    "34299101": [
+      "TRIM28",
+      "TRIM-28",
+      "SYN2",
+      "IFN",
+      "SETDB1",
+      "IFN-",
+      "SYN)1"
+    ],
+    "34414385": [
+      "VASCULAR ENDOTHELIAL GROWTH FACTOR",
+      "NF-KAPPAB",
+      "VEGF",
+      "TUMOR NECROSIS FACTOR ALPHA",
+      "HIF-1ALPHA",
+      "TNF-ALPHA"
+    ],
+    "34437303": [
+      "IGHV",
+      "IMMUNOGLOBULIN HEAVY CHAIN VARIABLE REGION",
+      "TCR",
+      "TRBV11-2",
+      "T CELL RECEPTOR"
+    ],
+    "34534994": [
+      "SOCS1",
+      "TLR7",
+      "ABO BLOOD GROUP",
+      "ACE2",
+      "IFNAR2"
+    ],
+    "35177862": [
+      "TRBV11-2",
+      "NF-KAPPAB",
+      "IFN"
+    ],
+    "35336791": [
+      "LYST",
+      "STXBP2",
+      "AP3B1",
+      "PRF1",
+      "CD107A",
+      "UNC13D",
+      "DOCK8"
+    ],
+    "35639375": [
+      "IFNB1",
+      "IFNA6",
+      "IL22RA2",
+      "TLR3",
+      "TLR6"
+    ],
+    "35770252": [
+      "CUL2",
+      "AIM2",
+      "VWA8",
+      "HLA-DRB1",
+      "SH2D1B",
+      "ZEB2"
+    ],
+    "35877417": [
+      "MBL2",
+      "CFB",
+      "MASP2",
+      "FCN1",
+      "COLEC11",
+      "FCN3",
+      "C3B",
+      "CFI",
+      "MASP1",
+      "CD55",
+      "CFH",
+      "CFD",
+      "CFHR1",
+      "CD46"
+    ],
+    "36148243": [
+      "INTERLEUKIN-1",
+      "IL-27",
+      "IL27"
+    ],
+    "36510129": [
+      "FREM1",
+      "BSCL2",
+      "ABCA4",
+      "MPO",
+      "ABCC6",
+      "POLG",
+      "HLA"
+    ],
+    "37255317": [
+      "VPS37C",
+      "MX2",
+      "HSPBAP1",
+      "TRBV11-2",
+      "TGFB1"
+    ],
+    "37823896": [
+      "QSER1",
+      "TMCC2",
+      "DMTN",
+      "ITGA2B",
+      "GFI1B",
+      "TUBB1",
+      "INTERLEUKIN-10",
+      "IL-10",
+      "PF4",
+      "GRAP2"
+    ],
+    "37896870": [
+      "OAS1",
+      "FCGR2A",
+      "CD40",
+      "ACE2",
+      "OAS3",
+      "CASP3",
+      "TYK2",
+      "IFNAR2"
+    ]
+  }
+}
