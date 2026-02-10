@@ -1,0 +1,110 @@
+{
+  "tier_1": {
+    "score": 1.0,
+    "journals": [
+      "Nature",
+      "Science",
+      "Cell",
+      "The New England Journal of Medicine",
+      "New England Journal of Medicine",
+      "NEJM",
+      "The Lancet",
+      "Lancet",
+      "JAMA",
+      "The Journal of the American Medical Association",
+      "BMJ",
+      "British Medical Journal",
+      "Nature Medicine",
+      "Nature Genetics",
+      "Cell Reports",
+      "The Lancet Oncology",
+      "Lancet Oncology"
+    ]
+  },
+  "tier_2": {
+    "score": 0.85,
+    "journals": [
+      "PNAS",
+      "Proceedings of the National Academy of Sciences",
+      "Blood",
+      "Journal of Clinical Investigation",
+      "JCI",
+      "Journal of Clinical Oncology",
+      "Annals of Internal Medicine",
+      "Circulation",
+      "Gastroenterology",
+      "Hepatology",
+      "Genome Research",
+      "Cancer Discovery",
+      "Cancer Cell",
+      "Nature Communications",
+      "Nucleic Acids Research",
+      "Genome Biology",
+      "Science Translational Medicine"
+    ]
+  },
+  "tier_3": {
+    "score": 0.70,
+    "journals": [
+      "PLoS Genetics",
+      "PLOS Genetics",
+      "Human Molecular Genetics",
+      "American Journal of Human Genetics",
+      "AJHG",
+      "European Journal of Human Genetics",
+      "Clinical Cancer Research",
+      "Oncogene",
+      "Molecular Cancer",
+      "Cancer Research",
+      "BMC Genomics",
+      "BMC Genetics",
+      "Human Mutation",
+      "Genetics in Medicine",
+      "Molecular Genetics and Metabolism",
+      "Journal of Medical Genetics",
+      "Annals of Oncology",
+      "Breast Cancer Research",
+      "Leukemia",
+      "Haematologica",
+      "Journal of Hepatology",
+      "Gut",
+      "Thorax",
+      "European Respiratory Journal",
+      "Diabetes",
+      "Diabetologia",
+      "Clinical Genetics"
+    ]
+  },
+  "tier_4": {
+    "score": 0.55,
+    "journals": [
+      "PLoS ONE",
+      "PLOS ONE",
+      "Scientific Reports",
+      "BMC Medicine",
+      "BMC Cancer",
+      "BMC Medical Genetics",
+      "Molecular Biology Reports",
+      "Gene",
+      "Mutation Research",
+      "International Journal of Cancer",
+      "Cancer Letters",
+      "Tumor Biology",
+      "Molecular Medicine Reports",
+      "World Journal of Gastroenterology",
+      "Frontiers in Genetics",
+      "Frontiers in Oncology",
+      "Genes",
+      "Journal of Human Genetics",
+      "Annals of Human Genetics",
+      "Genetic Testing and Molecular Biomarkers",
+      "Disease Markers",
+      "International Journal of Molecular Sciences",
+      "Biomarkers"
+    ]
+  },
+  "tier_5": {
+    "score": 0.30,
+    "description": "Default tier for unrecognized journals"
+  }
+}

@@ -174,6 +174,7 @@ def pubmed_search():
     import urllib.request, urllib.parse
     q = request.args.get("query", "")
     retmax = min(int(request.args.get("retmax", 50)), 200)
+    rank = request.args.get("rank", "").lower() == "true"
     if not q:
         return jsonify({"papers": [], "total": 0})
     try:
@@ -201,19 +202,80 @@ def pubmed_search():
         result = summ.get("result", {})
 
         papers = []
-        for pmid in pmids:
+        for idx, pmid in enumerate(pmids):
             if pmid in result and isinstance(result[pmid], dict):
                 d = result[pmid]
                 authors = [a.get("name", "") for a in d.get("authors", [])[:3]]
-                papers.append({
+                paper = {
                     "pmid": pmid,
                     "title": d.get("title", f"PMID:{pmid}"),
                     "year": d.get("pubdate", "")[:4],
                     "journal": d.get("fulljournalname", ""),
                     "authors": ", ".join(authors) + (" et al." if len(d.get("authors", [])) > 3 else ""),
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}",
-                })
+                }
+                if rank:
+                    paper["rank_position"] = idx + 1
+                    paper["total_results"] = total
+                papers.append(paper)
+
+        # 3. Optionally rank papers
+        if rank and papers:
+            from modules.paper_ranker import rank_papers
+            scores = rank_papers(papers, query=q)
+            score_map = {s.pmid: s for s in scores}
+            for paper in papers:
+                s = score_map.get(paper["pmid"])
+                if s:
+                    paper["quality_score"] = s.composite_score
+                    paper["score_breakdown"] = {
+                        "citation": s.citation_score,
+                        "journal": s.journal_score,
+                        "recency": s.recency_score,
+                        "study_type": s.study_type_score,
+                        "availability": s.availability_score,
+                        "relevance": s.relevance_score,
+                    }
+                    paper["score_explanation"] = s.explanation
+            papers.sort(key=lambda p: p.get("quality_score", 0), reverse=True)
+
         return jsonify({"papers": papers, "total": total})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/papers/rank", methods=["POST"])
+def rank_papers_endpoint():
+    """Rank a list of papers by quality score.
+
+    Accepts JSON body with:
+      - papers: list of paper dicts (pmid, title, year, journal, etc.)
+      - query: optional search query for relevance scoring
+    """
+    from modules.paper_ranker import rank_papers
+    body = request.json or {}
+    papers = body.get("papers", [])
+    query = body.get("query", "")
+    if not papers:
+        return jsonify({"ranked": [], "error": "No papers provided"}), 400
+    try:
+        scores = rank_papers(papers, query=query)
+        ranked = []
+        for s in scores:
+            ranked.append({
+                "pmid": s.pmid,
+                "quality_score": s.composite_score,
+                "score_breakdown": {
+                    "citation": s.citation_score,
+                    "journal": s.journal_score,
+                    "recency": s.recency_score,
+                    "study_type": s.study_type_score,
+                    "availability": s.availability_score,
+                    "relevance": s.relevance_score,
+                },
+                "explanation": s.explanation,
+            })
+        return jsonify({"ranked": ranked})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -343,10 +405,12 @@ if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
 
     port = int(os.environ.get("PORT", 8050))
+    host = os.environ.get("HOST", "127.0.0.1")
     url = f"http://localhost:{port}"
 
-    # Open browser after a short delay
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    # Open browser after a short delay (skip in containers)
+    if host == "127.0.0.1":
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
     print(f"\n  🧬 Disease2Gene is running at {url}\n")
-    app.run(host="127.0.0.1", port=port, debug=False)
+    app.run(host=host, port=port, debug=False)

@@ -203,8 +203,11 @@ def _get_pmc_status(pmid: str) -> bool:
         return False
 
 
-def _rank_pmids_by_priority(pmids: List[str]) -> Tuple[List[str], List[str]]:
-    """Rank PMIDs: PMC first (by citations), then non-PMC (by citations)."""
+def _rank_pmids_by_priority(
+    pmids: List[str], composite_scores: Optional[Dict[str, float]] = None
+) -> Tuple[List[str], List[str]]:
+    """Rank PMIDs: PMC first, then non-PMC.  Uses composite scores when
+    available (from paper_ranker), falling back to citation counts."""
     pmc_pmids = []
     non_pmc_pmids = []
 
@@ -214,9 +217,14 @@ def _rank_pmids_by_priority(pmids: List[str]) -> Tuple[List[str], List[str]]:
         else:
             non_pmc_pmids.append((pmid, _get_citations_for_pmid(pmid)))
 
-    # Sort by citations descending
-    pmc_pmids.sort(key=lambda x: x[1], reverse=True)
-    non_pmc_pmids.sort(key=lambda x: x[1], reverse=True)
+    if composite_scores:
+        # Sort by composite score descending (fallback to 0 if missing)
+        pmc_pmids.sort(key=lambda x: composite_scores.get(x[0], 0.0), reverse=True)
+        non_pmc_pmids.sort(key=lambda x: composite_scores.get(x[0], 0.0), reverse=True)
+    else:
+        # Legacy: sort by citations descending
+        pmc_pmids.sort(key=lambda x: x[1], reverse=True)
+        non_pmc_pmids.sort(key=lambda x: x[1], reverse=True)
 
     return [pmid for pmid, _ in pmc_pmids], [pmid for pmid, _ in non_pmc_pmids]
 
