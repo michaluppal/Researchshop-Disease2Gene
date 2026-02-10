@@ -183,6 +183,8 @@ def fetch_paper_details(paper_ids, batch_size=50):
                         "journal": record.get("JT", "N/A"),
                         "affiliations": record.get("AD", []),
                         "abstract": record.get("AB", "No abstract available"),
+                        "pub_types": record.get("PT", []),
+                        "doi": record.get("LID", "").replace(" [doi]", "") if "[doi]" in record.get("LID", "") else "",
                         "PMID": pmid,
                     }
         except requests.exceptions.RequestException as e:

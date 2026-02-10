@@ -219,9 +219,23 @@ def pubmed_search():
                     paper["total_results"] = total
                 papers.append(paper)
 
-        # 3. Optionally rank papers
+        # 3. Optionally rank papers (with real citation data from Semantic Scholar)
         if rank and papers:
             from modules.paper_ranker import rank_papers
+            from modules.pubmed_data_collector import fetch_semantic_citation_counts
+
+            # Fetch real citation counts from Semantic Scholar API
+            paper_pmids = [p["pmid"] for p in papers]
+            try:
+                citation_counts = fetch_semantic_citation_counts(paper_pmids)
+            except Exception as e:
+                logging.warning(f"Semantic Scholar citation fetch failed: {e}")
+                citation_counts = {}
+
+            # Enrich papers with citation data before ranking
+            for paper in papers:
+                paper["citations"] = citation_counts.get(paper["pmid"], 0)
+
             scores = rank_papers(papers, query=q)
             score_map = {s.pmid: s for s in scores}
             for paper in papers:
@@ -246,25 +260,43 @@ def pubmed_search():
 
 @app.route("/api/papers/rank", methods=["POST"])
 def rank_papers_endpoint():
-    """Rank a list of papers by quality score.
+    """Rank a list of papers by quality score using live API data.
 
     Accepts JSON body with:
       - papers: list of paper dicts (pmid, title, year, journal, etc.)
       - query: optional search query for relevance scoring
+
+    Fetches real citation counts from Semantic Scholar before ranking.
     """
     from modules.paper_ranker import rank_papers
+    from modules.pubmed_data_collector import fetch_semantic_citation_counts
+
     body = request.json or {}
     papers = body.get("papers", [])
     query = body.get("query", "")
     if not papers:
         return jsonify({"ranked": [], "error": "No papers provided"}), 400
     try:
+        # Fetch real citation counts from Semantic Scholar API
+        paper_pmids = [str(p.get("pmid", "")) for p in papers if p.get("pmid")]
+        try:
+            citation_counts = fetch_semantic_citation_counts(paper_pmids)
+        except Exception as e:
+            logging.warning(f"Semantic Scholar citation fetch failed: {e}")
+            citation_counts = {}
+
+        # Enrich papers with citation data before ranking
+        for paper in papers:
+            if "citations" not in paper or paper["citations"] == 0:
+                paper["citations"] = citation_counts.get(str(paper.get("pmid", "")), 0)
+
         scores = rank_papers(papers, query=query)
         ranked = []
         for s in scores:
             ranked.append({
                 "pmid": s.pmid,
                 "quality_score": s.composite_score,
+                "citations": citation_counts.get(s.pmid, 0),
                 "score_breakdown": {
                     "citation": s.citation_score,
                     "journal": s.journal_score,

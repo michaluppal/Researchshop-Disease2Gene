@@ -434,6 +434,8 @@ def run_complete_pipeline(
                         "journal": info.get("journal", ""),
                         "title": info.get("title", ""),
                         "abstract": info.get("abstract", ""),
+                        "pub_types": info.get("pub_types", []),
+                        "doi": info.get("doi", ""),
                         "rank_position": idx + 1,
                         "total_results": len(all_candidate_pmids),
                     })
