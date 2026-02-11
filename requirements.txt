@@ -10,3 +10,5 @@ lxml>=4.9
 lxml_html_clean>=0.1
 google-genai>=1.0
 openpyxl>=3.0
+pytest>=7.0
+pytest-cov>=4.0

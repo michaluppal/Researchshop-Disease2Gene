@@ -20,6 +20,12 @@ block_cipher = None
 ROOT = SPECPATH
 PROJECT_ROOT = os.path.dirname(SPECPATH)
 
+# Platform-appropriate icon
+if sys.platform == 'win32':
+    ICON_FILE = os.path.join(ROOT, 'Disease2Gene.ico')
+else:
+    ICON_FILE = os.path.join(ROOT, 'Disease2Gene.icns')
+
 # Collect all module files
 module_files = []
 for f in os.listdir(os.path.join(PROJECT_ROOT, 'modules')):
@@ -143,7 +149,7 @@ if platform.system() == 'Darwin':
     app = BUNDLE(
         coll,
         name='Disease2Gene.app',
-        icon=os.path.join(ROOT, 'Disease2Gene.icns'),
+        icon=ICON_FILE,
         bundle_identifier='pl.researchshop.disease2gene',
         info_plist={
             'CFBundleName': 'Disease2Gene',
@@ -170,5 +176,5 @@ else:
         upx=True,
         console=False,  # No terminal window
         disable_windowed_traceback=False,
-        icon=os.path.join(ROOT, 'Disease2Gene.icns'),
+        icon=ICON_FILE,
     )

@@ -102,12 +102,27 @@ jupyter notebook evaluation_analysis.ipynb
 
 ## 🏗️ Building the Standalone App
 
+### macOS
+
 ```bash
-# macOS
 cd packaging
 pip install pyinstaller
 python -m PyInstaller Disease2Gene.spec
 bash create_custom_dmg.sh   # Creates dist/Disease2Gene.dmg
+```
+
+### Windows
+
+```bash
+cd packaging
+pip install pyinstaller
+python -m PyInstaller Disease2Gene.spec   # Creates dist\Disease2Gene.exe
+```
+
+To create an installer (requires [Inno Setup 6+](https://jrsoftware.org/isinfo.php)):
+
+```bash
+iscc windows_installer.iss   # Creates dist\Disease2Gene_Setup_1.0.0.exe
 ```
 
 ## 📄 Citation
