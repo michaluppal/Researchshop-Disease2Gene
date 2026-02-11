@@ -164,6 +164,7 @@ const S = {
   topicResults: [],       // fetched papers with metadata
   topicSelected: new Set(), // selected PMIDs from topic results
   showingResults: false,
+  rankingInProgress: false, // true while async ranking is loading
   // Papers
   pmidsText: '',
   resolvedPapers: [],
@@ -259,16 +260,43 @@ const actions = {
     if (!q) return alert('Build a query first');
     S.showingResults = true;
     S.topicResults = [];
+    S.rankingInProgress = false;
     render();
     try {
-      const res = await fetch(`/api/pubmed/search?query=${encodeURIComponent(q)}&retmax=50&rank=true`);
+      // Step 1: Fetch papers instantly (no ranking)
+      const res = await fetch(`/api/pubmed/search?query=${encodeURIComponent(q)}&retmax=200`);
       const data = await res.json();
       S.topicResults = data.papers || [];
-      S.topicSortBy = 'quality';
+      S.topicSortBy = 'date';
       S.topicCount = data.total;
       // Select all by default
       S.topicSelected = new Set(S.topicResults.map(p => p.pmid));
+      S.rankingInProgress = true;
       render();
+
+      // Step 2: Rank asynchronously in the background
+      fetch('/api/papers/rank', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ papers: S.topicResults, query: q })
+      }).then(r => r.json()).then(rankData => {
+        if (rankData.ranked) {
+          const scoreMap = {};
+          rankData.ranked.forEach(r => { scoreMap[r.pmid] = r; });
+          S.topicResults.forEach(p => {
+            const r = scoreMap[p.pmid];
+            if (r) {
+              p.quality_score = r.quality_score;
+              p.citations = r.citations;
+              p.score_breakdown = r.score_breakdown;
+              p.score_explanation = r.explanation;
+            }
+          });
+          S.topicSortBy = 'quality';
+        }
+        S.rankingInProgress = false;
+        if (S.showingResults) render();
+      }).catch(() => { S.rankingInProgress = false; if (S.showingResults) render(); });
     } catch (e) { alert('Error fetching results: ' + e.message); }
   },
   closeResults() { S.showingResults = false; render(); },
@@ -557,11 +585,15 @@ function vTopicModule() {
 }
 
 function vTopicResultsModal() {
-  const loading = S.topicResults.length === 0;
+  const searching = S.topicResults.length === 0;
   const sorted = getSortedTopicResults();
   let paperList = sorted.map(p =>
     paperCardHtml(p, { checkbox: true, checked: S.topicSelected.has(p.pmid), onToggle: `data-action="toggleTopicPaper" data-pmid="${p.pmid}"` })
   ).join('');
+
+  const subtitleText = searching
+    ? 'Searching PubMed...'
+    : `Found ${(S.topicCount||0).toLocaleString()} papers. Showing ${S.topicResults.length}. Select papers to include in analysis.`;
 
   return `
     <div class="results-overlay fade-in">
@@ -569,13 +601,14 @@ function vTopicResultsModal() {
         <div class="container-wide flex flex-between items-center">
           <div>
             <h1>Topic Search Results</h1>
-            <p class="subtitle">Found ${(S.topicCount||0).toLocaleString()} papers. Showing ${S.topicResults.length}. Select papers to include in analysis.</p>
+            <p class="subtitle">${subtitleText}</p>
           </div>
           <button class="btn btn-ghost" data-action="closeResults">Close</button>
         </div>
       </div>
       <div class="container-wide" style="padding-top:16px;padding-bottom:100px">
-        ${loading ? `<div class="text-center" style="padding:60px 0"><p class="subtitle">Searching PubMed and ranking papers...</p></div>` : `
+        ${searching ? `<div class="text-center" style="padding:60px 0"><div class="progress-bar" style="max-width:300px;margin:0 auto 16px"><div class="progress-bar-inner"></div></div><p class="subtitle">Searching PubMed...</p></div>` : `
+          ${S.rankingInProgress ? `<div class="flex items-center gap-2 mb-4" style="padding:8px 14px;background:var(--orange-bg);border:1px solid var(--orange-border);border-radius:var(--radius-sm)"><span class="badge badge-orange">Loading scores...</span><span class="hint">Fetching citation data from Semantic Scholar. You can browse and select papers while scores load.</span></div>` : ''}
           <div class="flex flex-between items-center mb-4">
             <div class="flex gap-2 items-center">
               <button class="btn btn-ghost btn-sm" data-action="selectAllTopic">Select All</button>

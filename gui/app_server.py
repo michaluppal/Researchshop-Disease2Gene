@@ -126,6 +126,7 @@ def pubmed_author_search():
     """Search PubMed for papers by an author."""
     import urllib.request, urllib.parse
     name = request.args.get("name", "").strip()
+    retmax = min(int(request.args.get("retmax", 200)), 200)
     if not name:
         return jsonify({"papers": []})
     try:
@@ -135,7 +136,7 @@ def pubmed_author_search():
         # Search
         url = (
             f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-            f"?db=pubmed&term={urllib.parse.quote(author_q)}&retmax=25&retmode=json&sort=date"
+            f"?db=pubmed&term={urllib.parse.quote(author_q)}&retmax={retmax}&retmode=json&sort=date"
         )
         with urllib.request.urlopen(url, timeout=15) as resp:
             data = json.loads(resp.read())
@@ -145,24 +146,25 @@ def pubmed_author_search():
         if not pmids:
             return jsonify({"papers": [], "total": 0})
 
-        # Resolve
-        batch = ",".join(pmids)
-        url2 = (
-            f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-            f"?db=pubmed&id={batch}&retmode=json"
-        )
-        with urllib.request.urlopen(url2, timeout=15) as resp2:
-            summ = json.loads(resp2.read())
-        result = summ.get("result", {})
+        # Resolve in batches of 100
         papers = []
-        for pmid in pmids:
-            if pmid in result and isinstance(result[pmid], dict):
-                papers.append({
-                    "pmid": pmid,
-                    "title": result[pmid].get("title", f"PMID:{pmid}"),
-                    "year": result[pmid].get("pubdate", "")[:4],
-                    "journal": result[pmid].get("fulljournalname", ""),
-                })
+        for batch_start in range(0, len(pmids), 100):
+            batch = ",".join(pmids[batch_start:batch_start + 100])
+            url2 = (
+                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+                f"?db=pubmed&id={batch}&retmode=json"
+            )
+            with urllib.request.urlopen(url2, timeout=20) as resp2:
+                summ = json.loads(resp2.read())
+            result = summ.get("result", {})
+            for pmid in pmids[batch_start:batch_start + 100]:
+                if pmid in result and isinstance(result[pmid], dict):
+                    papers.append({
+                        "pmid": pmid,
+                        "title": result[pmid].get("title", f"PMID:{pmid}"),
+                        "year": result[pmid].get("pubdate", "")[:4],
+                        "journal": result[pmid].get("fulljournalname", ""),
+                    })
         return jsonify({"papers": papers, "total": total})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -173,8 +175,7 @@ def pubmed_search():
     """Search PubMed and return paper details for preview/selection."""
     import urllib.request, urllib.parse
     q = request.args.get("query", "")
-    retmax = min(int(request.args.get("retmax", 50)), 200)
-    rank = request.args.get("rank", "").lower() == "true"
+    retmax = min(int(request.args.get("retmax", 200)), 200)
     if not q:
         return jsonify({"papers": [], "total": 0})
     try:
@@ -191,20 +192,22 @@ def pubmed_search():
         if not pmids:
             return jsonify({"papers": [], "total": total})
 
-        # 2. Fetch summaries
-        batch = ",".join(pmids)
-        url2 = (
-            f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-            f"?db=pubmed&id={batch}&retmode=json"
-        )
-        with urllib.request.urlopen(url2, timeout=20) as resp2:
-            summ = json.loads(resp2.read())
-        result = summ.get("result", {})
+        # 2. Fetch summaries in batches of 100
+        all_results = {}
+        for batch_start in range(0, len(pmids), 100):
+            batch = ",".join(pmids[batch_start:batch_start + 100])
+            url2 = (
+                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+                f"?db=pubmed&id={batch}&retmode=json"
+            )
+            with urllib.request.urlopen(url2, timeout=20) as resp2:
+                summ = json.loads(resp2.read())
+            all_results.update(summ.get("result", {}))
 
         papers = []
         for idx, pmid in enumerate(pmids):
-            if pmid in result and isinstance(result[pmid], dict):
-                d = result[pmid]
+            if pmid in all_results and isinstance(all_results[pmid], dict):
+                d = all_results[pmid]
                 authors = [a.get("name", "") for a in d.get("authors", [])[:3]]
                 paper = {
                     "pmid": pmid,
@@ -214,44 +217,7 @@ def pubmed_search():
                     "authors": ", ".join(authors) + (" et al." if len(d.get("authors", [])) > 3 else ""),
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}",
                 }
-                if rank:
-                    paper["rank_position"] = idx + 1
-                    paper["total_results"] = total
                 papers.append(paper)
-
-        # 3. Optionally rank papers (with real citation data from Semantic Scholar)
-        if rank and papers:
-            from modules.paper_ranker import rank_papers
-            from modules.pubmed_data_collector import fetch_semantic_citation_counts
-
-            # Fetch real citation counts from Semantic Scholar API
-            paper_pmids = [p["pmid"] for p in papers]
-            try:
-                citation_counts = fetch_semantic_citation_counts(paper_pmids)
-            except Exception as e:
-                logging.warning(f"Semantic Scholar citation fetch failed: {e}")
-                citation_counts = {}
-
-            # Enrich papers with citation data before ranking
-            for paper in papers:
-                paper["citations"] = citation_counts.get(paper["pmid"], 0)
-
-            scores = rank_papers(papers, query=q)
-            score_map = {s.pmid: s for s in scores}
-            for paper in papers:
-                s = score_map.get(paper["pmid"])
-                if s:
-                    paper["quality_score"] = s.composite_score
-                    paper["score_breakdown"] = {
-                        "citation": s.citation_score,
-                        "journal": s.journal_score,
-                        "recency": s.recency_score,
-                        "study_type": s.study_type_score,
-                        "availability": s.availability_score,
-                        "relevance": s.relevance_score,
-                    }
-                    paper["score_explanation"] = s.explanation
-            papers.sort(key=lambda p: p.get("quality_score", 0), reverse=True)
 
         return jsonify({"papers": papers, "total": total})
     except Exception as e:
