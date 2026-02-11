@@ -92,6 +92,7 @@ a = Analysis(
         'modules.gemini_extractor',
         'modules.gemini_rate_limiter',
         'modules.gene_validator',
+        'modules.paper_ranker',
         'modules.pipeline_orchestrator',
         'modules.progress_tracker',
         'modules.variant_normalizer',
