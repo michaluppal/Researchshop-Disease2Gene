@@ -1,9 +1,17 @@
 # ResearchShop Disease2Gene Pipeline
-# Docker image for running the gene-disease extraction pipeline
+# Multi-stage Docker image for the gene-disease extraction pipeline + web GUI
 
+# ── Stage 1: Builder ─────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies required for Playwright and general operation
@@ -31,19 +39,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy pre-built Python packages from builder stage
+COPY --from=builder /install /usr/local
 
 # Install Playwright browsers (Chromium only for efficiency)
-RUN playwright install chromium
-RUN playwright install-deps chromium
+RUN playwright install chromium \
+    && playwright install-deps chromium
 
 # Copy application code
 COPY modules/ ./modules/
-COPY run_local.py .
+COPY gui/ ./gui/
 COPY data/reference/ ./data/reference/
 
 # Create output directory
@@ -53,14 +58,15 @@ RUN mkdir -p data/output
 ENV OUTPUT_DIR=/app/data/output
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=8050
+ENV HOST=0.0.0.0
 
-# Health check - verify Python and Playwright are working
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import modules.config; print('OK')" || exit 1
+# Expose the web GUI port
+EXPOSE 8050
 
-# Default entrypoint
-ENTRYPOINT ["python", "run_local.py"]
+# Health check - verify Flask app can respond
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8050/')" || exit 1
 
-# Default command (can be overridden)
-CMD ["--help"]
-
+# Run the Flask web GUI (bind to 0.0.0.0 so it's accessible outside the container)
+CMD ["python", "gui/app_server.py"]

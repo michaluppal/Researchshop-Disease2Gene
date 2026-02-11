@@ -17,6 +17,7 @@ from . import pubmed_data_collector, full_text_fetcher, config
 from .gemini_extractor import GeneInfoPipeline
 from .variant_normalizer import normalize_variants_in_dataframe
 from .abstract_screener import has_genetic_content
+from .paper_ranker import rank_papers
 
 # Global variable to track current pipeline state for graceful shutdown
 _pipeline_state = {
@@ -421,15 +422,39 @@ def run_complete_pipeline(
                 all_candidate_pmids
             )
 
-            # Rank by citations desc and take top_n_cited
-            # Sort by citation count (descending), then by PMID (ascending) for deterministic tie-breaking
-            ranked = sorted(
-                all_candidate_pmids,
-                key=lambda p: (
-                    -citations_dict.get(p, 0),  # Primary: descending citations
-                    int(p),  # Secondary: ascending PMID (chronological)
-                ),
-            )
+            # Rank papers using composite scoring or simple citation sort
+            if getattr(config, "ENABLE_PAPER_RANKING", False):
+                ranking_input = []
+                for idx, p in enumerate(all_candidate_pmids):
+                    info = paper_details.get(p, {})
+                    ranking_input.append({
+                        "pmid": p,
+                        "citations": citations_dict.get(p, 0),
+                        "year": info.get("year", "N/A"),
+                        "journal": info.get("journal", ""),
+                        "title": info.get("title", ""),
+                        "abstract": info.get("abstract", ""),
+                        "pub_types": info.get("pub_types", []),
+                        "doi": info.get("doi", ""),
+                        "rank_position": idx + 1,
+                        "total_results": len(all_candidate_pmids),
+                    })
+                scores = rank_papers(
+                    ranking_input,
+                    query=query if query else "",
+                    weights=getattr(config, "RANKING_WEIGHTS", None),
+                )
+                min_score = getattr(config, "RANKING_MIN_SCORE", 0.0)
+                ranked = [s.pmid for s in scores if s.composite_score >= min_score]
+            else:
+                # Legacy: sort by citation count descending, PMID ascending for tie-breaking
+                ranked = sorted(
+                    all_candidate_pmids,
+                    key=lambda p: (
+                        -citations_dict.get(p, 0),
+                        int(p),
+                    ),
+                )
             selected = ranked[:top_n_cited] if top_n_cited else ranked
 
             minimal_rows_only = []
@@ -502,7 +527,7 @@ def run_complete_pipeline(
             all_papers_df.at[pmid, "citations"] = count
 
     report_progress("Selecting top papers", 60)
-    # Build processing order: mandatory (if scraped) keep first (original order), then remaining by citations desc
+    # Build processing order: mandatory (if scraped) keep first (original order), then remaining ranked
     scraped_set = set(all_papers_df.index)
     ordered_mandatory = [p for p in list(mandatory_pmids) if p in scraped_set]
     remaining_df = (
@@ -510,12 +535,42 @@ def run_complete_pipeline(
         if ordered_mandatory
         else all_papers_df
     )
-    ranked_remaining = remaining_df.sort_values(
-        by="citations", ascending=False
-    ).index.tolist()
+    remaining_pmids = remaining_df.index.tolist()
+
+    if getattr(config, "ENABLE_PAPER_RANKING", False) and remaining_pmids:
+        ranking_input = []
+        for idx, pmid in enumerate(remaining_pmids):
+            info = paper_details.get(pmid, {})
+            ranking_input.append({
+                "pmid": pmid,
+                "citations": citations_dict.get(pmid, 0),
+                "year": info.get("year", "N/A"),
+                "journal": info.get("journal", ""),
+                "title": info.get("title", ""),
+                "abstract": info.get("abstract", ""),
+                "rank_position": idx + 1,
+                "total_results": len(remaining_pmids),
+            })
+        scores = rank_papers(
+            ranking_input,
+            query=query if query else "",
+            weights=getattr(config, "RANKING_WEIGHTS", None),
+        )
+        min_score = getattr(config, "RANKING_MIN_SCORE", 0.0)
+        ranked_remaining = [s.pmid for s in scores if s.composite_score >= min_score]
+        logging.info(
+            f"Paper ranking: {len(ranked_remaining)} papers above min score "
+            f"({min_score}) from {len(remaining_pmids)} candidates"
+        )
+    else:
+        ranked_remaining = remaining_df.sort_values(
+            by="citations", ascending=False
+        ).index.tolist()
+
     pmids_to_process = ordered_mandatory + ranked_remaining
     logging.info(
-        f"Prepared {len(pmids_to_process)} scraped PMIDs for AI analysis (mandatory first, then ranked by citations)."
+        f"Prepared {len(pmids_to_process)} scraped PMIDs for AI analysis "
+        f"(mandatory first, then {'composite-ranked' if getattr(config, 'ENABLE_PAPER_RANKING', False) else 'citation-ranked'})."
     )
 
     # Abstract Pre-Screening: Skip papers unlikely to contain genetic content

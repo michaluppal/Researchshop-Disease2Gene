@@ -86,7 +86,7 @@ ln -s /Applications "${DIST_DIR}/dmg_staging/Applications"
 
 echo "Creating temporary DMG..."
 hdiutil create -srcfolder "${DIST_DIR}/dmg_staging" -volname "${VOL_NAME}" -fs HFS+ \
-      -fsargs "-c c=64,a=16,e=16" -format UDRW -size 200m "${DIST_DIR}/pack.temp.dmg"
+      -fsargs "-c c=64,a=16,e=16" -format UDRW -size 500m "${DIST_DIR}/pack.temp.dmg"
 
 echo "Mounting temporary DMG..."
 attach_out=$(hdiutil attach -readwrite -noverify -noautoopen "${DIST_DIR}/pack.temp.dmg" 2>&1)

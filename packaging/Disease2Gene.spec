@@ -15,28 +15,36 @@ import platform
 
 block_cipher = None
 
-# Project root = directory containing this spec file 
+# SPECPATH = directory containing this spec file (packaging/)
+# PROJECT_ROOT = repository root (one level up) where modules/, gui/, data/ live
 ROOT = SPECPATH
+PROJECT_ROOT = os.path.dirname(SPECPATH)
+
+# Platform-appropriate icon
+if sys.platform == 'win32':
+    ICON_FILE = os.path.join(ROOT, 'Disease2Gene.ico')
+else:
+    ICON_FILE = os.path.join(ROOT, 'Disease2Gene.icns')
 
 # Collect all module files
 module_files = []
-for f in os.listdir(os.path.join(ROOT, 'modules')):
+for f in os.listdir(os.path.join(PROJECT_ROOT, 'modules')):
     if f.endswith('.py'):
-        module_files.append((os.path.join(ROOT, 'modules', f), 'modules'))
+        module_files.append((os.path.join(PROJECT_ROOT, 'modules', f), 'modules'))
 
 a = Analysis(
     [os.path.join(ROOT, 'disease2gene_launcher.py')],
-    pathex=[ROOT],
+    pathex=[ROOT, PROJECT_ROOT],
     binaries=[],
     datas=[
         # Flask static files (HTML/CSS/JS)
-        (os.path.join(ROOT, 'gui', 'static'), os.path.join('gui', 'static')),
+        (os.path.join(PROJECT_ROOT, 'gui', 'static'), os.path.join('gui', 'static')),
         # Flask app server
-        (os.path.join(ROOT, 'gui', 'app_server.py'), 'gui'),
+        (os.path.join(PROJECT_ROOT, 'gui', 'app_server.py'), 'gui'),
         # All pipeline modules
-        *[(os.path.join(ROOT, 'modules', f), 'modules') for f in os.listdir(os.path.join(ROOT, 'modules')) if f.endswith('.py')],
+        *[(os.path.join(PROJECT_ROOT, 'modules', f), 'modules') for f in os.listdir(os.path.join(PROJECT_ROOT, 'modules')) if f.endswith('.py')],
         # Reference data (HGNC gene database)
-        (os.path.join(ROOT, 'data', 'reference'), os.path.join('data', 'reference')),
+        (os.path.join(PROJECT_ROOT, 'data', 'reference'), os.path.join('data', 'reference')),
     ],
     hiddenimports=[
         'flask',
@@ -99,6 +107,11 @@ a = Analysis(
         'IPython',
         'notebook',
         'pytest',
+        'PyQt5',
+        'PyQt6',
+        'PySide2',
+        'PySide6',
+        'qtpy',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -136,7 +149,7 @@ if platform.system() == 'Darwin':
     app = BUNDLE(
         coll,
         name='Disease2Gene.app',
-        icon=os.path.join(ROOT, 'Disease2Gene.icns'),
+        icon=ICON_FILE,
         bundle_identifier='pl.researchshop.disease2gene',
         info_plist={
             'CFBundleName': 'Disease2Gene',
@@ -163,5 +176,5 @@ else:
         upx=True,
         console=False,  # No terminal window
         disable_windowed_traceback=False,
-        icon=os.path.join(ROOT, 'Disease2Gene.icns'),
+        icon=ICON_FILE,
     )

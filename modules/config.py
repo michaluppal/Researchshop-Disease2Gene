@@ -108,6 +108,20 @@ ENABLE_CITATION_VALIDATION = (
 CITATION_MIN_CONFIDENCE = 0.7  # Minimum confidence for citation validation (0.0-1.0)
 CITATION_MIN_LENGTH = 10  # Minimum citation length to be considered valid
 
+# --- Paper Ranking ---
+ENABLE_PAPER_RANKING = (
+    os.getenv("ENABLE_PAPER_RANKING", "true").lower() == "true"
+)
+RANKING_MIN_SCORE = float(os.getenv("RANKING_MIN_SCORE", "0.0"))  # Minimum composite score to keep a paper
+RANKING_WEIGHTS = {
+    "citation": 0.25,
+    "journal": 0.20,
+    "recency": 0.15,
+    "study_type": 0.15,
+    "availability": 0.10,
+    "relevance": 0.15,
+}
+
 # --- Context Window Limits ---
 # Gemini model context window limits (in tokens, approximate)
 # Updated for new models:

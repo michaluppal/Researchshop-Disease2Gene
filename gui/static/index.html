@@ -60,6 +60,16 @@ select { appearance: none; cursor: pointer; }
 .badge-green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
 .badge-purple { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
 .badge-orange { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-border); }
+.badge-score { padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; font-family: 'SF Mono', 'Fira Code', monospace; cursor: help; }
+.badge-score-green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.badge-score-yellow { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-border); }
+.badge-score-red { background: var(--red-bg); color: var(--red); border: 1px solid #fca5a5; }
+.score-breakdown { margin-top: 8px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; display: none; }
+.score-breakdown.open { display: block; }
+.score-breakdown .score-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.score-breakdown .score-bar-bg { width: 80px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.score-breakdown .score-bar-fill { height: 100%; border-radius: 3px; background: var(--brand); }
+.sort-select { width: auto; padding: 6px 12px; font-size: 12px; font-weight: 600; }
 
 /* Protocol cards */
 .protocol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
@@ -154,6 +164,7 @@ const S = {
   topicResults: [],       // fetched papers with metadata
   topicSelected: new Set(), // selected PMIDs from topic results
   showingResults: false,
+  rankingInProgress: false, // true while async ranking is loading
   // Papers
   pmidsText: '',
   resolvedPapers: [],
@@ -166,6 +177,7 @@ const S = {
     { name: 'Statistical Evidence', desc: 'P-values, odds ratios, or other statistical measures mentioned' },
     { name: 'Conclusion', desc: 'Author conclusions specifically about this gene or variant' },
   ],
+  topicSortBy: 'quality', // 'quality' | 'date' | 'citations'
   logs: [], pipelineResult: null, pipelineError: null,
 };
 
@@ -248,15 +260,43 @@ const actions = {
     if (!q) return alert('Build a query first');
     S.showingResults = true;
     S.topicResults = [];
+    S.rankingInProgress = false;
     render();
     try {
-      const res = await fetch(`/api/pubmed/search?query=${encodeURIComponent(q)}&retmax=50`);
+      // Step 1: Fetch papers instantly (no ranking)
+      const res = await fetch(`/api/pubmed/search?query=${encodeURIComponent(q)}&retmax=200`);
       const data = await res.json();
       S.topicResults = data.papers || [];
+      S.topicSortBy = 'date';
       S.topicCount = data.total;
       // Select all by default
       S.topicSelected = new Set(S.topicResults.map(p => p.pmid));
+      S.rankingInProgress = true;
       render();
+
+      // Step 2: Rank asynchronously in the background
+      fetch('/api/papers/rank', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ papers: S.topicResults, query: q })
+      }).then(r => r.json()).then(rankData => {
+        if (rankData.ranked) {
+          const scoreMap = {};
+          rankData.ranked.forEach(r => { scoreMap[r.pmid] = r; });
+          S.topicResults.forEach(p => {
+            const r = scoreMap[p.pmid];
+            if (r) {
+              p.quality_score = r.quality_score;
+              p.citations = r.citations;
+              p.score_breakdown = r.score_breakdown;
+              p.score_explanation = r.explanation;
+            }
+          });
+          S.topicSortBy = 'quality';
+        }
+        S.rankingInProgress = false;
+        if (S.showingResults) render();
+      }).catch(() => { S.rankingInProgress = false; if (S.showingResults) render(); });
     } catch (e) { alert('Error fetching results: ' + e.message); }
   },
   closeResults() { S.showingResults = false; render(); },
@@ -270,6 +310,10 @@ const actions = {
     render();
   },
   deselectAllTopic() { S.topicSelected.clear(); render(); },
+  sortTopicBy(el) {
+    S.topicSortBy = el?.value || el?.sortby || 'quality';
+    render();
+  },
   confirmTopicSelection() {
     // Add selected papers to resolved papers list
     S.topicResults.forEach(p => {
@@ -397,25 +441,58 @@ function getAllSelectedPmids() {
 }
 function esc(s) { const d=document.createElement('div');d.textContent=s;return d.innerHTML; }
 
+function getSortedTopicResults() {
+  const papers = [...S.topicResults];
+  if (S.topicSortBy === 'quality') papers.sort((a, b) => (b.quality_score || 0) - (a.quality_score || 0));
+  else if (S.topicSortBy === 'date') papers.sort((a, b) => (b.year || '0').localeCompare(a.year || '0'));
+  else if (S.topicSortBy === 'citations') papers.sort((a, b) => ((b.score_breakdown || {}).citation || 0) - ((a.score_breakdown || {}).citation || 0));
+  return papers;
+}
+
 // ── Reusable paper card with PubMed link ────────────────────────────
 function paperCardHtml(paper, { checkbox = false, checked = false, onToggle = '', removable = false, removeAction = '', idx = 0 } = {}) {
   const url = paper.url || `https://pubmed.ncbi.nlm.nih.gov/${paper.pmid || ''}`;
   const title = paper.title || paper.pmid || paper.doi || 'Unknown';
+  const qs = paper.quality_score;
+  const hasScore = qs !== undefined && qs !== null;
+  const scoreClass = hasScore ? (qs >= 0.7 ? 'badge-score-green' : qs >= 0.4 ? 'badge-score-yellow' : 'badge-score-red') : '';
+  const cardId = paper.pmid || String(idx);
+  const bd = paper.score_breakdown || {};
   return `
     <div class="paper-card ${checked ? 'selected' : ''}">
       ${checkbox ? `<input type="checkbox" ${checked?'checked':''} ${onToggle}>` : ''}
       <div class="paper-info">
-        <div class="paper-title">${esc(title)}</div>
+        <div class="paper-title">
+          ${hasScore ? `<span class="badge-score ${scoreClass}" title="Quality: ${(qs*100).toFixed(0)}%" onclick="toggleBreakdown('bd-${esc(cardId)}')">${(qs*100).toFixed(0)}%</span> ` : ''}${esc(title)}
+        </div>
         <div class="paper-meta">
           ${paper.year ? `<span class="badge badge-brand">${esc(paper.year)}</span>` : ''}
-          ${paper.journal ? `<span>📄 ${esc(paper.journal)}</span>` : ''}
-          ${paper.authors ? `<span>👤 ${esc(paper.authors)}</span>` : ''}
-          ${paper.pmid ? `<a href="${esc(url)}" target="_blank" rel="noopener">PMID:${esc(paper.pmid)} ↗</a>` : ''}
-          ${paper.doi ? `<a href="https://doi.org/${esc(paper.doi)}" target="_blank" rel="noopener">DOI ↗</a>` : ''}
+          ${paper.journal ? `<span>${esc(paper.journal)}</span>` : ''}
+          ${paper.authors ? `<span>${esc(paper.authors)}</span>` : ''}
+          ${paper.pmid ? `<a href="${esc(url)}" target="_blank" rel="noopener">PMID:${esc(paper.pmid)}</a>` : ''}
+          ${paper.doi ? `<a href="https://doi.org/${esc(paper.doi)}" target="_blank" rel="noopener">DOI</a>` : ''}
         </div>
+        ${hasScore ? `<div class="score-breakdown" id="bd-${esc(cardId)}">
+          ${scoreBreakdownHtml(bd)}
+        </div>` : ''}
       </div>
       ${removable ? `<button class="btn btn-ghost btn-sm" ${removeAction} style="color:var(--red);flex-shrink:0">✕</button>` : ''}
     </div>`;
+}
+
+function scoreBreakdownHtml(bd) {
+  const labels = { citation: 'Citations', journal: 'Journal Tier', recency: 'Recency', study_type: 'Study Type', availability: 'Availability', relevance: 'Relevance' };
+  return Object.entries(labels).map(([key, label]) => {
+    const val = bd[key] || 0;
+    const pct = (val * 100).toFixed(0);
+    const color = val >= 0.7 ? 'var(--green)' : val >= 0.4 ? 'var(--orange)' : 'var(--red)';
+    return `<div class="score-row"><span>${label}</span><div class="flex items-center gap-2"><div class="score-bar-bg"><div class="score-bar-fill" style="width:${pct}%;background:${color}"></div></div><span style="width:32px;text-align:right;font-family:'SF Mono',monospace;font-size:11px">${pct}%</span></div></div>`;
+  }).join('');
+}
+
+function toggleBreakdown(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
 }
 
 // ── Views ───────────────────────────────────────────────────────────
@@ -508,10 +585,15 @@ function vTopicModule() {
 }
 
 function vTopicResultsModal() {
-  const loading = S.topicResults.length === 0;
-  let paperList = S.topicResults.map(p =>
+  const searching = S.topicResults.length === 0;
+  const sorted = getSortedTopicResults();
+  let paperList = sorted.map(p =>
     paperCardHtml(p, { checkbox: true, checked: S.topicSelected.has(p.pmid), onToggle: `data-action="toggleTopicPaper" data-pmid="${p.pmid}"` })
   ).join('');
+
+  const subtitleText = searching
+    ? 'Searching PubMed...'
+    : `Found ${(S.topicCount||0).toLocaleString()} papers. Showing ${S.topicResults.length}. Select papers to include in analysis.`;
 
   return `
     <div class="results-overlay fade-in">
@@ -519,29 +601,38 @@ function vTopicResultsModal() {
         <div class="container-wide flex flex-between items-center">
           <div>
             <h1>Topic Search Results</h1>
-            <p class="subtitle">Found ${(S.topicCount||0).toLocaleString()} papers. Showing ${S.topicResults.length}. Select papers to include in analysis.</p>
+            <p class="subtitle">${subtitleText}</p>
           </div>
-          <button class="btn btn-ghost" data-action="closeResults">✕ Close</button>
+          <button class="btn btn-ghost" data-action="closeResults">Close</button>
         </div>
       </div>
       <div class="container-wide" style="padding-top:16px;padding-bottom:100px">
-        ${loading ? `<div class="text-center" style="padding:60px 0"><p class="subtitle">🔄 Searching PubMed...</p></div>` : `
+        ${searching ? `<div class="text-center" style="padding:60px 0"><div class="progress-bar" style="max-width:300px;margin:0 auto 16px"><div class="progress-bar-inner"></div></div><p class="subtitle">Searching PubMed...</p></div>` : `
+          ${S.rankingInProgress ? `<div class="flex items-center gap-2 mb-4" style="padding:8px 14px;background:var(--orange-bg);border:1px solid var(--orange-border);border-radius:var(--radius-sm)"><span class="badge badge-orange">Loading scores...</span><span class="hint">Fetching citation data from Semantic Scholar. You can browse and select papers while scores load.</span></div>` : ''}
           <div class="flex flex-between items-center mb-4">
             <div class="flex gap-2 items-center">
               <button class="btn btn-ghost btn-sm" data-action="selectAllTopic">Select All</button>
               <button class="btn btn-ghost btn-sm" data-action="deselectAllTopic">Deselect All</button>
               <span class="badge badge-green">${S.topicSelected.size} selected</span>
             </div>
+            <div class="flex gap-2 items-center">
+              <span class="label-sm">Sort by</span>
+              <select class="sort-select" onchange="actions.sortTopicBy(this)">
+                <option value="quality" ${S.topicSortBy==='quality'?'selected':''}>Quality Score</option>
+                <option value="date" ${S.topicSortBy==='date'?'selected':''}>Date</option>
+                <option value="citations" ${S.topicSortBy==='citations'?'selected':''}>Citations</option>
+              </select>
+            </div>
           </div>
           ${paperList}
         `}
       </div>
       <div class="results-footer">
-        <div class="hint">Selected papers will be included in your analysis.</div>
+        <div class="hint">Selected papers will be included in your analysis. Click a score badge to see breakdown.</div>
         <div class="flex gap-2">
           <button class="btn btn-ghost" data-action="closeResults">Cancel</button>
           <button class="btn btn-green" data-action="confirmTopicSelection" ${S.topicSelected.size===0?'disabled':''}>
-            ✓ Add ${S.topicSelected.size} Papers
+            Add ${S.topicSelected.size} Papers
           </button>
         </div>
       </div>
