@@ -1,0 +1,58 @@
+appId: pl.researchshop.disease2gene
+productName: Disease2Gene
+copyright: Copyright © 2024 ResearchShop
+
+directories:
+  output: release
+
+files:
+  - dist/main/**/*
+  - dist/renderer/**/*
+  - package.json
+
+extraResources:
+  - from: ../modules
+    to: modules
+    filter:
+      - "**/*.py"
+      - "**/*.json"
+      - "!__pycache__/**"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+  category: public.app-category.medical
+  icon: build/icon.icns
+  darkModeSupport: true
+
+dmg:
+  title: Disease2Gene
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Science
+  icon: build/icon.png
