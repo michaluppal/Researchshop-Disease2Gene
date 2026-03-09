@@ -1,0 +1,43 @@
+{
+  "pmid": "20129251",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "EGFR",
+    "IDH1",
+    "NF1",
+    "PDGFRA"
+  ],
+  "intersection_genes": [
+    "EGFR",
+    "IDH1",
+    "NF1",
+    "PDGFRA"
+  ],
+  "per_run_genes": [
+    [
+      "EGFR",
+      "IDH1",
+      "NF1",
+      "PDGFRA"
+    ],
+    [
+      "EGFR",
+      "IDH1",
+      "NF1",
+      "PDGFRA"
+    ],
+    [
+      "EGFR",
+      "IDH1",
+      "NF1",
+      "PDGFRA"
+    ]
+  ],
+  "per_run_citation_coverage": [],
+  "citation_coverage_mean": null,
+  "citation_coverage_std": null,
+  "passed": true
+}

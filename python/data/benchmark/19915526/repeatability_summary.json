@@ -1,0 +1,52 @@
+{
+  "pmid": "19915526",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "CDC27",
+    "DHODH",
+    "DNAH5",
+    "SHH",
+    "TNF"
+  ],
+  "intersection_genes": [
+    "CDC27",
+    "DHODH",
+    "DNAH5",
+    "SHH",
+    "TNF"
+  ],
+  "per_run_genes": [
+    [
+      "CDC27",
+      "DHODH",
+      "DNAH5",
+      "SHH",
+      "TNF"
+    ],
+    [
+      "CDC27",
+      "DHODH",
+      "DNAH5",
+      "SHH",
+      "TNF"
+    ],
+    [
+      "CDC27",
+      "DHODH",
+      "DNAH5",
+      "SHH",
+      "TNF"
+    ]
+  ],
+  "per_run_citation_coverage": [
+    0.6667,
+    0.2,
+    0.0
+  ],
+  "citation_coverage_mean": 0.2889,
+  "citation_coverage_std": 0.2793,
+  "passed": true
+}

@@ -1,0 +1,28 @@
+{
+  "pmid": "24132290",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "CTNNB1"
+  ],
+  "intersection_genes": [
+    "CTNNB1"
+  ],
+  "per_run_genes": [
+    [
+      "CTNNB1"
+    ],
+    [
+      "CTNNB1"
+    ],
+    [
+      "CTNNB1"
+    ]
+  ],
+  "per_run_citation_coverage": [],
+  "citation_coverage_mean": null,
+  "citation_coverage_std": null,
+  "passed": true
+}

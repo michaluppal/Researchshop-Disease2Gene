@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Task",
+      "WebFetch",
+      "WebSearch",
+      "mcp__plugin_pubmed_PubMed__search_articles",
+      "mcp__plugin_pubmed_PubMed__get_article_metadata",
+      "mcp__plugin_pubmed_PubMed__get_full_text_article",
+      "mcp__plugin_pubmed_PubMed__find_related_articles",
+      "mcp__plugin_pubmed_PubMed__convert_article_ids",
+      "mcp__plugin_pubmed_PubMed__lookup_article_by_citation",
+      "mcp__plugin_pubmed_PubMed__get_copyright_status",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(*.env)",
+      "Read(python/.venv/**)",
+      "Bash(rm -rf *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-format.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

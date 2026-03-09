@@ -1,0 +1,67 @@
+{
+  "pmid": "21720365",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "BRCA1",
+    "BRCA2",
+    "CCNE1",
+    "CDK12",
+    "FOXM1",
+    "NF1",
+    "RB1",
+    "TP53"
+  ],
+  "intersection_genes": [
+    "BRCA1",
+    "BRCA2",
+    "CCNE1",
+    "CDK12",
+    "FOXM1",
+    "NF1",
+    "RB1",
+    "TP53"
+  ],
+  "per_run_genes": [
+    [
+      "BRCA1",
+      "BRCA2",
+      "CCNE1",
+      "CDK12",
+      "FOXM1",
+      "NF1",
+      "RB1",
+      "TP53"
+    ],
+    [
+      "BRCA1",
+      "BRCA2",
+      "CCNE1",
+      "CDK12",
+      "FOXM1",
+      "NF1",
+      "RB1",
+      "TP53"
+    ],
+    [
+      "BRCA1",
+      "BRCA2",
+      "CCNE1",
+      "CDK12",
+      "FOXM1",
+      "NF1",
+      "RB1",
+      "TP53"
+    ]
+  ],
+  "per_run_citation_coverage": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "citation_coverage_mean": 0.0,
+  "citation_coverage_std": 0.0,
+  "passed": true
+}

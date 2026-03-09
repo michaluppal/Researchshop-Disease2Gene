@@ -1,0 +1,142 @@
+{
+  "benchmark_version": "1.0",
+  "audit_notes": "PMIDs 20360068, 21873635, 20525088, 20639879, 18227866, 22399494 from initial list were WRONG (pointed to unrelated papers). Corrected PMIDs verified via PubMed abstract fetch. Gene lists verified from PMC full text where available, otherwise from abstracts.",
+  "columns": {
+    "Key Finding": "The main genetic finding or association reported for this gene",
+    "Variant": "The specific variant or mutation identified (HGVS notation if available)"
+  },
+  "papers": [
+    {
+      "pmid": "19915526",
+      "type": "rare_disease",
+      "title": "Exome sequencing identifies the cause of a mendelian disorder",
+      "expected_genes": ["DHODH"],
+      "gold_standard_source": "Abstract: 'identified a single candidate gene, DHODH, which encodes a key enzyme in the pyrimidine de novo biosynthesis pathway'",
+      "pmcid": "PMC2847889",
+      "oa_confirmed": true,
+      "has_figure_genes": null,
+      "notes": "Ng et al 2010 Nat Genet. Miller syndrome exome sequencing. Original PMID 20360068 was WRONG (pointed to chromosome segregation protein complexes paper)."
+    },
+    {
+      "pmid": "21926974",
+      "type": "gwas",
+      "title": "Genome-wide association study identifies five new schizophrenia loci",
+      "expected_genes": ["MIR137", "TCF4", "CACNA1C", "ANK3", "ITIH3", "ITIH4", "NRGN"],
+      "gold_standard_source": "PMC full text: MIR137 strongest new finding (P=1.6e-11 at rs1625579), TCF4 at 18q21.2, CACNA1C/ANK3/ITIH3-ITIH4 in joint schizophrenia+bipolar analysis. NRGN at 11q24.2.",
+      "pmcid": "PMC3303194",
+      "oa_confirmed": true,
+      "has_figure_genes": null,
+      "notes": "PGC Schizophrenia GWAS. Original PMID 21873635 was WRONG (pointed to Gene Ontology annotation paper). Original expected genes DRD2, GRIN2A, ZNF804A were NOT in this paper (0 mentions in PMC text)."
+    },
+    {
+      "pmid": "17554300",
+      "type": "gwas",
+      "title": "Genome-wide association study of 14,000 cases of seven common diseases and 3,000 shared controls",
+      "expected_genes": ["NOD2", "ATG16L1", "IL23R", "IRGM", "MST1", "PTPN2", "NKX2-3"],
+      "gold_standard_source": "PMC full text: NOD2 (P=9.4e-12), ATG16L1 (P=7.1e-14), IL23R (P=6.5e-13), IRGM (P=5.1e-10), MST1, PTPN2 (P=4.6e-8), NKX2-3 — all Crohn's disease associations named in Results.",
+      "pmcid": "PMC2719288",
+      "oa_confirmed": true,
+      "has_figure_genes": null,
+      "notes": "WTCCC 2007 Nature. Covers 7 diseases; gene list here is Crohn's disease findings only. T2D genes (TCF7L2, PPARG, KCNJ11, FTO, CDKAL1) and other disease genes also in paper but CD chosen as focus."
+    },
+    {
+      "pmid": "17463248",
+      "type": "gwas",
+      "title": "A genome-wide association study of type 2 diabetes in Finns detects multiple susceptibility variants",
+      "expected_genes": ["TCF7L2", "SLC30A8", "HHEX", "CDKAL1", "IGF2BP2", "CDKN2A", "CDKN2B", "FTO", "PPARG", "KCNJ11"],
+      "gold_standard_source": "Abstract: 'confirm that variants near TCF7L2, SLC30A8, HHEX, FTO, PPARG, and KCNJ11 are associated with T2D risk' and 'contribute to the identification of T2D-associated variants near the genes IGF2BP2 and CDKAL1 and the region of CDKN2A and CDKN2B'",
+      "pmcid": "PMC3214617",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "Scott et al 2007 Science. Original PMID 20525088 was WRONG (pointed to notoungulate mammal inner ear anatomy paper). Original expected list included KCNQ1 which was discovered in a later study."
+    },
+    {
+      "pmid": "24132290",
+      "type": "cancer_genomics",
+      "title": "Mutational landscape and significance across 12 major cancer types",
+      "expected_genes": ["TP53", "PIK3CA", "KRAS", "NRAS", "PTEN", "ARID1A", "APC", "VHL", "FBXW7", "BAP1", "GATA3", "CDH1", "DNMT3A", "NPM1", "PIK3R1"],
+      "gold_standard_source": "PMC full text: TP53 most frequently mutated (42%), PIK3CA second most common (>10% in most types), KRAS/NRAS activating mutations, PTEN in endometrial clusters, ARID1A frequent in BLCA/UCEC/LUAD/LUSC, APC in 82% COAD/READ, VHL in 52% KIRC, FBXW7/BAP1 correlated with detrimental phenotypes, GATA3/CDH1 breast cancer drivers, DNMT3A/NPM1 in AML.",
+      "pmcid": "PMC3927368",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "Kandoth et al 2013 Nature. TCGA Pan-Cancer. 127 SMGs identified; gene list here is the top 15 most prominently discussed in Results prose."
+    },
+    {
+      "pmid": "23000897",
+      "type": "cancer_genomics",
+      "title": "Comprehensive molecular portraits of human breast tumours",
+      "expected_genes": ["TP53", "PIK3CA", "GATA3", "MAP3K1", "CDH1", "PTEN"],
+      "gold_standard_source": "Abstract: 'Somatic mutations in only three genes (TP53, PIK3CA and GATA3) occurred at >10% incidence across all breast cancers'. PMC text: MAP3K1 enriched in luminal A, CDH1 in lobular (30/36), PTEN in basal-like module.",
+      "pmcid": "PMC3465532",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "TCGA Breast Cancer 2012 Nature. Original expected included BRCA1 and RB1 — these appear in basal-like subtype analysis but are not top somatic mutation findings."
+    },
+    {
+      "pmid": "21720365",
+      "type": "cancer_genomics",
+      "title": "Integrated genomic analyses of ovarian carcinoma",
+      "expected_genes": ["TP53", "NF1", "BRCA1", "BRCA2", "RB1", "CDK12", "CCNE1"],
+      "gold_standard_source": "Abstract: 'TP53 mutations in almost all tumours (96%); low prevalence but statistically recurrent somatic mutations in nine further genes including NF1, BRCA1, BRCA2, RB1 and CDK12'. CCNE1 aberrations impact survival.",
+      "pmcid": "PMC3163504",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "TCGA Ovarian Cancer 2011 Nature. Original PMID 20639879 was WRONG (pointed to primary biliary cirrhosis GWAS)."
+    },
+    {
+      "pmid": "21076407",
+      "type": "rare_disease",
+      "title": "A de novo paradigm for mental retardation",
+      "expected_genes": ["DYNC1H1", "RAB39B", "SYNGAP1", "STXBP1", "LAMB1", "ZNF599"],
+      "gold_standard_source": "Abstract: 'identified and validated unique non-synonymous de novo mutations in nine genes. Six of these, identified in six different individuals, are likely to be pathogenic'. Gene names from well-cited follow-up literature.",
+      "pmcid": null,
+      "oa_confirmed": false,
+      "has_figure_genes": null,
+      "notes": "Vissers et al 2010 Nat Genet. Paywalled — no PMC full text. Abstract names no specific genes. Gene list based on widely-cited follow-up reviews of this landmark exome sequencing study. Pipeline may extract different gene names from abstract alone."
+    },
+    {
+      "pmid": "19228618",
+      "type": "pharmacogenomics",
+      "title": "Estimation of the warfarin dose with clinical and pharmacogenetic data",
+      "expected_genes": ["VKORC1", "CYP2C9"],
+      "gold_standard_source": "PMC full text: 'variations in two genes — cytochrome P450, family 2, subfamily C, polypeptide 9 (CYP2C9), and vitamin K epoxide reductase complex, subunit 1 (VKORC1) — contribute significantly to the variability among patients in dose requirements for warfarin'",
+      "pmcid": "PMC2722908",
+      "oa_confirmed": true,
+      "has_figure_genes": null,
+      "notes": "IWPC 2009 NEJM. Original PMID 18227866 was WRONG (pointed to HuGE Navigator commentary). CYP4F2 and GGCX also mentioned as minor contributors but not the main findings."
+    },
+    {
+      "pmid": "22205192",
+      "type": "pharmacogenomics",
+      "title": "Clinical Pharmacogenetics Implementation Consortium (CPIC) guidelines for codeine therapy in the context of cytochrome P450 2D6 (CYP2D6) genotype",
+      "expected_genes": ["CYP2D6"],
+      "gold_standard_source": "Abstract: 'Codeine is bioactivated to morphine, a strong opioid agonist, by the hepatic cytochrome P450 2D6 (CYP2D6); hence, the efficacy and safety of codeine as an analgesic are governed by CYP2D6 polymorphisms'",
+      "pmcid": "PMC3289963",
+      "oa_confirmed": true,
+      "has_figure_genes": null,
+      "notes": "Crews et al 2012 Clin Pharmacol Ther. CPIC guideline for CYP2D6/codeine. Original PMID 22399494 was WRONG (pointed to hypoxia-inducible factor paper). Original expected genes (CYP2C19, CYP2C9, CYP3A4, CYP2D6) were for a general CPIC overview paper that names no specific gene findings."
+    },
+    {
+      "pmid": "20129251",
+      "type": "rna_seq",
+      "title": "Integrated genomic analysis identifies clinically relevant subtypes of glioblastoma characterized by abnormalities in PDGFRA, IDH1, EGFR, and NF1",
+      "expected_genes": ["EGFR", "NF1", "PDGFRA", "IDH1"],
+      "gold_standard_source": "Abstract: 'Aberrations and gene expression of EGFR, NF1, and PDGFRA/IDH1 each define the Classical, Mesenchymal, and Proneural subtypes, respectively'",
+      "pmcid": "PMC2818769",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "Verhaak et al 2010 Cancer Cell. GBM subtype classification using integrated genomic/transcriptomic analysis. Gene expression subtypes defined by these 4 genes."
+    },
+    {
+      "pmid": "32416070",
+      "type": "rna_seq",
+      "title": "Imbalanced Host Response to SARS-CoV-2 Drives Development of COVID-19",
+      "expected_genes": ["ACE2", "IL6", "CXCL8", "CXCL9", "CXCL16", "CCL2", "CCL8", "MX1", "STAT1"],
+      "gold_standard_source": "PMC full text and abstract: 'low levels of type I and III interferons juxtaposed to elevated chemokines and high expression of IL-6'. DEG analysis shows ACE2, chemokines (CXCL8, CXCL9, CXCL16, CCL2, CCL8), interferon response genes (MX1, STAT1) as key findings.",
+      "pmcid": "PMC7227586",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "Blanco-Melo et al 2020 Cell. COVID-19 transcriptional profiling via RNA-seq. Key finding: imbalanced innate immune response with low IFN but high chemokine expression."
+    }
+  ]
+}

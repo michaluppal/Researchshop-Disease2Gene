@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP: block external script/resource loading. style-src unsafe-inline covers Vite-injected
+         style tags; img-src data: covers inline SVG/icon data URIs; connect-src 'self' is correct
+         because all external API calls (NCBI, PubMed) go through the Electron main-process IPC
+         bridge — the renderer never fetches external URLs directly. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
+    <title>ResearchShop</title>
+  </head>
+  <body class="bg-slate-50">
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

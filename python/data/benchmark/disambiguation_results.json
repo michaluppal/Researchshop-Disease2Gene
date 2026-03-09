@@ -1,0 +1,199 @@
+{
+  "run_date": "2026-02-26T11:46:43.665400",
+  "runs_per_paper": 3,
+  "acceptance": {
+    "at_least_one_clinical_pass": true,
+    "zero_molecular_fn": true,
+    "overall": "PASS"
+  },
+  "summary": {
+    "clinical_pass_rate": "1/5",
+    "molecular_fn_count": 0
+  },
+  "per_paper": [
+    {
+      "pmid": "34876594",
+      "type": "clinical",
+      "ambiguous_terms": [
+        "CRP",
+        "BNP"
+      ],
+      "union_genes": [],
+      "false_positives": [],
+      "fp_count": 0,
+      "passed": true
+    },
+    {
+      "pmid": "34732237",
+      "type": "clinical",
+      "ambiguous_terms": [
+        "ESR",
+        "CRP"
+      ],
+      "union_genes": [
+        "CRP"
+      ],
+      "false_positives": [
+        "CRP"
+      ],
+      "fp_count": 1,
+      "passed": false
+    },
+    {
+      "pmid": "36926529",
+      "type": "clinical",
+      "ambiguous_terms": [
+        "ESR",
+        "CRP",
+        "IL-6"
+      ],
+      "union_genes": [
+        "CRP",
+        "IL6"
+      ],
+      "false_positives": [
+        "CRP",
+        "IL6"
+      ],
+      "fp_count": 2,
+      "passed": false
+    },
+    {
+      "pmid": "35485207",
+      "type": "clinical",
+      "ambiguous_terms": [
+        "AST",
+        "ALT"
+      ],
+      "union_genes": [
+        "GPT",
+        "SLC17A5"
+      ],
+      "false_positives": [
+        "GPT"
+      ],
+      "fp_count": 1,
+      "passed": false
+    },
+    {
+      "pmid": "35577477",
+      "type": "clinical",
+      "ambiguous_terms": [
+        "ESR",
+        "CRP"
+      ],
+      "union_genes": [
+        "ADIPOQ",
+        "CRP",
+        "TNF"
+      ],
+      "false_positives": [
+        "CRP"
+      ],
+      "fp_count": 1,
+      "passed": false
+    },
+    {
+      "pmid": "36686845",
+      "type": "molecular",
+      "ambiguous_gene": "ESR1",
+      "must_extract": [
+        "ESR1"
+      ],
+      "union_genes": [
+        "ESR1"
+      ],
+      "true_positives": [
+        "ESR1"
+      ],
+      "false_negatives": [],
+      "fn_count": 0,
+      "passed": true
+    },
+    {
+      "pmid": "35885904",
+      "type": "molecular",
+      "ambiguous_gene": "ACE",
+      "must_extract": [
+        "ACE"
+      ],
+      "union_genes": [
+        "ACE"
+      ],
+      "true_positives": [
+        "ACE"
+      ],
+      "false_negatives": [],
+      "fn_count": 0,
+      "passed": true
+    },
+    {
+      "pmid": "33426268",
+      "type": "molecular",
+      "ambiguous_gene": "ACE",
+      "must_extract": [
+        "ACE"
+      ],
+      "union_genes": [
+        "ACE"
+      ],
+      "true_positives": [
+        "ACE"
+      ],
+      "false_negatives": [],
+      "fn_count": 0,
+      "passed": true
+    },
+    {
+      "pmid": "19915526",
+      "type": "molecular",
+      "ambiguous_gene": null,
+      "must_extract": [
+        "DHODH"
+      ],
+      "union_genes": [
+        "CDC27",
+        "DHODH",
+        "DNAH5",
+        "SHH",
+        "TNF"
+      ],
+      "true_positives": [
+        "DHODH"
+      ],
+      "false_negatives": [],
+      "fn_count": 0,
+      "passed": true
+    },
+    {
+      "pmid": "17463248",
+      "type": "molecular",
+      "ambiguous_gene": null,
+      "must_extract": [
+        "CDKAL1",
+        "HHEX",
+        "TCF7L2"
+      ],
+      "union_genes": [
+        "CDKAL1",
+        "CDKN2A",
+        "CDKN2B",
+        "FTO",
+        "HHEX",
+        "IGF2BP2",
+        "KCNJ11",
+        "PPARG",
+        "SLC30A8",
+        "TCF7L2"
+      ],
+      "true_positives": [
+        "CDKAL1",
+        "HHEX",
+        "TCF7L2"
+      ],
+      "false_negatives": [],
+      "fn_count": 0,
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,279 @@
+import { ipcMain, dialog, shell, app } from 'electron'
+import { getSettings, setSetting, getDefaultOutputDir, SettingsSchema } from './settings-store'
+import { createJob, getJob, updateJob, listJobs, deleteJob } from './job-store'
+import { startPipeline, cancelPipeline, isPipelineRunning, PipelineArgs } from './python-bridge'
+import { getGeminiDailyUsage } from './usage-store'
+import { readFileSync, existsSync } from 'fs'
+import { randomUUID } from 'crypto'
+import path from 'node:path'
+
+export function registerIpcHandlers(): void {
+  function validateOutputPath(filePath: string): string {
+    const settings = getSettings()
+    const outputDir = settings.outputDirectory || getDefaultOutputDir()
+    const resolved = path.resolve(filePath)
+    const relative = path.relative(outputDir, resolved)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(`Path outside output directory: ${filePath}`)
+    }
+    return resolved
+  }
+
+  // ---- Settings ----
+  ipcMain.handle('settings:get', () => {
+    const settings = getSettings()
+    if (!settings.outputDirectory) {
+      const defaultDir = getDefaultOutputDir()
+      setSetting('outputDirectory', defaultDir)
+      return { ...settings, outputDirectory: defaultDir }
+    }
+    return settings
+  })
+
+  ipcMain.handle('settings:set', (_e, key: keyof SettingsSchema, value: unknown) => {
+    setSetting(key, value as never)
+    return true
+  })
+
+  ipcMain.handle('settings:validate-gemini-key', async (_e, key: string) => {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
+      )
+      if (response.ok) return { valid: true }
+      if (response.status === 400 || response.status === 403) return { valid: false, error: 'Invalid API key' }
+      if (response.status === 429) return { valid: false, error: 'Rate limited — try again shortly' }
+      return { valid: false, error: `API error (HTTP ${response.status})` }
+    } catch {
+      return { valid: false, error: 'Network error — check your internet connection' }
+    }
+  })
+
+  // ---- Pipeline ----
+  ipcMain.handle('pipeline:start', (_e, args: PipelineArgs) => {
+    if (isPipelineRunning()) {
+      return { error: 'Pipeline already running' }
+    }
+
+    const jobId = randomUUID()
+    createJob(jobId, args.query || (args.pmids?.length ? `${args.pmids.length} selected papers` : 'Custom query'), JSON.stringify(args.columns))
+
+    try {
+      startPipeline(jobId, args)
+      return { jobId }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      updateJob(jobId, { status: 'failed', error: message, completed_at: new Date().toISOString() })
+      return { error: message }
+    }
+  })
+
+  ipcMain.handle('pipeline:cancel', () => {
+    const cancelled = cancelPipeline()
+    return { cancelled }
+  })
+
+  // ---- Results ----
+  ipcMain.handle('results:exists', (_e, filePath: string) => {
+    try {
+      const safePath = validateOutputPath(filePath)
+      return { exists: existsSync(safePath) }
+    } catch {
+      return { exists: false }
+    }
+  })
+
+  ipcMain.handle('results:load', (_e, filePath: string) => {
+    try {
+      const safePath = validateOutputPath(filePath)
+      if (!existsSync(safePath)) {
+        return { error: 'File not found' }
+      }
+      const content = readFileSync(safePath, 'utf-8')
+      return { content }
+    } catch {
+      return { error: 'Access denied: path outside output directory' }
+    }
+  })
+
+  ipcMain.handle('results:export', async (_e, defaultPath: string) => {
+    const result = await dialog.showSaveDialog({
+      defaultPath,
+      filters: [{ name: 'CSV', extensions: ['csv'] }]
+    })
+    return result
+  })
+
+  // ---- History ----
+  ipcMain.handle('history:list', () => {
+    return listJobs()
+  })
+
+  ipcMain.handle('history:get', (_e, id: string) => {
+    return getJob(id)
+  })
+
+  ipcMain.handle('history:delete', (_e, id: string) => {
+    deleteJob(id)
+    return true
+  })
+
+  // ---- System ----
+  ipcMain.handle('dialog:save-file', async (_e, options: Electron.SaveDialogOptions) => {
+    return dialog.showSaveDialog(options)
+  })
+
+  ipcMain.handle('dialog:open-directory', async () => {
+    return dialog.showOpenDialog({ properties: ['openDirectory'] })
+  })
+
+  ipcMain.handle('shell:open-external', (_e, url: string) => {
+    shell.openExternal(url)
+    return true
+  })
+
+  ipcMain.handle('shell:open-path', (_e, filePath: string) => {
+    try {
+      const safePath = validateOutputPath(filePath)
+      shell.openPath(safePath)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('app:version', () => {
+    return app.getVersion()
+  })
+
+  // ---- Gemini usage ----
+  ipcMain.handle('gemini:getDailyUsage', () => getGeminiDailyUsage())
+
+  // ---- PubMed Search ----
+  ipcMain.handle('pubmed:search', async (_e, query: string, retmax = 10000) => {
+    try {
+      const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${retmax}&retmode=json`
+      const res = await fetch(url)
+      if (!res.ok) return { count: 0, pmids: [], error: `PubMed search failed (HTTP ${res.status})` }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await res.json() as any
+      if (data?.esearchresult?.ERROR) return { count: 0, pmids: [], error: `PubMed error: ${data.esearchresult.ERROR}` }
+      return {
+        count: parseInt(data?.esearchresult?.count || '0'),
+        pmids: data?.esearchresult?.idlist || []
+      }
+    } catch (err) {
+      return { count: 0, pmids: [], error: `Network error — check your internet connection (${String(err)})` }
+    }
+  })
+
+  ipcMain.handle('pubmed:fetch-details', async (_e, pmids: string[]) => {
+    try {
+      const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
+      // Batch in groups of 200
+      const results: Record<string, any> = {}
+      for (let i = 0; i < safePmids.length; i += 200) {
+        const batch = safePmids.slice(i, i + 200)
+        const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${batch.join(',')}&retmode=json`
+        const res = await fetch(url)
+        const data = await res.json()
+        if (data?.result) {
+          for (const pmid of batch) {
+            if (data.result[pmid] && !data.result[pmid].error) {
+              const d = data.result[pmid]
+              let doi, pmc
+              if (d.articleids) {
+                doi = d.articleids.find((id: any) => id.idtype === 'doi')?.value
+                pmc = d.articleids.find((id: any) => id.idtype === 'pmc')?.value
+              }
+              results[pmid] = {
+                title: d.title || 'Title unavailable',
+                journal: d.fulljournalname || d.source || 'Unknown Journal',
+                authors: d.authors?.slice(0, 3).map((a: any) => a.name) || [],
+                pubYear: d.pubdate?.split(' ')[0] || d.sortpubdate?.substring(0, 4) || '',
+                doi, pmc,
+                url: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}`
+              }
+            }
+          }
+        }
+      }
+      return results
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('pubmed:fetch-abstracts', async (_e, pmids: string[]) => {
+    try {
+      const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
+      const abstracts: Record<string, string> = {}
+      for (let i = 0; i < safePmids.length; i += 200) {
+        const batch = safePmids.slice(i, i + 200)
+        const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${batch.join(',')}&rettype=xml&retmode=xml`
+        const res = await fetch(url)
+        const xml = await res.text()
+        // Parse <AbstractText> per <PubmedArticle>
+        const articleRegex = /<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g
+        let match
+        while ((match = articleRegex.exec(xml)) !== null) {
+          const article = match[0]
+          const pmidMatch = article.match(/<PMID[^>]*>(\d+)<\/PMID>/)
+          if (!pmidMatch) continue
+          const pmid = pmidMatch[1]
+          // Collect all <AbstractText> sections
+          const abstractParts: string[] = []
+          const absRegex = /<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g
+          let absMatch
+          while ((absMatch = absRegex.exec(article)) !== null) {
+            // Strip any remaining XML tags
+            const text = absMatch[1].replace(/<[^>]+>/g, '').trim()
+            if (text) abstractParts.push(text)
+          }
+          if (abstractParts.length > 0) {
+            abstracts[pmid] = abstractParts.join(' ')
+          }
+        }
+      }
+      return { abstracts, error: null }
+    } catch (err) {
+      return { abstracts: {}, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('pubmed:count', async (_e, query: string) => {
+    try {
+      const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=0&retmode=json`
+      const res = await fetch(url)
+      const data = await res.json()
+      return { count: parseInt(data?.esearchresult?.count || '0') }
+    } catch {
+      return { count: 0 }
+    }
+  })
+
+  ipcMain.handle('citations:fetch', async (_e, pmids: string[]) => {
+    const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
+    const results: Record<string, number> = {}
+    // Fetch in parallel but limit concurrency
+    const batchSize = 5
+    for (let i = 0; i < safePmids.length; i += batchSize) {
+      const batch = safePmids.slice(i, i + batchSize)
+      const promises = batch.map(async (pmid) => {
+        try {
+          const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/PMID:${pmid}?fields=citationCount`)
+          if (res.ok) {
+            const data = await res.json()
+            results[pmid] = data.citationCount || 0
+          } else {
+            results[pmid] = 0
+          }
+        } catch {
+          results[pmid] = 0
+        }
+      })
+      await Promise.all(promises)
+    }
+    return results
+  })
+}

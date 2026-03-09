@@ -1,0 +1,38 @@
+[
+  {
+    "pmid": "34876594",
+    "passages": [
+      {
+        "annotations": [
+          {
+            "infons": {
+              "type": "Gene",
+              "identifier": "672",
+              "name": "BRCA1"
+            },
+            "text": "BRCA1",
+            "locations": [{"offset": 0, "length": 5}]
+          },
+          {
+            "infons": {
+              "type": "Gene",
+              "identifier": "7157",
+              "name": "TP53"
+            },
+            "text": "TP53",
+            "locations": [{"offset": 50, "length": 4}]
+          },
+          {
+            "infons": {
+              "type": "Variant",
+              "rsid": "rs28897672",
+              "normalized": "rs28897672"
+            },
+            "text": "p.Val600Glu",
+            "locations": [{"offset": 100, "length": 11}]
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front>
+    <article-meta>
+      <abstract>
+        <p>BRCA1 mutations are strongly associated with hereditary breast and ovarian cancer syndrome. We performed whole-exome sequencing on 200 patients and identified pathogenic variants in BRCA1 and TP53 genes.</p>
+      </abstract>
+    </article-meta>
+  </front>
+  <body>
+    <sec>
+      <title>Results</title>
+      <p>We identified 45 pathogenic BRCA1 variants across all patients. The most common mutation was p.Glu1915Ter, found in 35% of carriers.</p>
+      <p>TP53 mutations were detected in 23% of triple-negative breast cancer cases. ERBB2 overexpression was observed in HER2-positive tumors.</p>
+    </sec>
+    <sec>
+      <title>Methods</title>
+      <p>Whole-exome sequencing was performed using Illumina HiSeq 2500. Variants were called with GATK HaplotypeCaller.</p>
+    </sec>
+    <table-wrap id="t1">
+      <label>Table 1</label>
+      <caption>
+        <p>BRCA1 variant frequency by molecular subtype</p>
+      </caption>
+    </table-wrap>
+  </body>
+</article>

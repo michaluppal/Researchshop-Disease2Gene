@@ -1,0 +1,32 @@
+{
+  "pmid": "34732237",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "CRP"
+  ],
+  "intersection_genes": [
+    "CRP"
+  ],
+  "per_run_genes": [
+    [
+      "CRP"
+    ],
+    [
+      "CRP"
+    ],
+    [
+      "CRP"
+    ]
+  ],
+  "per_run_citation_coverage": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "citation_coverage_mean": 0.0,
+  "citation_coverage_std": 0.0,
+  "passed": true
+}

@@ -1,0 +1,28 @@
+{
+  "pmid": "32416070",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "IL6"
+  ],
+  "intersection_genes": [
+    "IL6"
+  ],
+  "per_run_genes": [
+    [
+      "IL6"
+    ],
+    [
+      "IL6"
+    ],
+    [
+      "IL6"
+    ]
+  ],
+  "per_run_citation_coverage": [],
+  "citation_coverage_mean": null,
+  "citation_coverage_std": null,
+  "passed": true
+}

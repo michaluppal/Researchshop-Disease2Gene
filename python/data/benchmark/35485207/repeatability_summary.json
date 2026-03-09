@@ -1,0 +1,37 @@
+{
+  "pmid": "35485207",
+  "runs": 3,
+  "threshold": 0.0,
+  "min_jaccard": 1.0,
+  "mean_jaccard": 1.0,
+  "union_genes": [
+    "GPT",
+    "SLC17A5"
+  ],
+  "intersection_genes": [
+    "GPT",
+    "SLC17A5"
+  ],
+  "per_run_genes": [
+    [
+      "GPT",
+      "SLC17A5"
+    ],
+    [
+      "GPT",
+      "SLC17A5"
+    ],
+    [
+      "GPT",
+      "SLC17A5"
+    ]
+  ],
+  "per_run_citation_coverage": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "citation_coverage_mean": 0.0,
+  "citation_coverage_std": 0.0,
+  "passed": true
+}

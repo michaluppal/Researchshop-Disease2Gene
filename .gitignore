@@ -10,6 +10,7 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
+python/.venv/
 env/
 
 # IDE
@@ -24,9 +25,14 @@ env/
 .DS_Store
 Thumbs.db
 
-# PyInstaller build outputs
+# Node / Electron
+node_modules/
 dist/
+out/
 build/
+*.tsbuildinfo
+
+# PyInstaller
 *.manifest
 
 # Pipeline outputs
@@ -57,3 +63,10 @@ tmp/
 temp/
 *.tmp
 *.bak
+
+# Benchmark transient artifacts
+python/data/benchmark/**/drop_debug_*.json
+python/data/benchmark/**/*.pkl.gz
+
+# Claude agent team files
+.agents/

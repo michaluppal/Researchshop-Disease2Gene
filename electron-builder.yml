@@ -1,0 +1,63 @@
+publish: null
+afterPack: scripts/afterpack.js
+appId: com.researchshop.desktop
+productName: ResearchShop
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+extraResources:
+  - from: python
+    to: python
+    filter:
+      - '**/*'
+      - '!.venv/**'
+      - '!__pycache__/**'
+      - '!**/*.pyc'
+      - '!**/__pycache__/**'
+mac:
+  icon: resources/icon.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSDocumentsFolderUsageDescription: ResearchShop needs access to save research results.
+  notarize: false
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+win:
+  icon: resources/icon.ico
+  target:
+    - nsis
+    - zip
+linux:
+  icon: resources/icon.png
+  maintainer: "ResearchShop <researchshop@users.noreply.github.com>"
+  target:
+    - AppImage
+    - deb
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+dmg:
+  artifactName: ${name}-${version}.${ext}
+  background: resources/dmg-background.png
+  icon: resources/icon.icns
+  iconSize: 128
+  contents:
+    - x: 150
+      y: 200
+      type: file
+    - x: 510
+      y: 200
+      type: link
+      path: /Applications
+  window:
+    width: 660
+    height: 400

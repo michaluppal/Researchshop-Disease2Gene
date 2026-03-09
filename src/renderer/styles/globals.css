@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Selection color */
+::selection { background: #dbeafe; color: #1e40af; }
+
+/* Focus visible defaults */
+@layer base {
+  [type='text']:focus-visible, [type='email']:focus-visible, [type='password']:focus-visible,
+  textarea:focus-visible, select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #3b82f6;
+    border-color: #3b82f6;
+  }
+}
