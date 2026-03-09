@@ -1,119 +1,314 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 650" class="root">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 900" class="root">
 
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&amp;display=swap');
-    .root { font-family: 'Roboto', sans-serif; }
-    .title { font-size: 32px; font-weight: 700; fill: #1a365d; }
-    .subtitle { font-size: 20px; fill: #4a5568; }
-    
-    /* Box Styles */
-    .stage-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
-    .ai-box { fill: #f3e8ff; stroke: #805ad5; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
-    .val-box { fill: #f0fff4; stroke: #38a169; stroke-width: 2; rx: 10; filter: url(#drop-shadow); }
-    .check-box { fill: #fffaf0; stroke: #dd6b20; stroke-width: 2; rx: 15; filter: url(#drop-shadow); }
-    .sub-process-box { fill: #e6fffa; stroke: #319795; stroke-width: 1.5; rx: 6; }
-    
-    /* Text Styles */
-    .stage-num { font-size: 14px; font-weight: 700; fill: #718096; text-transform: uppercase; letter-spacing: 1px; }
-    .stage-title { font-size: 16px; font-weight: 700; fill: #2d3748; }
-    .stage-desc { font-size: 13px; fill: #4a5568; text-anchor: middle; }
-    
-    .ai-text { fill: #553c9a; }
-    
-    .sub-process-text { font-size: 12px; font-weight: 600; fill: #285e61; text-anchor: middle; }
-    
-    .ext-pill { fill: #edf2f7; stroke: #cbd5e0; stroke-width: 1; rx: 12; }
-    .ext-text { font-size: 11px; font-weight: 500; fill: #4a5568; }
-    
-    .con-check-title { font-size: 12px; font-weight: 700; fill: #c05621; }
-    
-    /* Connector Styles */
-    .arrow-line { stroke: #cbd5e0; stroke-width: 3; fill: none; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+    .root { font-family: 'Inter', 'Roboto', sans-serif; background: #fafbfc; }
+    .title { font-size: 28px; font-weight: 700; fill: #1a365d; }
+    .subtitle { font-size: 16px; fill: #64748b; font-weight: 400; }
+
+    /* Layer labels */
+    .layer-label { font-size: 13px; font-weight: 700; fill: #94a3b8; text-transform: uppercase; letter-spacing: 2px; }
+    .layer-bg-ui { fill: #f0f9ff; stroke: #bae6fd; stroke-width: 1; rx: 12; opacity: 0.5; }
+    .layer-bg-pipeline { fill: #fefce8; stroke: #fde68a; stroke-width: 1; rx: 12; opacity: 0.5; }
+    .layer-bg-validation { fill: #f0fdf4; stroke: #bbf7d0; stroke-width: 1; rx: 12; opacity: 0.5; }
+
+    /* Box styles */
+    .stage-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 2; rx: 10; filter: url(#shadow); }
+    .ui-box { fill: #eff6ff; stroke: #3b82f6; stroke-width: 2; rx: 10; filter: url(#shadow); }
+    .ai-box { fill: #faf5ff; stroke: #8b5cf6; stroke-width: 2; rx: 10; filter: url(#shadow); }
+    .ner-box { fill: #fff7ed; stroke: #f97316; stroke-width: 2; rx: 10; filter: url(#shadow); }
+    .val-box { fill: #f0fdf4; stroke: #22c55e; stroke-width: 2; rx: 10; filter: url(#shadow); }
+    .output-box { fill: #f8fafc; stroke: #64748b; stroke-width: 2; rx: 10; filter: url(#shadow); }
+
+    /* Text styles */
+    .stage-num { font-size: 11px; font-weight: 700; fill: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; }
+    .stage-title { font-size: 15px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+    .stage-desc { font-size: 11px; fill: #64748b; text-anchor: middle; }
+    .stage-module { font-size: 10px; fill: #94a3b8; text-anchor: middle; font-family: monospace; }
+
+    .ai-text { fill: #6d28d9; }
+    .ner-text { fill: #c2410c; }
+    .val-text { fill: #15803d; }
+
+    /* External API pills */
+    .ext-pill { fill: #f1f5f9; stroke: #cbd5e0; stroke-width: 1; rx: 12; }
+    .ext-text { font-size: 10px; font-weight: 600; fill: #64748b; text-anchor: middle; }
+
+    /* Sub-process boxes */
+    .sub-box { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 1; rx: 6; }
+    .sub-text { font-size: 10px; font-weight: 600; fill: #475569; text-anchor: middle; }
+
+    /* Check diamond */
+    .check-diamond { fill: #fef3c7; stroke: #f59e0b; stroke-width: 2; }
+    .check-text { font-size: 10px; font-weight: 700; fill: #92400e; text-anchor: middle; }
+
+    /* Connector styles */
+    .arrow-line { stroke: #94a3b8; stroke-width: 2; fill: none; }
+    .arrow-line-thick { stroke: #64748b; stroke-width: 3; fill: none; }
+    .arrow-line-dashed { stroke: #94a3b8; stroke-width: 2; fill: none; stroke-dasharray: 6,4; }
+
+    /* Legend */
+    .legend-text { font-size: 11px; fill: #64748b; }
+    .legend-title { font-size: 12px; font-weight: 700; fill: #475569; }
 </style>
 
-
 <defs>
-    <filter id="drop-shadow" dx="0" dy="2">
-        <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-        <feOffset dx="0" dy="4" result="offsetblur"/>
-        <feComponentTransfer>
-            <feFuncA type="linear" slope="0.1"/>
-        </feComponentTransfer>
-        <feMerge>
-            <feMergeNode/>
-            <feMergeNode in="SourceGraphic"/>
-        </feMerge>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/>
     </filter>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-        <path d="M0,0 L0,7 L9,3.5 z" fill="#cbd5e0" />
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L0,8 L9,4 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrow-dark" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L0,8 L9,4 z" fill="#64748b"/>
     </marker>
 </defs>
 
-<text x="900.0" y="50" text-anchor="middle" class="title">ResearchShop Disease2Gene</text>
-<text x="900.0" y="80" text-anchor="middle" class="subtitle">Extraction &amp; Validation Architecture</text>
-<line x1="350.0" y1="195.0" x2="430.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="690.0" y1="195.0" x2="770.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="1030.0" y1="195.0" x2="1110.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="1370.0" y1="195.0" x2="1450.0" y2="195.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="1580.0" y1="260" x2="1580.0" y2="395.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="1490.0" y1="415.0" x2="1370.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="1110.0" y1="415.0" x2="1000.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="800.0" y1="415.0" x2="690.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
-<line x1="430.0" y1="415.0" x2="350.0" y2="415.0" class="arrow-line" marker-end="url(#arrow)" />
-<rect x="90.0" y="130" width="260" height="130" class="stage-box"/>
-<text x="110.0" y="155" class="stage-num">01</text>
-<text x="220.0" y="180" text-anchor="middle" class="stage-title">Query Definition</text>
-<text x="220.0" y="210" class="stage-desc">Input Query &amp; Schema</text>
-<rect x="430.0" y="130" width="260" height="130" class="stage-box"/>
-<text x="450.0" y="155" class="stage-num">02</text>
-<text x="560.0" y="180" text-anchor="middle" class="stage-title">Literature Retrieval</text>
-<text x="560.0" y="210" class="stage-desc">Fetch Metadata</text>
-<line x1="560.0" y1="122" x2="560.0" y2="130" class="ext-line" />
-<rect x="490.0" y="98" width="140" height="24" class="ext-pill"/>
-<text x="560.0" y="114" text-anchor="middle" class="ext-text">PubMed API</text>
-<rect x="770.0" y="130" width="260" height="130" class="stage-box"/>
-<text x="790.0" y="155" class="stage-num">03</text>
-<text x="900.0" y="180" text-anchor="middle" class="stage-title">Full-Text Acquisition</text>
-<text x="900.0" y="210" class="stage-desc">Web Scraping</text>
-<line x1="900.0" y1="122" x2="900.0" y2="130" class="ext-line" />
-<rect x="830.0" y="98" width="140" height="24" class="ext-pill"/>
-<text x="900.0" y="114" text-anchor="middle" class="ext-text">PMC + Playwright</text>
-<rect x="1110.0" y="130" width="260" height="130" class="stage-box"/>
-<text x="1130.0" y="155" class="stage-num">04</text>
-<text x="1240.0" y="180" text-anchor="middle" class="stage-title">Citation Analysis</text>
-<text x="1240.0" y="210" class="stage-desc">Impact Prioritization</text>
-<line x1="1240.0" y1="122" x2="1240.0" y2="130" class="ext-line" />
-<rect x="1170.0" y="98" width="140" height="24" class="ext-pill"/>
-<text x="1240.0" y="114" text-anchor="middle" class="ext-text">Semantic Scholar</text>
-<rect x="1450.0" y="130" width="260" height="130" class="stage-box"/>
-<text x="1470.0" y="155" class="stage-num">05</text>
-<text x="1580.0" y="180" text-anchor="middle" class="stage-title">Abstract Screening</text>
-<text x="1580.0" y="210" class="stage-desc">Heuristic: Keyword Filter</text>
-<rect x="1490.0" y="395.0" width="180" height="40" class="check-box"/>
-<text x="1580.0" y="420.0" text-anchor="middle" class="con-check-title">Context Limit Check</text>
-<rect x="1110.0" y="350" width="260" height="130" class="ai-box"/>
-<text x="1130.0" y="375" class="stage-num">06</text>
-<text x="1240.0" y="400" text-anchor="middle" class="stage-title ai-text">Gene/Variant ID</text>
-<text x="1240.0" y="430" class="stage-desc">Initial Discovery</text>
-<line x1="1240.0" y1="488" x2="1240.0" y2="480" class="ext-line" />
-<rect x="1170.0" y="488" width="140" height="24" class="ext-pill"/>
-<text x="1240.0" y="504" text-anchor="middle" class="ext-text">Gemini 2.0 Flash</text>
-<rect x="800.0" y="395.0" width="200" height="40" class="check-box"/>
-<text x="900.0" y="420.0" text-anchor="middle" class="con-check-title">HGNC &amp; Gene Check</text>
-<rect x="430.0" y="350" width="260" height="130" class="ai-box"/>
-<text x="450.0" y="375" class="stage-num">07</text>
-<text x="560.0" y="400" text-anchor="middle" class="stage-title ai-text">Attribute Extraction</text>
-<text x="560.0" y="430" class="stage-desc">Detailed Schema</text>
-<line x1="560.0" y1="488" x2="560.0" y2="480" class="ext-line" />
-<rect x="490.0" y="488" width="140" height="24" class="ext-pill"/>
-<text x="560.0" y="504" text-anchor="middle" class="ext-text">Gemini 2.5 Flash</text>
-<rect x="90.0" y="340" width="260" height="150" class="val-box"/>
-<text x="110.0" y="365" class="stage-num">08</text>
-<text x="220.0" y="390" text-anchor="middle" class="stage-title">Validation &amp; Output</text>
-<rect x="110.0" y="400" width="220" height="24" class="sub-process-box"/>
-<text x="220.0" y="416" class="sub-process-text">Quote Verification</text>
-<rect x="110.0" y="428" width="220" height="24" class="sub-process-box"/>
-<text x="220.0" y="444" class="sub-process-text">Variant Pattern Norm.</text>
-<rect x="110.0" y="456" width="220" height="24" class="sub-process-box"/>
-<text x="220.0" y="472" class="sub-process-text">Final CSV Output</text>
+<!-- Title -->
+<text x="900" y="40" text-anchor="middle" class="title">ResearchShop Disease2Gene — System Architecture</text>
+<text x="900" y="62" text-anchor="middle" class="subtitle">Hybrid NER + LLM Pipeline with Multi-Layer Validation Framework</text>
+
+<!-- ============ LAYER: ELECTRON UI (top row) ============ -->
+<rect x="30" y="80" width="1740" height="165" class="layer-bg-ui"/>
+<text x="55" y="100" class="layer-label">Electron Desktop UI (TypeScript / React)</text>
+
+<!-- Stage 1: Query Definition -->
+<rect x="50" y="110" width="240" height="120" class="ui-box"/>
+<text x="70" y="132" class="stage-num">Stage 1</text>
+<text x="170" y="155" class="stage-title" style="fill:#1d4ed8;">Query &amp; Schema</text>
+<text x="170" y="175" class="stage-desc">PubMed query, PMIDs, or author</text>
+<text x="170" y="192" class="stage-desc">User-defined extraction columns</text>
+<text x="170" y="220" class="stage-module">QueryBuilder.tsx</text>
+
+<!-- Stage 2: Paper Selection -->
+<rect x="340" y="110" width="280" height="120" class="ui-box"/>
+<text x="360" y="132" class="stage-num">Stage 2</text>
+<text x="480" y="155" class="stage-title" style="fill:#1d4ed8;">Gene Relevance Scoring</text>
+<text x="480" y="175" class="stage-desc">Keyword + gene regex + molecular gate</text>
+<text x="480" y="192" class="stage-desc">Auto-select high/medium; hide low</text>
+<text x="480" y="220" class="stage-module">geneRelevanceScorer.ts</text>
+
+<!-- External: PubMed API -->
+<rect x="370" y="83" width="100" height="22" class="ext-pill"/>
+<text x="420" y="98" class="ext-text">PubMed API</text>
+
+<!-- Arrow 1→2 -->
+<line x1="290" y1="170" x2="340" y2="170" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- IPC Bridge label -->
+<rect x="680" y="130" width="160" height="80" rx="8" fill="#fff" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="760" y="158" class="stage-title" style="font-size:13px; fill:#64748b;">IPC Bridge</text>
+<text x="760" y="178" class="stage-module">python-bridge.ts</text>
+<text x="760" y="195" class="stage-desc">PROGRESS | LOG | RESULT</text>
+
+<!-- Arrow 2→IPC -->
+<line x1="620" y1="170" x2="680" y2="170" class="arrow-line-thick" marker-end="url(#arrow-dark)"/>
+
+<!-- Results display -->
+<rect x="1500" y="110" width="250" height="120" class="ui-box"/>
+<text x="1520" y="132" class="stage-num">Output</text>
+<text x="1625" y="155" class="stage-title" style="fill:#1d4ed8;">Results Explorer</text>
+<text x="1625" y="175" class="stage-desc">Confidence badges, citations</text>
+<text x="1625" y="192" class="stage-desc">Metadata columns, CSV export</text>
+<text x="1625" y="220" class="stage-module">Results.tsx + Pipeline.tsx</text>
+
+<!-- ============ LAYER: PYTHON PIPELINE (middle rows) ============ -->
+<rect x="30" y="260" width="1740" height="310" class="layer-bg-pipeline"/>
+<text x="55" y="280" class="layer-label">Python Extraction Pipeline (multiprocessing worker pool)</text>
+
+<!-- Stage 3: Literature Retrieval + Ranking -->
+<rect x="50" y="295" width="220" height="130" class="stage-box"/>
+<text x="70" y="317" class="stage-num">Stage 3</text>
+<text x="160" y="340" class="stage-title">Literature Retrieval</text>
+<text x="160" y="360" class="stage-desc">Fetch metadata + rank by</text>
+<text x="160" y="377" class="stage-desc">citation count (4x overfetch)</text>
+<text x="160" y="414" class="stage-module">pubmed_data_collector.py</text>
+
+<!-- External APIs for Stage 3 -->
+<rect x="55" y="268" width="80" height="22" class="ext-pill"/>
+<text x="95" y="283" class="ext-text">NCBI Entrez</text>
+<rect x="145" y="268" width="55" height="22" class="ext-pill"/>
+<text x="172" y="283" class="ext-text">iCite</text>
+<rect x="210" y="268" width="55" height="22" class="ext-pill"/>
+<text x="237" y="283" class="ext-text">S2 API</text>
+
+<!-- Stage 4: Full Text Fetch -->
+<rect x="320" y="295" width="220" height="130" class="stage-box"/>
+<text x="340" y="317" class="stage-num">Stage 4</text>
+<text x="430" y="340" class="stage-title">Full-Text Fetch</text>
+<text x="430" y="360" class="stage-desc">PMC JATS XML (primary)</text>
+<text x="430" y="377" class="stage-desc">Europe PMC XML (fallback)</text>
+<text x="430" y="394" class="stage-desc">+ figure/table extraction</text>
+<text x="430" y="414" class="stage-module">full_text_fetcher.py</text>
+
+<!-- External: PMC -->
+<rect x="355" y="268" width="70" height="22" class="ext-pill"/>
+<text x="390" y="283" class="ext-text">PMC OA</text>
+<rect x="435" y="268" width="80" height="22" class="ext-pill"/>
+<text x="475" y="283" class="ext-text">Europe PMC</text>
+
+<!-- Arrow 3→4 -->
+<line x1="270" y1="360" x2="320" y2="360" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Stage 5: PubTator NER -->
+<rect x="590" y="295" width="220" height="130" class="ner-box"/>
+<text x="610" y="317" class="stage-num ner-text">Stage 5</text>
+<text x="700" y="340" class="stage-title ner-text">PubTator3 NER</text>
+<text x="700" y="360" class="stage-desc">High-precision gene/variant</text>
+<text x="700" y="377" class="stage-desc">Named Entity Recognition</text>
+<text x="700" y="394" class="stage-desc">Precision floor (safety net)</text>
+<text x="700" y="414" class="stage-module">pubtator_tool.py</text>
+
+<!-- External: PubTator3 -->
+<rect x="640" y="268" width="110" height="22" class="ext-pill"/>
+<text x="695" y="283" class="ext-text">NCBI PubTator3</text>
+
+<!-- Arrow 4→5 -->
+<line x1="540" y1="360" x2="590" y2="360" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Stage 6: Gemini Extraction (two sub-stages) -->
+<rect x="860" y="285" width="350" height="150" class="ai-box"/>
+<text x="880" y="307" class="stage-num ai-text">Stage 6</text>
+<text x="1035" y="330" class="stage-title ai-text">LLM Extraction (Gemini Flash)</text>
+
+<!-- Sub-stage A -->
+<rect x="875" y="340" width="150" height="55" class="sub-box"/>
+<text x="950" y="358" class="sub-text">Stage A: Abstract</text>
+<text x="950" y="373" class="sub-text">Gene Discovery</text>
+<text x="950" y="386" style="font-size:9px; fill:#94a3b8; text-anchor:middle;">(fast, cheap screen)</text>
+
+<!-- Sub-stage B -->
+<rect x="1045" y="340" width="150" height="55" class="sub-box"/>
+<text x="1120" y="358" class="sub-text">Stage B: Full-Text</text>
+<text x="1120" y="373" class="sub-text">Schema Extraction</text>
+<text x="1120" y="386" style="font-size:9px; fill:#94a3b8; text-anchor:middle;">(detailed + citations)</text>
+
+<text x="1035" y="424" class="stage-module">gemini_extractor.py (1,703 LOC)</text>
+
+<!-- External: Gemini -->
+<rect x="975" y="268" width="120" height="22" class="ext-pill"/>
+<text x="1035" y="283" class="ext-text">Gemini Flash API</text>
+
+<!-- Arrow 5→6 -->
+<line x1="810" y1="360" x2="860" y2="360" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Seeds arrow from PubTator to Gemini (dashed) -->
+<path d="M 700 425 L 700 460 L 1035 460 L 1035 435" class="arrow-line-dashed" marker-end="url(#arrow)"/>
+<text x="870" y="475" style="font-size:10px; fill:#94a3b8; text-anchor:middle; font-style:italic;">deterministic candidate seeds</text>
+
+<!-- Grounding Check diamond -->
+<polygon points="1290,355 1330,325 1370,355 1330,385" class="check-diamond"/>
+<text x="1330" y="352" class="check-text">Ground</text>
+<text x="1330" y="365" class="check-text">Check</text>
+
+<!-- Arrow 6→grounding -->
+<line x1="1210" y1="355" x2="1290" y2="355" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Context window check -->
+<polygon points="1290,510 1325,485 1360,510 1325,535" class="check-diamond"/>
+<text x="1325" y="507" class="check-text">Context</text>
+<text x="1325" y="520" class="check-text">Limit</text>
+
+<!-- ============ LAYER: VALIDATION (bottom row) ============ -->
+<rect x="30" y="585" width="1740" height="180" class="layer-bg-validation"/>
+<text x="55" y="605" class="layer-label">Multi-Layer Validation Framework</text>
+
+<!-- Stage 7: Gene Validation -->
+<rect x="50" y="620" width="350" height="130" class="val-box"/>
+<text x="70" y="642" class="stage-num val-text">Stage 7</text>
+<text x="225" y="665" class="stage-title val-text">Gene Validation</text>
+
+<!-- Sub-processes -->
+<rect x="65" y="680" width="155" height="24" class="sub-box"/>
+<text x="142" y="696" class="sub-text">HGNC (44,943 local)</text>
+<rect x="230" y="680" width="155" height="24" class="sub-box"/>
+<text x="307" y="696" class="sub-text">HGNC REST + MyGene</text>
+<rect x="65" y="710" width="155" height="24" class="sub-box"/>
+<text x="142" y="726" class="sub-text">Biotype Filter</text>
+<rect x="230" y="710" width="155" height="24" class="sub-box"/>
+<text x="307" y="726" class="sub-text">Fuzzy Match</text>
+
+<text x="225" y="742" class="stage-module">gene_validator.py (940 LOC)</text>
+
+<!-- External APIs for validation -->
+<rect x="55" y="593" width="80" height="22" class="ext-pill"/>
+<text x="95" y="608" class="ext-text">HGNC REST</text>
+<rect x="145" y="593" width="80" height="22" class="ext-pill"/>
+<text x="185" y="608" class="ext-text">MyGene.info</text>
+
+<!-- Arrow from grounding to validation -->
+<path d="M 1330 385 L 1330 490 L 225 490 L 225 620" class="arrow-line-thick" marker-end="url(#arrow-dark)"/>
+
+<!-- Stage 8: Citation Validation -->
+<rect x="450" y="620" width="300" height="130" class="val-box"/>
+<text x="470" y="642" class="stage-num val-text">Stage 8</text>
+<text x="600" y="665" class="stage-title val-text">Citation Validation</text>
+
+<rect x="465" y="680" width="130" height="24" class="sub-box"/>
+<text x="530" y="696" class="sub-text">Sequence Match</text>
+<rect x="605" y="680" width="130" height="24" class="sub-box"/>
+<text x="670" y="696" class="sub-text">Numeric Check</text>
+<rect x="465" y="710" width="130" height="24" class="sub-box"/>
+<text x="530" y="726" class="sub-text">Gene Context</text>
+<rect x="605" y="710" width="130" height="24" class="sub-box"/>
+<text x="670" y="726" class="sub-text">Unicode Norm.</text>
+
+<!-- Arrow 7→8 -->
+<line x1="400" y1="685" x2="450" y2="685" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Confidence Gate -->
+<rect x="810" y="630" width="200" height="110" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="2" filter="url(#shadow)"/>
+<text x="830" y="652" class="stage-num" style="fill:#dc2626;">Confidence Gate</text>
+<text x="910" y="675" class="stage-title" style="fill:#dc2626; font-size:13px;">Strict Validation</text>
+<text x="910" y="697" class="stage-desc">min confidence = 0.7</text>
+<text x="910" y="714" class="stage-desc">protein-coding priority</text>
+<text x="910" y="731" class="stage-desc">confidence scoring: Cg + Cv</text>
+
+<!-- Arrow 8→gate -->
+<line x1="750" y1="685" x2="810" y2="685" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Stage 9: CSV Output -->
+<rect x="1070" y="630" width="200" height="110" class="output-box"/>
+<text x="1090" y="652" class="stage-num">Stage 9</text>
+<text x="1170" y="675" class="stage-title">CSV Output</text>
+<text x="1170" y="697" class="stage-desc">Deduplicated, ranked</text>
+<text x="1170" y="714" class="stage-desc">Validation metadata</text>
+<text x="1170" y="731" class="stage-module">pipeline_orchestrator.py</text>
+
+<!-- Arrow gate→output -->
+<line x1="1010" y1="685" x2="1070" y2="685" class="arrow-line" marker-end="url(#arrow)"/>
+
+<!-- Arrow output→UI results -->
+<path d="M 1270 685 L 1400 685 L 1400 520 L 1625 520 L 1625 230" class="arrow-line-thick" marker-end="url(#arrow-dark)"/>
+
+<!-- ============ LEGEND ============ -->
+<rect x="1350" y="620" width="400" height="140" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1370" y="642" class="legend-title">Legend</text>
+
+<rect x="1370" y="652" width="16" height="12" class="ui-box" style="filter:none;"/>
+<text x="1395" y="662" class="legend-text">Electron UI (TypeScript/React)</text>
+
+<rect x="1370" y="672" width="16" height="12" class="ner-box" style="filter:none;"/>
+<text x="1395" y="682" class="legend-text">Biomedical NER (PubTator3) — precision floor</text>
+
+<rect x="1370" y="692" width="16" height="12" class="ai-box" style="filter:none;"/>
+<text x="1395" y="702" class="legend-text">LLM Extraction (Gemini Flash) — recall ceiling</text>
+
+<rect x="1370" y="712" width="16" height="12" class="val-box" style="filter:none;"/>
+<text x="1395" y="722" class="legend-text">Validation Framework — anti-hallucination</text>
+
+<polygon points="1378,741 1386,733 1394,741 1386,749" class="check-diamond" style="transform-origin:1386px 741px;"/>
+<text x="1405" y="745" class="legend-text">Safety checks (grounding, context)</text>
+
+<!-- Orchestrator label -->
+<rect x="1300" y="295" width="220" height="95" rx="8" fill="#fff" stroke="#475569" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="1320" y="317" class="stage-num">Orchestrator</text>
+<text x="1410" y="340" class="stage-title" style="font-size:13px;">Worker Pool (2-4)</text>
+<text x="1410" y="358" class="stage-desc">multiprocessing</text>
+<text x="1410" y="375" class="stage-desc">600s per-paper timeout</text>
+<text x="1410" y="380" class="stage-module">pipeline_orchestrator.py</text>
+
+<!-- IPC arrow from bridge down to pipeline -->
+<path d="M 760 210 L 760 260 L 160 260 L 160 295" class="arrow-line-thick" marker-end="url(#arrow-dark)"/>
+
 </svg>

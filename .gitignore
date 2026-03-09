@@ -1,4 +1,4 @@
-# Python
+# ─── Python ───────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,6 +6,7 @@ __pycache__/
 .Python
 *.egg-info/
 .eggs/
+.pytest_cache/
 
 # Virtual environments
 venv/
@@ -13,7 +14,14 @@ venv/
 python/.venv/
 env/
 
-# IDE
+# ─── Node / Electron ─────────────────────────────────
+node_modules/
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# ─── IDE ──────────────────────────────────────────────
 .idea/
 .vscode/
 .cursor/
@@ -21,31 +29,21 @@ env/
 *.swo
 *~
 
-# OS
+# ─── OS ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+Desktop.ini
 
-# Node / Electron
-node_modules/
-dist/
-out/
-build/
-*.tsbuildinfo
-
-# PyInstaller
-*.manifest
-
-# Pipeline outputs
+# ─── Pipeline outputs (runtime) ──────────────────────
 data/output/
 
-# Jupyter
-.ipynb_checkpoints/
+# ─── Benchmark transient artifacts ───────────────────
+python/data/benchmark/**/drop_debug_*.json
+python/data/benchmark/**/*.pkl.gz
+python/data/benchmark/**/*.xlsx
+python/data/benchmark/**/*_metadata.csv
 
-# Environment files
-.env
-*.env
-
-# LaTeX auxiliary
+# ─── LaTeX build artifacts ───────────────────────────
 *.aux
 *.log
 *.out
@@ -57,16 +55,23 @@ data/output/
 *.synctex.gz
 *.bcf
 *.run.xml
+*.spl
 
-# Temporary
+# ─── Environment & secrets ───────────────────────────
+.env
+*.env
+
+# ─── Temporary ────────────────────────────────────────
 tmp/
 temp/
 *.tmp
 *.bak
 
-# Benchmark transient artifacts
-python/data/benchmark/**/drop_debug_*.json
-python/data/benchmark/**/*.pkl.gz
+# ─── Reference PDFs (not part of the software) ──────
+publication/examples/
 
-# Claude agent team files
+# ─── Claude agent files ──────────────────────────────
 .agents/
+
+# ─── Jupyter ──────────────────────────────────────────
+.ipynb_checkpoints/

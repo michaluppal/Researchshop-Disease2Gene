@@ -1,0 +1,138 @@
+% Standalone TikZ pipeline diagram for inclusion in main.tex or Overleaf
+% Usage: \input{pipeline_tikz} inside a figure* environment
+% Alternatively, compile standalone: pdflatex pipeline_tikz.tex
+
+\documentclass[border=5pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,decorations.pathreplacing}
+\usepackage[T1]{fontenc}
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
+\begin{document}
+
+\begin{tikzpicture}[
+    % Node styles
+    uibox/.style={draw=blue!60, fill=blue!5, rounded corners=4pt, minimum width=3.2cm, minimum height=1.6cm, align=center, font=\small},
+    pipebox/.style={draw=gray!60, fill=white, rounded corners=4pt, minimum width=3.2cm, minimum height=1.6cm, align=center, font=\small},
+    nerbox/.style={draw=orange!70, fill=orange!5, rounded corners=4pt, minimum width=3.2cm, minimum height=1.6cm, align=center, font=\small},
+    aibox/.style={draw=violet!60, fill=violet!5, rounded corners=4pt, minimum width=4.5cm, minimum height=2.2cm, align=center, font=\small},
+    valbox/.style={draw=green!60!black, fill=green!5, rounded corners=4pt, minimum width=3.2cm, minimum height=1.6cm, align=center, font=\small},
+    gatebox/.style={draw=red!60, fill=red!5, rounded corners=4pt, minimum width=2.8cm, minimum height=1.4cm, align=center, font=\small},
+    outbox/.style={draw=gray!80, fill=gray!5, rounded corners=4pt, minimum width=2.8cm, minimum height=1.4cm, align=center, font=\small},
+    apipill/.style={draw=gray!40, fill=gray!8, rounded corners=8pt, font=\tiny, inner sep=2pt},
+    sublabel/.style={font=\tiny\ttfamily, text=gray!60},
+    stagenum/.style={font=\tiny\bfseries, text=gray!50},
+    % Arrow styles
+    arr/.style={-{Stealth[length=5pt]}, thick, gray!50},
+    arrdash/.style={-{Stealth[length=5pt]}, thick, gray!50, dashed},
+    arrthick/.style={-{Stealth[length=6pt]}, very thick, gray!70},
+    % Layer backgrounds
+    layerbg/.style={rounded corners=8pt, draw=none, opacity=0.15},
+]
+
+% ========== LAYER BACKGROUNDS ==========
+\fill[blue, layerbg] (-1.5, 3.8) rectangle (15.5, 6.5);
+\fill[yellow!80!orange, layerbg] (-1.5, -0.5) rectangle (15.5, 3.3);
+\fill[green!70, layerbg] (-1.5, -5.5) rectangle (15.5, -1.0);
+
+% Layer labels
+\node[font=\scriptsize\bfseries, text=blue!40!black] at (0.5, 6.2) {ELECTRON UI};
+\node[font=\scriptsize\bfseries, text=yellow!50!black] at (0.8, 3.0) {PYTHON PIPELINE};
+\node[font=\scriptsize\bfseries, text=green!40!black] at (0.8, -1.3) {VALIDATION};
+
+% ========== UI LAYER ==========
+% Stage 1: Query
+\node[uibox] (query) at (1.5, 5) {\textbf{Stage 1}\\Query \& Schema\\Definition};
+\node[sublabel] at (1.5, 3.95) {QueryBuilder.tsx};
+
+% Stage 2: Gene Relevance
+\node[uibox] (relevance) at (5.5, 5) {\textbf{Stage 2}\\Gene Relevance\\Scoring};
+\node[sublabel] at (5.5, 3.95) {geneRelevanceScorer.ts};
+\node[apipill] at (5.5, 6.3) {PubMed efetch};
+
+% IPC Bridge
+\node[draw=gray!60, fill=white, rounded corners=3pt, minimum width=2.5cm, minimum height=1.0cm, align=center, font=\scriptsize, dashed] (ipc) at (9.2, 5) {IPC Bridge\\{\tiny PROGRESS|LOG|RESULT}};
+\node[sublabel] at (9.2, 4.2) {python-bridge.ts};
+
+% Results
+\node[uibox] (results) at (13, 5) {\textbf{Output}\\Results Explorer\\CSV/XLSX Export};
+\node[sublabel] at (13, 3.95) {Results.tsx};
+
+% UI arrows
+\draw[arr] (query) -- (relevance);
+\draw[arrthick] (relevance) -- (ipc);
+
+% ========== PIPELINE LAYER ==========
+% Stage 3: Full Text
+\node[pipebox] (fulltext) at (1.5, 1.5) {\textbf{Stage 3}\\Full-Text\\Acquisition};
+\node[sublabel] at (1.5, 0.4) {full\_text\_fetcher.py};
+\node[apipill] at (0.3, 2.8) {PMC OA};
+\node[apipill] at (2.7, 2.8) {Europe PMC};
+
+% Stage 4: PubTator
+\node[nerbox] (pubtator) at (5.5, 1.5) {\textbf{Stage 4}\\PubTator3 NER\\{\scriptsize (precision floor)}};
+\node[sublabel] at (5.5, 0.4) {pubtator\_tool.py};
+\node[apipill] at (5.5, 2.8) {PubTator3 API};
+
+% Stage 5: Gemini
+\node[aibox] (gemini) at (10, 1.5) {\textbf{Stage 5: LLM Extraction}\\[3pt]{\scriptsize Stage A: Abstract discovery}\\{\scriptsize Stage B: Full-text + schema}\\{\scriptsize + Figure analysis (Vision)}};
+\node[sublabel] at (10, -0.1) {gemini\_extractor.py (1,703 LOC)};
+\node[apipill] at (10, 2.9) {Gemini Flash API};
+
+% Orchestrator
+\node[draw=gray!60, fill=white, rounded corners=3pt, minimum width=2.2cm, minimum height=1.0cm, align=center, font=\scriptsize, dashed] (orch) at (14, 1.5) {Orchestrator\\{\tiny 2--4 workers}\\{\tiny 600s timeout}};
+\node[sublabel] at (14, 0.4) {orchestrator.py};
+
+% Pipeline arrows
+\draw[arrthick] (ipc) -- (9.2, 3.5) -- (1.5, 3.5) -- (fulltext);
+\draw[arr] (fulltext) -- (pubtator);
+\draw[arr] (pubtator) -- (gemini);
+
+% Seeds arrow (dashed)
+\draw[arrdash] (pubtator.south) -- ++(0,-0.6) -| node[pos=0.25, below, font=\tiny\itshape, text=gray] {deterministic seeds} (gemini.south);
+
+% ========== VALIDATION LAYER ==========
+% Stage 6a: Gene Validation
+\node[valbox] (geneval) at (1.5, -3) {\textbf{Stage 6a}\\Gene Validation\\{\scriptsize HGNC (44,943 local)}};
+\node[sublabel] at (1.5, -4.1) {gene\_validator.py};
+\node[apipill] at (0.0, -1.6) {HGNC REST};
+\node[apipill] at (2.7, -1.6) {MyGene.info};
+
+% Stage 6b: Citation Validation
+\node[valbox] (citeval) at (5.5, -3) {\textbf{Stage 6b}\\Citation\\Cross-Reference};
+\node[sublabel] at (5.5, -4.1) {SequenceMatcher $\geq$0.85};
+
+% Stage 6c: Variant Validation
+\node[valbox] (vareval) at (9.2, -3) {\textbf{Stage 6c}\\HGVS Variant\\Matching};
+\node[sublabel] at (9.2, -4.1) {12+ patterns};
+
+% Confidence Gate
+\node[gatebox] (gate) at (12.5, -3) {\textbf{Confidence}\\Gate $\geq$ 0.7};
+
+% CSV Output
+\node[outbox] (csv) at (12.5, -4.8) {\textbf{CSV Output}\\Validated, ranked};
+
+% Validation arrows
+\draw[arrthick] (gemini.south) -- ++(0, -1) -- (-0.5, -1.5) -- (-0.5, -3) -- (geneval.west);
+\draw[arr] (geneval) -- (citeval);
+\draw[arr] (citeval) -- (vareval);
+\draw[arr] (vareval) -- (gate);
+\draw[arr] (gate) -- (csv);
+
+% Output to UI
+\draw[arrthick] (csv.east) -- ++(1.5,0) -- ++(0, 7) -- (13, 4.2) -- (results.south);
+
+% Grounding check diamond
+\node[diamond, draw=orange!80, fill=yellow!15, minimum width=1cm, minimum height=0.8cm, font=\tiny\bfseries, text=orange!60!black, inner sep=1pt] (grounding) at (13, -1.5) {Grounding\\Check};
+\draw[arr] (gemini.east) -| (grounding);
+\draw[arr] (grounding) -- (geneval.north -| grounding) -- ++(0,-0.3) -| (geneval);
+
+% PubMed search (before stage 3)
+\node[pipebox, minimum width=2.5cm, minimum height=1.0cm] (search) at (1.5, 2.8) {};
+\node[apipill] at (-0.3, 3.2) {iCite};
+\node[apipill] at (3.2, 3.2) {S2 API};
+
+\end{tikzpicture}
+
+\end{document}

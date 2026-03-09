@@ -1,4 +1,4 @@
-\begin{thebibliography}{10}
+\begin{thebibliography}{1}
 \expandafter\ifx\csname url\endcsname\relax
   \def\url#1{\texttt{#1}}\fi
 \expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
@@ -8,87 +8,60 @@
 \bibitem{pubmed_about_2025}
 {National Center for Biotechnology Information},
   \href{https://pubmed.ncbi.nlm.nih.gov/about/}{About {PubMed}}, pubMed
-  contains more than 39 million citations and abstracts of biomedical
-  literature. Accessed: October 27, 2025 (2025).
+  contains more than 39 million citations. Accessed: 2025-10-27 (2025).
 \newline\urlprefix\url{https://pubmed.ncbi.nlm.nih.gov/about/}
 
 \bibitem{westergaard2018comprehensive}
-D.~Westergaard, H.-H. Stærfeldt, C.~Tønsberg, L.~J. Jensen, S.~Brunak,
-  \href{https://pubmed.ncbi.nlm.nih.gov/29447159/}{A comprehensive and
-  quantitative comparison of text-mining in 15 million full-text articles
-  versus their corresponding abstracts}, PLOS Computational Biology 14~(2)
-  (2018) e1005962.
+D.~Westergaard, H.-H. St{\ae}rfeldt, C.~T{\o}nsberg, L.~J. Jensen, S.~Brunak, A
+  comprehensive and quantitative comparison of text-mining in 15 million
+  full-text articles versus their corresponding abstracts, PLOS Computational
+  Biology 14~(2) (2018) e1005962.
 \newblock \href {https://doi.org/10.1371/journal.pcbi.1005962}
   {\path{doi:10.1371/journal.pcbi.1005962}}.
-\newline\urlprefix\url{https://pubmed.ncbi.nlm.nih.gov/29447159/}
 
 \bibitem{farquhar2024detecting}
-S.~Farquhar, J.~Kossen, L.~Kuhn, Y.~Gal,
-  \href{https://www.nature.com/articles/s41586-024-07421-0}{Detecting
-  hallucinations in large language models using semantic entropy}, Nature
-  630~(8017) (2024) 625--630.
+S.~Farquhar, J.~Kossen, L.~Kuhn, Y.~Gal, Detecting hallucinations in large
+  language models using semantic entropy, Nature 630~(8017) (2024) 625--630.
 \newblock \href {https://doi.org/10.1038/s41586-024-07421-0}
   {\path{doi:10.1038/s41586-024-07421-0}}.
-\newline\urlprefix\url{https://www.nature.com/articles/s41586-024-07421-0}
 
 \bibitem{wei2019pubtator}
-C.-H. Wei, A.~Allot, R.~Leaman, Z.~Lu,
-  \href{https://academic.oup.com/nar/article/47/W1/W587/5492738}{Pubtator
-  central: automated concept annotation for biomedical full text articles},
-  Nucleic Acids Research 47~(W1) (2019) W587--W593.
+C.-H. Wei, A.~Allot, R.~Leaman, Z.~Lu, {PubTator Central}: automated concept
+  annotation for biomedical full text articles, Nucleic Acids Research 47~(W1)
+  (2019) W587--W593.
 \newblock \href {https://doi.org/10.1093/nar/gkz389}
   {\path{doi:10.1093/nar/gkz389}}.
-\newline\urlprefix\url{https://academic.oup.com/nar/article/47/W1/W587/5492738}
 
-\bibitem{sayers2025database}
-E.~W. Sayers, E.~E. Bolton, J.~R. Brister, K.~Canese, J.~Chan, D.~C. Comeau,
-  et~al.,
-  \href{https://academic.oup.com/nar/article/53/D1/D20/7889242}{Database
-  resources of the national center for biotechnology information in 2025},
-  Nucleic Acids Research 53~(D1) (2025) D20--D28.
-\newblock \href {https://doi.org/10.1093/nar/gkae1083}
-  {\path{doi:10.1093/nar/gkae1083}}.
-\newline\urlprefix\url{https://academic.oup.com/nar/article/53/D1/D20/7889242}
+\bibitem{electron}
+{OpenJS Foundation}, \href{https://www.electronjs.org/}{Electron: Build
+  cross-platform desktop apps with {JavaScript}, {HTML}, and {CSS}} (2024).
+\newline\urlprefix\url{https://www.electronjs.org/}
 
-\bibitem{barbaresi2021trafilatura}
-A.~Barbaresi, \href{https://aclanthology.org/2021.acl-demo.15/}{Trafilatura: A
-  web scraping library and command-line tool for text discovery and
-  extraction}, in: Proceedings of the 59th Annual Meeting of the Association
-  for Computational Linguistics and the 11th International Joint Conference on
-  Natural Language Processing: System Demonstrations, Association for
-  Computational Linguistics, Online, 2021, pp. 122--131.
-\newblock \href {https://doi.org/10.18653/v1/2021.acl-demo.15}
-  {\path{doi:10.18653/v1/2021.acl-demo.15}}.
-\newline\urlprefix\url{https://aclanthology.org/2021.acl-demo.15/}
+\bibitem{hutchins2016icite}
+B.~I. Hutchins, X.~Yuan, J.~M. Anderson, G.~M. Santangelo, Relative citation
+  ratio ({RCR}): A new metric that uses citation rates to measure influence at
+  the article level, PLOS Biology 14~(9) (2016) e1002541.
+\newblock \href {https://doi.org/10.1371/journal.pbio.1002541}
+  {\path{doi:10.1371/journal.pbio.1002541}}.
 
 \bibitem{semantic_scholar_api}
 {Allen Institute for AI}, \href{https://api.semanticscholar.org/}{Semantic
-  scholar api} (2024).
+  scholar {API}} (2024).
 \newline\urlprefix\url{https://api.semanticscholar.org/}
 
-\bibitem{customtkinter}
-A.~Bora, \href{https://github.com/TomSchimansky/CustomTkinter}{Customtkinter: A
-  python ui-library based on tkinter}, accessed: 2025-01-15 (2024).
-\newline\urlprefix\url{https://github.com/TomSchimansky/CustomTkinter}
-
-\bibitem{bruford2023genenames}
-R.~L. Seal, B.~Braschi, K.~Gray, T.~E.~M. Jones, S.~Tweedie, L.~Haim-Vilmovsky,
-  E.~A. Bruford,
-  \href{https://academic.oup.com/nar/article/51/D1/D1003/6956813}{Genenames.org:
-  the hgnc resources in 2023}, Nucleic Acids Research 51~(D1) (2023)
-  D1003--D1009.
-\newblock \href {https://doi.org/10.1093/nar/gkac888}
-  {\path{doi:10.1093/nar/gkac888}}.
-\newline\urlprefix\url{https://academic.oup.com/nar/article/51/D1/D1003/6956813}
+\bibitem{wei2024pubtator3}
+C.-H. Wei, A.~Allot, P.-T. Lai, R.~Leaman, S.~Tian, L.~Luo, Q.~Jin, Z.~Wang,
+  Q.~Chen, Z.~Lu, {PubTator 3.0}: an {AI}-powered literature resource for
+  unlocking biomedical knowledge, Nucleic Acids Research 52~(W1) (2024)
+  W540--W546.
+\newblock \href {https://doi.org/10.1093/nar/gkae235}
+  {\path{doi:10.1093/nar/gkae235}}.
 
 \bibitem{den2016hgvs}
 J.~T. Den~Dunnen, R.~Dalgleish, D.~R. Maglott, R.~K. Hart, M.~S. Greenblatt,
-  J.~McGowan-Jordan, et~al.,
-  \href{https://onlinelibrary.wiley.com/doi/full/10.1002/humu.22981}{Hgvs
-  recommendations for the description of sequence variants: 2016 update}, Human
-  Mutation 37~(6) (2016) 564--569.
+  J.~McGowan-Jordan, et~al., {HGVS} recommendations for the description of
+  sequence variants: 2016 update, Human Mutation 37~(6) (2016) 564--569.
 \newblock \href {https://doi.org/10.1002/humu.22981}
   {\path{doi:10.1002/humu.22981}}.
-\newline\urlprefix\url{https://onlinelibrary.wiley.com/doi/full/10.1002/humu.22981}
 
 \end{thebibliography}
