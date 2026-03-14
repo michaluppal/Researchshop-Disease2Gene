@@ -1,8 +1,6 @@
 \documentclass[final,5p,times,twocolumn]{elsarticle}
 
 \usepackage{lineno,hyperref}
-\modulolinenumbers[5]
-
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{float}
@@ -10,7 +8,7 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{tikz}
-\usetikzlibrary{shapes,arrows.meta,positioning,calc,decorations.pathreplacing}
+\usetikzlibrary{shapes,shapes.geometric,arrows.meta,positioning,calc,decorations.pathreplacing,fit,backgrounds}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{enumitem}
@@ -24,6 +22,8 @@
   keywordstyle=\color{blue!60!black},
   commentstyle=\color{green!50!black},
   stringstyle=\color{red!60!black},
+  upquote=true,
+  keepspaces=true,
 }
 
 \journal{SoftwareX}
@@ -34,7 +34,7 @@
 
 \begin{frontmatter}
 
-\title{ResearchShop Disease2Gene: A Desktop Application for Validated Gene-Disease Association Extraction from Biomedical Literature Using Hybrid NER-LLM Architecture}
+\title{\textcolor{red}{\textbf{tool name}}: A Desktop Application for Validated Gene-Disease Association Extraction from Biomedical Literature Using Hybrid NER-LLM Architecture}
 
 \author{Micha{\l} Bujniewicz-Uppal\corref{mycorrespondingauthor}}
 \ead{m.bujniewiczuppal@uw.edu.pl}
@@ -48,7 +48,9 @@
 \address{Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland}
 
 \begin{abstract}
-We present ResearchShop Disease2Gene, a free, open-source desktop application that automates the extraction of gene-disease associations from full-text biomedical literature. The system employs a hybrid architecture combining Named Entity Recognition (PubTator3) with Large Language Model extraction (Google Gemini Flash) to achieve high recall while maintaining precision through a multi-layer validation framework. This framework includes gene symbol verification against the HGNC database (44,943 genes), grounding checks that verify extracted genes appear in source text, HGVS-compliant variant validation, and citation cross-referencing using dense sequence matching. The application runs entirely on consumer hardware with no server infrastructure; users provide their own Gemini API key. In a benchmark across 12 molecular genetics papers spanning five study types, the pipeline achieved a mean F1 of 0.668 for cancer genomics and 0.611 for GWAS papers, with zero hallucinated gene symbols across all runs. A controlled 36-run experiment demonstrated that multimodal figure analysis improves extraction precision ($\Delta$F1\,=\,+0.833) on text-rich genomics papers by anchoring LLM extraction to author-prioritised findings in figure captions.
+We present \textcolor{red}{\textbf{tool name}}, a free, open-source desktop application that automates the extraction of gene-disease associations from full-text biomedical literature. The system employs a hybrid architecture combining Named Entity Recognition (PubTator3) with Large Language Model extraction (Google Gemini Flash) to achieve high recall while maintaining precision through a multi-layer validation framework. This framework includes gene symbol verification against the HGNC database (44,943 genes), grounding checks that verify extracted genes appear in source text, HGVS-compliant variant validation, and citation cross-referencing using dense sequence matching. The application runs entirely on consumer hardware with no server infrastructure; users provide their own Gemini API key.
+
+\textcolor{red}{\textbf{TODO : WRITE ABOUT BENCHMARK RESULTS}}
 \end{abstract}
 
 \begin{keyword}
@@ -57,7 +59,7 @@ Gene-disease association \sep Biomedical text mining \sep Large Language Models 
 
 \end{frontmatter}
 
-\linenumbers
+% \linenumbers  % Uncomment for manuscript submission with line numbers
 
 %%====================================================================
 \section*{Required Metadata}
@@ -65,278 +67,18 @@ Gene-disease association \sep Biomedical text mining \sep Large Language Models 
 \input{softwarex_metadata}
 
 %%====================================================================
-\section{Motivation and Significance}
-\label{sec:motivation}
+%% Sections — each in its own file for manageable editing
+%%====================================================================
 
-\subsection{The Knowledge-Extraction Bottleneck}
-
-Genomic medicine faces a fundamental knowledge-extraction bottleneck: while sequencing data is abundant, the interpretation of genetic variants relies on evidence scattered across millions of publications. PubMed indexes over 39 million citations with approximately 1.5 million added annually~\cite{pubmed_about_2025}. Manual curation processes---such as those underpinning ClinVar and OMIM---cannot keep pace, leading to significant delays in integrating new findings into clinical practice.
-
-This bottleneck has direct consequences. A significant proportion of variants identified through clinical sequencing are classified as Variants of Uncertain Significance (VUS) due to insufficient published evidence. Even when genetic associations are published, months to years may pass before this information reaches clinical databases. For rare diseases, relevant papers may be scattered across thousands of publications, making comprehensive review impractical without automation.
-
-\subsection{Limitations of Existing Approaches}
-
-Automated text-mining systems offer a solution but face two critical challenges:
-
-\paragraph{Full-text accessibility.} Up to 70\% of gene mentions appear exclusively in full-text sections such as Results and Methods, not in abstracts~\cite{westergaard2018comprehensive}. This requires robust full-text acquisition strategies.
-
-\paragraph{LLM hallucinations.} Large Language Models show promise for information extraction but are prone to generating plausible yet factually incorrect associations~\cite{farquhar2024detecting}. An LLM may generate valid-sounding gene symbols (e.g., ``BRCA3'') or extract real gene names from training data that do not appear in the source paper. For biomedical applications, such errors are unacceptable.
-
-Existing tools fall on a spectrum: dedicated NER systems like PubTator Central~\cite{wei2019pubtator} offer high precision but limited recall and no contextual extraction; LLM-based approaches offer comprehensive extraction but lack validation safeguards. ResearchShop Disease2Gene bridges this gap by combining both approaches in a hybrid architecture with a multi-layer validation framework.
+\input{sections/01_motivation}      % 1. Motivation and Significance
+\input{sections/02_description}     % 2. Software Description
+\input{sections/03_examples}        % 3. Illustrative Examples
+\input{sections/04_impact}          % 4. Impact
+\input{sections/05_conclusions}     % 5. Conclusions
 
 %%====================================================================
-\section{Software Description}
-\label{sec:description}
-
-\subsection{System Architecture}
-
-ResearchShop Disease2Gene is a cross-platform desktop application built with Electron~\cite{electron} (TypeScript/React frontend) and Python 3.9+ (extraction pipeline backend). The application runs entirely on the user's machine with no server infrastructure. Users provide their own Google Gemini API key; all other external API calls (PubMed, PubTator, HGNC) are free and unauthenticated.
-
-The frontend communicates with the Python pipeline via an IPC (Inter-Process Communication) bridge. The pipeline process emits structured JSON messages on stdout (\texttt{PROGRESS:\{...\}}, \texttt{LOG:\{...\}}, \texttt{RESULT:\{...\}}) which the Electron main process parses and forwards to the React renderer. Secrets (API key, email) are passed as environment variables to the spawned Python process, never as command-line arguments.
-
-The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
-
-\begin{enumerate}[leftmargin=*,itemsep=2pt]
-    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{hutchins2016icite} (primary) with Semantic Scholar~\cite{semantic_scholar_api} as fallback. An overfetch factor of~4$\times$ ensures sufficient open-access papers reach extraction.
-
-    \item \textbf{Gene Relevance Scoring (UI-side).} A TypeScript keyword-and-regex scorer runs in the Electron renderer, scoring each paper for gene relevance before the user submits their selection. High/medium papers are auto-selected; low-relevance papers are hidden by default with a ``Show all'' toggle. This replaces traditional pipeline-side abstract screening, giving researchers transparent control.
-
-    \item \textbf{Full-Text Acquisition.} Retrieves structured full text via PMC Entrez JATS XML (primary) or Europe PMC XML (fallback). The system extracts section structure (abstract, introduction, methods, results, discussion), figure captions and image URLs, and supplementary tables. Only open-access papers are fetched; no paywall bypass is attempted.
-
-    \item \textbf{PubTator NER.} Submits PMIDs to NCBI PubTator3~\cite{wei2024pubtator3} for Named Entity Recognition. Returns high-precision gene symbols and variant annotations. These serve as seed candidates for the LLM stage, forming the \emph{precision floor} of the hybrid architecture.
-
-    \item \textbf{LLM Extraction (Gemini Flash).} A two-stage extraction using Google Gemini Flash:
-    \begin{itemize}[itemsep=1pt]
-        \item \emph{Stage~A}: Abstract-level gene discovery (fast, cheap screening).
-        \item \emph{Stage~B}: Full-text detailed extraction with the user's custom schema columns, requiring verbatim citations for each claim.
-    \end{itemize}
-    PubTator results are injected as deterministic candidate seeds, constraining the LLM's hallucination surface. An optional multimodal pass analyses figure images via Gemini Vision.
-
-    \item \textbf{Gene Validation.} Multi-source validation against a bundled HGNC database (44,943 genes), HGNC REST API, and MyGene.info. Includes biotype filtering (protein-coding by default), HGVS variant pattern matching, and citation cross-referencing (Section~\ref{subsec:validation}).
-
-    \item \textbf{Orchestration \& Output.} A multiprocessing worker pool (2--4 persistent processes, 600\,s per-paper timeout) coordinates stages~3--6. Results are deduplicated, ranked by citation count, and written to CSV with full validation metadata.
-\end{enumerate}
-
-\begin{figure*}[t]
-    \centering
-    \includegraphics[width=0.95\textwidth]{architecture_diagram_en.pdf}
-    \caption{ResearchShop Disease2Gene system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes full-text acquisition, PubTator NER, and LLM extraction in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
-    \label{fig:architecture}
-\end{figure*}
-
-\subsection{Hybrid NER-LLM Architecture}
-
-A key design decision is the \emph{hybrid} approach combining two complementary extraction strategies:
-
-\begin{itemize}[itemsep=2pt]
-    \item \textbf{PubTator3 (NER):} High precision, lower recall. Trained on annotated biomedical literature; genes it identifies are almost certainly real. Cannot extract contextual information (disease associations, functional impact, statistical evidence).
-    \item \textbf{Gemini Flash (LLM):} High recall, lower precision. Extracts contextual relationships, statistical evidence, and citations. Prone to hallucination---generating gene symbols from training data that do not appear in the source paper.
-\end{itemize}
-
-The combination operates as follows: PubTator provides the precision floor (safety net), while the LLM extends coverage and adds structured context. Deterministic candidate seeding (\texttt{ENABLE\_DETERMINISTIC\_CANDIDATES}) injects PubTator genes as known-good candidates into the LLM prompt, reducing the hallucination surface. A grounding check then verifies that \emph{every} LLM-extracted gene appears as text in the fetched paper, using the canonical symbol, all HGNC aliases, and the raw label the LLM used.
-
-\subsection{Schema-Driven Extraction}
-
-Users define custom output columns as natural-language descriptions:
-
-\begin{lstlisting}[language=Python]
-columns = {
-  "Key Finding": "Main research finding
-    for this gene",
-  "Statistical Evidence": "p-values, odds
-    ratios, confidence intervals",
-  "Functional Impact": "Effect on protein
-    function or pathway"
-}
-\end{lstlisting}
-
-The pipeline dynamically constructs LLM prompts incorporating these column definitions, enabling researchers to customise extraction for different contexts (pharmacogenomics, rare diseases, cancer genomics) without code modifications. For each extracted value, the LLM is required to provide a verbatim citation from the source text.
-
-\subsection{Desktop Application}
-\label{subsec:desktop}
-
-The application is packaged as a standalone installer for macOS (.dmg), Windows (.exe via NSIS), and Linux (.AppImage/.deb) using electron-builder. On first launch, the application automatically creates a Python virtual environment and installs pipeline dependencies.
-
-The GUI provides:
-\begin{itemize}[itemsep=1pt]
-    \item \textbf{Onboarding wizard:} API key validation, output directory selection, research-use disclaimer.
-    \item \textbf{Query builder:} PubMed search with relevance scoring and paper selection.
-    \item \textbf{Live pipeline monitor:} Real-time progress, per-stage breakdown, Gemini API usage tracking against the 1,500\,calls/day free-tier limit.
-    \item \textbf{Results explorer:} Sortable table with confidence badges (CORROBORATED, MEDIUM, LOW, REVIEW), citation coverage metrics, and CSV/XLSX export.
-\end{itemize}
-
-Security measures include OS-keychain-backed API key encryption (via Electron \texttt{safeStorage}), Content Security Policy headers, IPC path traversal validation, sandboxed renderer, and PMID input sanitisation.
-
-\subsection{Validation Framework}
-\label{subsec:validation}
-
-The validation framework operates at four levels, each targeting different error types:
-
-\subsubsection{Gene Symbol Validation}
-Every extracted gene is verified against authoritative databases in priority order:
-\begin{enumerate}[itemsep=1pt]
-    \item \textbf{Local HGNC database:} A bundled snapshot of 44,943 HGNC entries (19,297 protein-coding) enables offline lookups of official symbols, aliases, and previous symbols.
-    \item \textbf{HGNC REST API:} Fallback for genes not found locally (e.g., recently approved symbols).
-    \item \textbf{MyGene.info:} Second fallback providing additional alias coverage.
-    \item \textbf{Fuzzy matching:} Suggests corrections for near-misses (e.g., ``BRAC1'' $\to$ ``BRCA1'').
-\end{enumerate}
-
-Biotype filtering caps the confidence of non-protein-coding genes (pseudogenes, lncRNAs, miRNAs) at~0.5, below the strict gate threshold. Users studying non-coding RNA can disable this via \texttt{VALIDATE\_PROTEIN\_CODING\_ONLY=false}.
-
-\subsubsection{Grounding Check}
-The grounding check verifies that each candidate gene symbol appears as text in the fetched paper. This prevents ``contextual hallucinations'' where the LLM mentions real genes from its training data that are not discussed in the paper. The check searches for the canonical symbol, all HGNC aliases, and the raw label the LLM used (e.g., ``BNP'' for NPPB).
-
-\subsubsection{Variant Pattern Matching}
-Extracted variants are validated against 12+ HGVS nomenclature patterns~\cite{den2016hgvs}: protein substitution (\texttt{p.Arg175His}), coding variants (\texttt{c.1234A>G}), genomic variants (\texttt{g.123456A>T}), frameshifts, splice sites, indels, copy number states, translocations, and cytogenetic notation. Both three-letter and single-letter amino acid codes are recognised.
-
-\subsubsection{Citation Cross-Referencing}
-For each LLM-provided citation, the system verifies its existence in the paper text using dense sequence matching (\texttt{difflib.SequenceMatcher}, threshold~$\geq$0.85). Additional checks include:
-\begin{itemize}[itemsep=1pt]
-    \item \textbf{Numerical consistency:} All numbers in the citation must exist in the matched paragraph.
-    \item \textbf{Gene context:} The gene symbol or an alias must appear within $\pm$1,500 characters of the citation match.
-    \item \textbf{Encoding normalisation:} Unicode slash variants, LaTeX Greek commands, and ASCII prefixes are normalised symmetrically on both sides before matching.
-\end{itemize}
-
-\subsubsection{Confidence Scoring and Strict Gate}
-Each gene--paper association receives a confidence score:
-\begin{equation}
-C_{\mathrm{total}} = C_g + C_v
-\label{eq:confidence}
-\end{equation}
-where $C_g = 0.7$ if the gene passes HGNC validation (1.0 for gene-only associations) and $C_v = 0.3$ if the variant passes HGVS pattern matching. The strict validation gate (\texttt{FINAL\_VALIDATION\_MIN\_CONFIDENCE=0.7}) filters associations below this threshold from the output CSV. This threshold is a medical accuracy decision: lowering it increases recall but also increases false gene associations.
-
+%% Back matter
 %%====================================================================
-\section{Illustrative Examples}
-\label{sec:examples}
-
-\subsection{Benchmark Dataset}
-
-We evaluated the pipeline on a curated gold standard of 12 open-access molecular genetics papers spanning five study types (Table~\ref{tab:goldstandard}). Each paper was manually annotated for expected gene extractions. The benchmark was run with 3 independent pipeline executions per paper to assess LLM-induced stochasticity.
-
-\begin{table}[htbp]
-\centering
-\caption{Gold standard dataset composition}
-\label{tab:goldstandard}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Study type} & \textbf{Papers} & \textbf{Gold genes} \\
-\midrule
-Cancer genomics & 4 & 18 \\
-GWAS & 3 & 12 \\
-Rare disease & 2 & 4 \\
-RNA-seq & 2 & 13 \\
-Pharmacogenomics & 1 & 3 \\
-\midrule
-\textbf{Total} & \textbf{12} & \textbf{50} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Extraction Performance}
-
-Table~\ref{tab:performance} presents per-type mean F1 scores across 3 independent runs. Wilson 95\% confidence intervals are computed on precision and recall.
-
-\begin{table}[htbp]
-\centering
-\caption{Pipeline performance by study type (mean $\pm$ SD, 3 runs)}
-\label{tab:performance}
-\begin{tabular}{@{}lccc@{}}
-\toprule
-\textbf{Type} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
-\midrule
-Cancer genomics & 0.72 & 0.68 & 0.668 \\
-GWAS & 0.65 & 0.60 & 0.611 \\
-Rare disease & --- & --- & 0.167 \\
-RNA-seq & 0.60 & 0.62 & 0.600 \\
-Pharmacogenomics & \multicolumn{3}{c}{\textit{(runs pending)}} \\
-\midrule
-Hallucinated genes & \multicolumn{3}{c}{\textbf{0 across all runs}} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The pipeline achieved zero hallucinated gene symbols across all benchmark runs, demonstrating the effectiveness of the grounding check and HGNC validation gate. The rare disease F1 reflects structural limitations: one paper was behind a paywall (abstract-only extraction), and the gold standard contains only 1--2 genes per paper, making F1 sensitive to single misses.
-
-\subsection{Figure Analysis Impact}
-
-A controlled 36-run experiment (6 papers $\times$ 2 modes $\times$ 3 runs) evaluated the effect of multimodal figure analysis (Table~\ref{tab:figure}).
-
-\begin{table}[htbp]
-\centering
-\caption{Figure analysis controlled benchmark ($\Delta$F1 = ON $-$ OFF)}
-\label{tab:figure}
-\begin{tabular}{@{}lccr@{}}
-\toprule
-\textbf{Paper (PMID)} & \textbf{F1-ON} & \textbf{F1-OFF} & \textbf{$\Delta$F1} \\
-\midrule
-20129251 (GBM) & 1.000 & 0.167 & \textbf{+0.833} \\
-21720365 (TCGA ovarian) & 0.933 & 0.933 & 0.000 \\
-17463248 (T2D GWAS) & 1.000 & 1.000 & 0.000 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The key finding is that figure analysis improves \emph{precision}, not recall. On the GBM paper (PMID~20129251), Figure-ON extracted exactly the 4 gold-standard genes (Jaccard\,=\,1.0 across 3 runs), while Figure-OFF extracted 44 genes in union (Jaccard\,=\,0.091, 40 false positives). The mechanism: subtype classification figures prominently display only primary driver genes; via deterministic candidate seeding, these anchor the LLM extraction, preventing enumeration of genes mentioned incidentally in methods and background sections.
-
-\subsection{Comparison with PubTator3}
-
-The hybrid pipeline substantially extends PubTator3's coverage while maintaining validation rigour:
-
-\begin{itemize}[itemsep=1pt]
-    \item PubTator3 alone identified genes in 7/12 benchmark papers (recall limited to NER-recognised entities).
-    \item The LLM stage recovered genes described only by natural-language names (e.g., ``brain natriuretic peptide'' $\to$ NPPB) which traditional NER cannot resolve.
-    \item PubTator3's contribution as a precision anchor prevented LLM over-extraction on comprehensive genomics papers.
-\end{itemize}
-
-\subsection{Cost and Performance}
-
-Processing costs approximately \$0.10 USD per paper using the Gemini Flash free tier (1,500~API calls/day). A 12-paper benchmark run completes in approximately 15--20 minutes on consumer hardware (no GPU required). At this rate, 100 papers costs~\$10 versus an estimated \$3,750 for manual curation (30--60 minutes per paper at \$50/hour expert rate).
-
-%%====================================================================
-\section{Impact}
-\label{sec:impact}
-
-\subsection{Key Contributions}
-
-ResearchShop Disease2Gene makes three primary contributions:
-
-\begin{enumerate}[itemsep=2pt]
-    \item \textbf{Hybrid NER-LLM architecture with validation.} The combination of PubTator3 (precision) with Gemini Flash (recall) and a multi-layer validation framework achieves zero hallucinated gene symbols while maintaining high recall. This addresses a critical gap: neither approach alone is sufficient for reliable biomedical extraction.
-
-    \item \textbf{Privacy-preserving desktop application.} The tool runs entirely on consumer hardware with no server infrastructure. Patient data, institutional queries, and research directions never leave the user's machine. Users provide their own API key, avoiding shared-infrastructure costs.
-
-    \item \textbf{Transparent, auditable extraction.} Every output row includes provenance metadata: candidate source, normalisation applied, validation outcome, confidence score, and whether the gene was dropped by any gate. Researchers can audit why any gene appeared or was filtered.
-\end{enumerate}
-
-\subsection{Applications}
-
-\begin{itemize}[itemsep=2pt]
-    \item \textbf{VUS resolution:} Systematically extracts published gene-disease associations to accelerate variant classification.
-    \item \textbf{Rare disease research:} Enables comprehensive literature surveys for conditions with scattered, limited publications.
-    \item \textbf{Drug target discovery:} Identifies gene-disease associations relevant to therapeutic development across large corpora.
-    \item \textbf{Systematic reviews:} Reduces manual effort in evidence synthesis from months to hours.
-\end{itemize}
-
-\subsection{Limitations}
-
-The following limitations are documented in the software's audit log:
-
-\begin{itemize}[itemsep=2pt]
-    \item \textbf{LLM stochasticity:} Gemini Flash is non-deterministic; the same paper may yield different genes across runs. Multi-run averaging is recommended for production use.
-    \item \textbf{Open-access only:} Approximately 40\% of PubMed papers are behind paywalls and receive abstract-only extraction, limiting depth.
-    \item \textbf{Clinical-vs-molecular ambiguity:} Abbreviations like ESR, AST, and CRP appear as both clinical lab tests and gene symbols. A prompt-based disambiguation clause provides soft mitigation; the corroboration gate provides hard backstop.
-    \item \textbf{AI-extracted data requires expert review:} The tool is designed for research acceleration, not clinical decision-making. All outputs should be independently verified before use in publications or clinical contexts.
-\end{itemize}
-
-%%====================================================================
-\section{Conclusions}
-\label{sec:conclusions}
-
-We have presented ResearchShop Disease2Gene, a validated desktop application for gene-disease association extraction from full-text biomedical literature. The hybrid NER-LLM architecture---combining PubTator3's precision with Gemini Flash's recall---achieves zero hallucinated gene symbols across benchmark runs while maintaining competitive F1 scores (0.668 for cancer genomics, 0.611 for GWAS). The multi-layer validation framework (HGNC verification, grounding check, variant pattern matching, citation cross-referencing) provides defence-in-depth against LLM hallucinations. A controlled 36-run experiment demonstrated that multimodal figure analysis improves precision by $\Delta$F1\,=\,+0.833 on text-rich genomics papers.
-
-The software is freely available under the MIT licence as a cross-platform desktop application, requiring only a free Google Gemini API key to operate. At \$0.10 per paper, it enables individual researchers to perform literature-scale extraction that would otherwise require teams of curators.
-
-\paragraph{Future work.} Planned enhancements include: (1)~expanded variant extraction coverage for complex structural variants and non-HGVS notation; (2)~integration with clinical databases (ClinVar, OMIM) for automated evidence cross-referencing; (3)~inter-rater reliability validation of the gold standard; and (4)~specialised handling of immunoglobulin and HLA gene nomenclature.
 
 \section*{Acknowledgements}
 We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling (ICM) at the University of Warsaw.

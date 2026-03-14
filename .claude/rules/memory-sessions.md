@@ -4,6 +4,50 @@
 
 ---
 
+## 2026-03-14 — `/annotate-paper` Skill + Benchmark Expansion Planning
+
+**Goal:** Deep-dive into benchmarking infrastructure, then build an automated gold standard
+creation skill to scale the benchmark from 12 → 24-30 papers for SoftwareX submission.
+
+**Done:**
+
+Benchmarking deep-dive:
+- Reviewed all benchmark infrastructure: gold_standard.json (12 papers), benchmark_runner.py,
+  benchmark_analysis.py, repeatability_check.py, results CSVs, figure comparison data
+- Current state: macro F1 by type: cancer 0.668, GWAS 0.611, RNA-seq 0.600, rare disease 0.167,
+  pharmacogenomics 0.0. Overall ~0.45. Needs 20+ papers for publication.
+
+`/annotate-paper` skill created (`.claude/commands/annotate-paper.md`):
+- 7-step workflow: metadata/OA check → full text → figure analysis → gene inclusion → classify → review → append
+- Uses PubMed MCP (metadata, full text, OA check, pubmed_gene cross-reference)
+- Playwright figure extraction script (`python/scripts/extract_pmc_figures.js`) — navigates to PMC
+  article, finds `<figure>` elements, screenshots each individually + extracts captions
+- Claude multimodal analysis of figure screenshots for gene names
+- Gene inclusion criteria from BENCHMARK_EXPANSION_PLAN.md embedded in skill
+- User review step before appending to gold_standard.json
+
+Lazy-loading fix for Playwright figure extraction:
+- Original script used 500ms fixed timeout — insufficient for PMC lazy-loaded images
+- Fix: remove `loading="lazy"` attribute, copy `data-src` → `src`, `waitForFunction` with
+  `naturalWidth > 0` check (adapts to network speed), 8s timeout fallback
+- Verified: CPIC paper figure went from 23 KB (blank) → 331 KB (rendered)
+- Regression test: T2D GWAS paper figures unchanged (438 KB, 189 KB)
+
+First annotation run (PMID 18650507 → 35152405):
+- Original target (SEARCH simvastatin study) was paywalled — caught by OA check
+- BENCHMARK_EXPANSION_PLAN.md had wrong PMCID (PMC2848885 → actually PMID 20083201)
+- Searched for OA alternative → CPIC guideline for SLCO1B1/ABCG2/CYP2C9 (35152405, PMC9035072)
+- Annotated: 3 genes (SLCO1B1, ABCG2, CYP2C9), excluded HMGCR/CYP3A4/CYP3A5 (insufficient evidence)
+- Gold standard now has 13 papers
+
+**Key workflow decision:** Michal creates all gold standard entries using `/annotate-paper`,
+Suski validates/corrects them. Her corrections become the inter-rater reliability metric (Cohen's κ).
+
+**PubMed MCP instability:** Session expired twice during the workflow. WebFetch to PMC served as
+effective fallback for full text retrieval. Playwright figure extraction unaffected.
+
+---
+
 ## 2026-03-03 — Figure-On vs Figure-Off Controlled Benchmark (A4 YELLOW #4) + Key Security Fix
 
 **Goal:** (1) Replace hardcoded electron-store encryption key with OS-keychain-backed key via

@@ -194,6 +194,19 @@ CSV. The legitimate `build_minimal_row` for failed full-text-fetch (line ~819) i
 
 **Discovered by:** 15-agent deep validation team (2026-03-09), reviewing PMID 22528680 output.
 
+### W16. AI query expansion is unvalidated user-input to Gemini (design tradeoff)
+**ipc-handlers.ts** — `pubmed:expand-query` handler
+**QueryConditionForm.tsx** — "Expand with AI" feature
+
+The AI-assisted PubMed query expansion feature sends the user's query to Gemini Flash and applies the returned query as the new search string. Unlike the pipeline's extraction stages, this expansion path has **no grounding check, no validation gate, and no corroboration requirement**.
+
+- **Risk:** Gemini may add gene aliases or MeSH terms that are plausible but incorrect for the user's intent, silently changing the scope of downstream paper retrieval. An overly broad expansion could retrieve off-topic papers. An overly narrow one could miss relevant papers. The user may not scrutinise the expanded query before running it.
+- **Mitigations in place:** (1) Expansion is a UI-level action — the user must explicitly click "Apply Expansion"; the original query is preserved until that point. (2) Paper count updates in real time after expansion is applied, giving the user a signal if scope changes dramatically. (3) Query is shown in a `pre` block before acceptance. (4) Gemini prompt instructs: "do not drift into unrelated topics" and "do not add gene symbols not in the original query intent". (5) Raw query mode can be exited at any time. (6) The original query is restored when switching to visual builder mode.
+- **Mitigations NOT in place:** No HGNC alias verification of Gemini-suggested expansions. No PubMed syntax validation before applying. No diff against the original query highlighting added/removed terms. No sanitization of the user query string before interpolation into the Gemini prompt — prompt injection is possible but bounded to search-scope manipulation only (the extraction pipeline's grounding check, confidence gate, and validation gate are unaffected by the search query).
+- **Affected files:** `src/main/ipc-handlers.ts` (`pubmed:expand-query`), `src/renderer/components/QueryConditionForm.tsx`
+- **Status:** Accepted. Query expansion is a search-scoping aid, not a pipeline data source. False gene associations cannot enter the extraction pipeline from this path; the downstream PubTator + Gemini extraction + gene validation + confidence gate stages remain unchanged. The risk is irrelevant paper retrieval, not incorrect gene extraction.
+- **Medical accuracy note:** Query scope changes affect which papers are retrieved. Researchers using this feature for a systematic review should manually verify the expanded query before submission and log the original vs expanded query in their methods section.
+
 ---
 
 ## Session Context (Feb 21, 2026)
@@ -845,7 +858,35 @@ After all encoding normalizations and prompt instructions, run `8992eca5` still 
 
 ## TODO
 
-*No open items — abstract screening precision gap addressed by moving screening to the UI preview stage (2026-03-02).*
+### Open Items (2026-03-09 — Elicit gap analysis + existing)
+
+**Blocking before submission (T0):**
+
+- [ ] **[STATS] Add inter-rater reliability to gold standard** — single-rater curation; no Cohen's κ. Have second annotator independently extract genes from ≥3 papers; adjudicate disagreements; add `inter_rater_notes` to `gold_standard.json`. Owner: Suski. (A3 RED #4)
+- [ ] **[STATS] Expand benchmark to 20-30 papers** — current 12-paper benchmark is underpowered vs Elicit's 58 screening reviews. Add rare disease, pharmacogenomics, RNA-seq papers. Get external validation from Suski on gold standard correctness. Owner: Michal + Suski. (Elicit gap: `09_systematic_review_eval.md`)
+
+**High priority before submission (T1):**
+
+- [x] **[TEST] Citation smoke test** — `test_citation_smoke_verbatim_match` added to `python/tests/test_gene_validator.py`. Calls real `_citation_exists_in_paper` with verbatim TCF7L2/T2D prose, asserts `exists is True`. Failure simulation confirmed it catches the C19 silent-False regression. Also fixed 15 pre-existing broken tests (function rename, column renames, macOS multiprocessing mock fix). 65/65 passing. Fixed 2026-03-09. (CLAUDE.md common mistake #5)
+- [ ] **[PAPER] Document Elicit-identified limitations** — add to paper Section 6: (a) no search quality eval pipeline, (b) benchmark underpowered vs Elicit's 58+, (c) single-shot batch vs interactive workspace, (d) hardcoded gene-relevance vs user-defined screening criteria. Owner: Michal. Low effort. (Elicit competitive analysis, 2026-03-09)
+
+**Delegated to co-authors (T1, tracked in MEETING_NOTES):**
+
+- [ ] **[PAPER] Paper accuracy review** — verify benchmark numbers match latest run. Owner: All.
+- [ ] **[PAPER] Biological methods review** — gene validation, variant patterns, biotype filtering. Owner: Suski.
+- [ ] **[PAPER] AI methodology expansion** — prompting strategy, deterministic seeding, grounding check. Owner: Gorski.
+- [ ] **[PAPER] Reproducibility section** — benchmark runner instructions, seed fixing, stochasticity quantification. Owner: Gorski.
+- [ ] **[BUILD] Windows EXE build** — needs Windows machine or CI. Owner: Gorski.
+
+**Medium priority before open-source release (T2):**
+
+- [ ] **[META] Update GitHub repository URL in metadata** — `package.json`, `softwarex_metadata.tex`. Owner: Michal.
+- [ ] **[META] Verify README installation on fresh machine** — Owner: Michal.
+- [ ] **[META] Create GitHub Release** with DMG + EXE + AppImage. Owner: Michal.
+- [ ] **[PIPELINE] HGNC snapshot refresh** — capture genes approved in 2025–2026. Owner: Michal.
+- [ ] **[PIPELINE] `--runs` flag on repeatability harness** — currently hardcoded. Owner: Michal.
+
+*Previously: "No open items" — 4 new items added from Elicit competitive analysis (2026-03-09).*
 
 ### Post-FDA Audit (2026-02-26) — 33 items
 
@@ -859,7 +900,7 @@ After all encoding normalizations and prompt instructions, run `8992eca5` still 
 - [x] **[SAFETY] Add Safety & Limitations section to README** — `README.md`: added `## Safety & Limitations` covering harm model, required cross-checks, FP rate estimate, and CRP/abstract-only failure modes. Fixed 2026-02-28. (A5 RED #3/#4)
 - [x] **[CORRECT] Fix discarded normalization in citation validator** — `gene_validator.py:591`: added `paper_norm_lower = ` assignment so whitespace normalization is applied before citation matching. Fixed 2026-02-28. (A1 RED #3)
 - [x] **[STATS] Add confidence intervals to benchmark metric tables** — `benchmark_analysis.py`: `wilson_ci()` function; binomial 95% CIs on precision/recall/F1; 6 new CSV columns: `precision_ci`, `recall_ci`, `f1_ci`, `precision_low`, `precision_high`, `f1_low`. Fixed 2026-02-28. (A3 RED #3)
-- [ ] **[STATS] Add inter-rater reliability to gold standard** — single-rater curation; no Cohen's κ. Have second annotator independently extract genes from ≥3 papers; adjudicate disagreements; add `inter_rater_notes` to `gold_standard.json`. (A3 RED #4)
+- [x] **[STATS] Add inter-rater reliability to gold standard** — moved to consolidated TODO section above. (A3 RED #4)
 
 **Recommended before paper submission:**
 

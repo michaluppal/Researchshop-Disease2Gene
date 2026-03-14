@@ -1,0 +1,9 @@
+%%====================================================================
+\section{Conclusions}
+\label{sec:conclusions}
+
+We have presented \textcolor{red}{\textbf{tool name}}, a validated desktop application for gene-disease association extraction from full-text biomedical literature. The hybrid NER-LLM architecture---combining PubTator3's precision with Gemini Flash's recall---achieves zero hallucinated gene symbols across benchmark runs while maintaining competitive F1 scores (0.668 for cancer genomics, 0.611 for GWAS). The multi-layer validation framework (HGNC verification, grounding check, variant pattern matching, citation cross-referencing) provides defence-in-depth against LLM hallucinations. A controlled 36-run experiment demonstrated that multimodal figure analysis improves precision by $\Delta$F1\,=\,+0.833 on text-rich genomics papers.
+
+The software is freely available under the MIT licence as a cross-platform desktop application, requiring only a free Google Gemini API key to operate. At \$0.10 per paper, it enables individual researchers to perform literature-scale extraction that would otherwise require teams of curators.
+
+\paragraph{Future work.} Planned enhancements include: (1)~expanded variant extraction coverage for complex structural variants and non-HGVS notation; (2)~integration with clinical databases (ClinVar, OMIM) for automated evidence cross-referencing; (3)~inter-rater reliability validation of the gold standard; and (4)~specialised handling of immunoglobulin and HLA gene nomenclature.

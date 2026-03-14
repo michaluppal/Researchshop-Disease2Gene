@@ -44,12 +44,15 @@ HGNC, outputs CSV. Users bring their own Gemini API key.
 
 ## Benchmark Infrastructure
 
-- **Gold standard:** `python/data/benchmark/gold_standard.json` — 12 papers, 5 types
+- **Gold standard:** `python/data/benchmark/gold_standard.json` — 13 papers, 5 types (target: 24-30)
+- **Gold standard creation:** `/annotate-paper <PMID>` skill — PubMed MCP + Playwright figures + Claude multimodal
+- **Figure extraction:** `python/scripts/extract_pmc_figures.js` — Playwright headless Chromium, per-figure screenshots
 - **Runner:** `python/scripts/benchmark_runner.py` — calls `repeatability_check.py` per paper
 - **Analysis:** `python/scripts/benchmark_analysis.py` — computes P/R/F1 from summaries
 - **Per-paper results:** `python/data/benchmark/{pmid}/` — `run_0{n}_results.csv` + `repeatability_summary.json`
 - **Per-run full text:** `content_dict_{hash}.pkl.gz` — full text fetched during that run (gzipped pickle)
 - **Preliminary F1 (full-LLM mode):** cancer_genomics=0.668, gwas=0.611, rare_disease=0.167, rna_seq/pharmacogenomics TBD
+- **Playwright:** installed globally (`/opt/homebrew/bin/playwright` v1.55.0) + as devDependency; Chromium browser cached
 
 ## Repository
 

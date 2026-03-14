@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Search, Clock, Settings, Plus, FlaskConical } from 'lucide-react'
+import { Search, Clock, Settings, Plus, FlaskConical, Sparkles, Download, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 const mainNavItems = [
@@ -7,12 +7,32 @@ const mainNavItems = [
   { to: '/history', icon: Clock, label: 'History' },
 ]
 
+interface UpdateStatus {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  error?: string
+}
+
 export default function Sidebar() {
   const [version, setVersion] = useState('')
+  const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null)
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     window.api.app.version().then(setVersion)
+  }, [])
+
+  useEffect(() => {
+    window.api.gemini.getDailyUsage().then(({ used, limit }) => setUsage({ used, limit })).catch(() => { /* usage bar is non-critical */ })
+    const cleanup = window.api.gemini.onUsageChanged(({ used, limit }) => setUsage({ used, limit }))
+    return cleanup
+  }, [])
+
+  useEffect(() => {
+    const cleanup = window.api.updater.onStatus((data) => setUpdate(data))
+    return cleanup
   }, [])
 
   return (
@@ -53,6 +73,60 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {usage !== null && (() => {
+        const pct = usage.used / usage.limit
+        const barColor = pct >= 0.95 ? 'bg-red-500' : pct >= 0.80 ? 'bg-amber-400' : 'bg-emerald-400'
+        return (
+          <div className="px-4 pb-3">
+            <div className="flex items-center gap-1 mb-1.5">
+              <Sparkles className="w-3 h-3 text-slate-400" />
+              <span className="text-xs text-slate-400 font-medium">Gemini API</span>
+            </div>
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${barColor}`}
+                style={{ width: `${Math.min(100, pct * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-400 mt-1 text-right">
+              {usage.used.toLocaleString()} / {usage.limit.toLocaleString()} today
+            </p>
+          </div>
+        )
+      })()}
+
+      {/* Update notification */}
+      {update?.status === 'available' && (
+        <div className="px-3 pb-3">
+          <button
+            onClick={() => window.api.updater.download()}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-50 border border-brand-200 text-sm text-brand-700 hover:bg-brand-100 transition-colors"
+          >
+            <Download className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 text-left">v{update.version} available</span>
+          </button>
+        </div>
+      )}
+      {update?.status === 'downloading' && (
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+            <RefreshCw className="w-4 h-4 flex-shrink-0 animate-spin" />
+            <span className="flex-1">Downloading… {update.percent ?? 0}%</span>
+          </div>
+        </div>
+      )}
+      {update?.status === 'downloaded' && (
+        <div className="px-3 pb-3">
+          <button
+            onClick={() => window.api.updater.install()}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 hover:bg-emerald-100 transition-colors"
+          >
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 text-left">Restart to update</span>
+          </button>
+        </div>
+      )}
 
       <div className="p-3 pt-0 border-t border-slate-200">
         <NavLink

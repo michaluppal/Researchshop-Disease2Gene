@@ -267,3 +267,8 @@ The LaTeX paper has been **completely rewritten** to reflect the current archite
 - Inter-rater reliability section needed (Suski)
 - Reproducibility instructions section (Górski)
 - Figure 1 (architecture diagram) might benefit from simplification for print
+- **NEW (Elicit analysis):** Document 4 limitations identified from competitive analysis (no search eval, underpowered benchmark, batch-only UX, hardcoded screening)
+- **NEW (Elicit analysis):** Add 4 future work directions (claim-level verification, LLM query construction, ClinicalTrials.gov, cross-run aggregation)
+- **NEW (Elicit analysis):** Expand benchmark from 12 → 20-30 papers (blocking for credibility vs Elicit's 58)
+
+> Full gap remediation plan: see `ROADMAP.md` P3-A through P3-D (added 2026-03-09)

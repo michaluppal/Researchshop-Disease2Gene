@@ -4,6 +4,45 @@
 
 ---
 
+## 2026-03-14 — `/annotate-paper` Skill for Automated Gold Standard Creation
+
+### Automated gold standard creation over manual curation
+**Decision:** Build a Claude Code skill (`/annotate-paper <PMID>`) that automates benchmark gold
+standard entry creation using PubMed MCP + Playwright figure extraction + Claude multimodal analysis.
+**Rationale:** Scaling from 12 to 24-30 papers manually is slow and inconsistent. The skill ensures
+every entry follows the same gene inclusion criteria (from BENCHMARK_EXPANSION_PLAN.md) and produces
+verbatim source quotes. User reviews the entry before it's appended to gold_standard.json.
+**Workflow:** metadata/OA check (4 parallel MCP calls) → full text → Playwright figure screenshots
+→ Claude reads figures → gene inclusion decision → classify type → user review → append.
+**Files:** `.claude/commands/annotate-paper.md`, `python/scripts/extract_pmc_figures.js`
+
+### Playwright figure extraction: element-level screenshots, not full-page
+**Decision:** Use a Node.js Playwright script that navigates to PMC, finds `<figure>` elements,
+and screenshots each individually — rather than Playwright CLI `--full-page` screenshots.
+**Rationale:** PMC articles can be 30+ printed pages. Full-page screenshots are too large and
+low-resolution for figure details (oncoprint gene labels, volcano plot dots). Element-level
+screenshots capture each figure at native resolution.
+**Lazy-loading fix:** PMC uses `loading="lazy"` on images. Script removes this attribute, copies
+`data-src` → `src`, and waits for `naturalWidth > 0` (browser image decode complete) with 8s timeout.
+**Files:** `python/scripts/extract_pmc_figures.js`
+
+### Benchmark expansion workflow: create-then-validate
+**Decision:** Michal creates ALL gold standard entries (using `/annotate-paper`), Suski validates
+and corrects them. Her corrections serve as the independent assessment for Cohen's κ.
+**Rationale:** Creating gold standards from scratch requires reading full PMC text — easier for
+the tool builder who knows the gene inclusion criteria. Validation/correction is faster for the
+domain expert and still provides the inter-rater reliability metric needed for SoftwareX.
+**Previous plan:** Suski creates gold standards for ~half the new papers independently.
+
+### BENCHMARK_EXPANSION_PLAN.md PMCID error caught
+**Finding:** PMC2848885 was listed as the PMCID for PMID 18650507 (SEARCH simvastatin study).
+It actually maps to PMID 20083201. The SEARCH study is paywalled NEJM with no PMC deposit.
+Replaced with CPIC guideline PMID 35152405 (PMC9035072, 3 genes: SLCO1B1, ABCG2, CYP2C9).
+**Action:** Updated gold_standard.json with correct replacement paper. Notes field documents
+the PMCID error for audit trail.
+
+---
+
 ## 2026-03-03 — Figure Analysis: Precision Anchor Effect (Benchmark Finding)
 
 ### Figure analysis improves precision, not just recall

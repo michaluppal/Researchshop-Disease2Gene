@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
 import { ensurePythonEnv } from './python-setup'
 import { initEncryptionKey, migrateFromHardcodedKey } from './key-manager'
+import { initAutoUpdater } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -52,6 +53,7 @@ app.whenReady().then(async () => {
   migrateFromHardcodedKey()
   registerIpcHandlers()
   createWindow()
+  initAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

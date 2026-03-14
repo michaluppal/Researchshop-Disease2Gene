@@ -1,4 +1,7 @@
-publish: null
+publish:
+  provider: github
+  owner: michaluppal
+  repo: RS_SOFTWAREX
 afterPack: scripts/afterpack.js
 appId: com.researchshop.desktop
 productName: ResearchShop

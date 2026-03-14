@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar } from 'lucide-react'
+import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar, Sparkles, Check, X, Send } from 'lucide-react'
 
 interface Condition {
   operator: string
@@ -17,6 +17,10 @@ interface QueryConditionFormProps {
   constructedQuery: string
   paperCount: number | null
   onPreview: () => void
+  rawMode: boolean
+  rawQuery: string
+  onRawModeChange: (rawMode: boolean) => void
+  onRawQueryChange: (rawQuery: string) => void
 }
 
 const OPERATORS = ['AND', 'OR', 'NOT']
@@ -37,10 +41,18 @@ export default function QueryConditionForm({
   constructedQuery,
   paperCount,
   onPreview,
+  rawMode,
+  rawQuery,
+  onRawModeChange,
+  onRawQueryChange,
 }: QueryConditionFormProps) {
-  const [rawMode, setRawMode] = useState(false)
-  const [rawQuery, setRawQuery] = useState('')
   const [copied, setCopied] = useState(false)
+
+  // AI query builder state
+  const [researchDescription, setResearchDescription] = useState('')
+  const [building, setBuilding] = useState(false)
+  const [aiResult, setAiResult] = useState<{ query: string; explanation: string } | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const updateCondition = (index: number, field: keyof Condition, value: string) => {
     const updated = conditions.map((c, i) => (i === index ? { ...c, [field]: value } : c))
@@ -66,15 +78,113 @@ export default function QueryConditionForm({
     window.api.shell.openExternal(url)
   }
 
+  const handleBuildQuery = async () => {
+    if (!researchDescription.trim()) return
+    setBuilding(true)
+    setAiResult(null)
+    setAiError(null)
+    const result = await window.api.pubmed.buildQuery(researchDescription)
+    setBuilding(false)
+    if (result.error) {
+      setAiError(result.error)
+    } else if (result.query) {
+      setAiResult({ query: result.query, explanation: result.explanation || '' })
+    }
+  }
+
+  const applyAiQuery = () => {
+    if (!aiResult) return
+    onRawQueryChange(aiResult.query)
+    onRawModeChange(true)
+    setAiResult(null)
+    setResearchDescription('')
+  }
+
   return (
     <div className="space-y-5">
+      {/* AI Query Builder */}
+      <div className="rounded-xl border border-violet-200 bg-gradient-to-b from-violet-50 to-white p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-violet-600" />
+          <h3 className="text-sm font-semibold text-violet-800">AI Query Assistant</h3>
+        </div>
+        <p className="text-xs text-violet-600">
+          Describe your research topic in plain English and AI will build an optimized PubMed query for you.
+        </p>
+        <div className="flex gap-2">
+          <input
+            value={researchDescription}
+            onChange={(e) => setResearchDescription(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !building) handleBuildQuery() }}
+            placeholder="e.g. BRCA1 mutations in breast cancer prognosis"
+            className="flex-1 rounded-lg border border-violet-200 bg-white px-3 py-2.5 text-sm placeholder:text-violet-300 transition-colors duration-150 focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
+          />
+          <button
+            onClick={handleBuildQuery}
+            disabled={!researchDescription.trim() || building}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {building ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+            {building ? 'Building…' : 'Build Query'}
+          </button>
+        </div>
+
+        {/* AI error */}
+        {aiError && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+            <X className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span className="flex-1">{aiError}</span>
+            <button onClick={() => setAiError(null)} className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* AI result */}
+        {aiResult && (
+          <div className="space-y-3 pt-1">
+            {aiResult.explanation && (
+              <p className="text-xs text-violet-600">{aiResult.explanation}</p>
+            )}
+            <pre className="text-xs font-mono text-slate-800 bg-white rounded-lg border border-violet-200 p-3 whitespace-pre-wrap break-all">{aiResult.query}</pre>
+            <p className="text-xs text-violet-500 italic">Review the query above before applying — verify it matches your research scope.</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={applyAiQuery}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+                Use This Query
+              </button>
+              <button
+                onClick={() => setAiResult(null)}
+                className="px-3 py-1.5 text-sm font-medium text-slate-600 rounded-lg hover:bg-violet-100 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 border-t border-slate-200" />
+        <span className="text-xs text-slate-400 font-medium">or build manually</span>
+        <div className="flex-1 border-t border-slate-200" />
+      </div>
+
       {/* Mode toggle */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-700">Search Query</h3>
+        <h3 className="text-sm font-medium text-gray-700">Manual Query Builder</h3>
         <button
           onClick={() => {
-            if (!rawMode) setRawQuery(constructedQuery)
-            setRawMode(!rawMode)
+            if (!rawMode) onRawQueryChange(constructedQuery)
+            onRawModeChange(!rawMode)
           }}
           className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
         >
@@ -86,7 +196,7 @@ export default function QueryConditionForm({
       {rawMode ? (
         <textarea
           value={rawQuery}
-          onChange={(e) => setRawQuery(e.target.value)}
+          onChange={(e) => onRawQueryChange(e.target.value)}
           rows={4}
           placeholder='e.g. "BRCA1"[Gene] AND "breast cancer" AND "pathogenic variant"'
           className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-mono transition-colors duration-150 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white resize-none"
@@ -211,17 +321,19 @@ export default function QueryConditionForm({
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={copyQuery}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors"
+          disabled={!constructedQuery}
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <Copy className="w-4 h-4" />
           {copied ? 'Copied!' : 'Copy Query'}
         </button>
         <button
           onClick={testInPubMed}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors"
+          disabled={!constructedQuery}
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <ExternalLink className="w-4 h-4" />
           Test in PubMed
@@ -229,7 +341,7 @@ export default function QueryConditionForm({
         <button
           onClick={onPreview}
           disabled={!constructedQuery}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ml-auto"
         >
           <Eye className="w-4 h-4" />
           Preview &amp; Select

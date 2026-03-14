@@ -1,0 +1,35 @@
+%%====================================================================
+\section{Impact}
+\label{sec:impact}
+
+\subsection{Key Contributions}
+
+\textcolor{red}{\textbf{tool name}} makes three primary contributions:
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Hybrid NER-LLM architecture with validation.} The combination of PubTator3 (precision) with Gemini Flash (recall) and a multi-layer validation framework achieves zero hallucinated gene symbols while maintaining high recall. This addresses a critical gap: neither approach alone is sufficient for reliable biomedical extraction.
+
+    \item \textbf{Privacy-preserving desktop application.} The tool runs entirely on consumer hardware with no server infrastructure. Patient data, institutional queries, and research directions never leave the user's machine. Users provide their own API key, avoiding shared-infrastructure costs.
+
+    \item \textbf{Transparent, auditable extraction.} Every output row includes provenance metadata: candidate source, normalisation applied, validation outcome, confidence score, and whether the gene was dropped by any gate. Researchers can audit why any gene appeared or was filtered.
+\end{enumerate}
+
+\subsection{Applications}
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{VUS resolution:} Systematically extracts published gene-disease associations to accelerate variant classification.
+    \item \textbf{Rare disease research:} Enables comprehensive literature surveys for conditions with scattered, limited publications.
+    \item \textbf{Drug target discovery:} Identifies gene-disease associations relevant to therapeutic development across large corpora.
+    \item \textbf{Systematic reviews:} Reduces manual effort in evidence synthesis from months to hours.
+\end{itemize}
+
+\subsection{Limitations}
+
+The following limitations are documented in the software's audit log:
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{LLM stochasticity:} Gemini Flash is non-deterministic; the same paper may yield different genes across runs. Multi-run averaging is recommended for production use.
+    \item \textbf{Open-access only:} Approximately 40\% of PubMed papers are behind paywalls and receive abstract-only extraction, limiting depth.
+    \item \textbf{Clinical-vs-molecular ambiguity:} Abbreviations like ESR, AST, and CRP appear as both clinical lab tests and gene symbols. A prompt-based disambiguation clause provides soft mitigation; the corroboration gate provides hard backstop.
+    \item \textbf{AI-extracted data requires expert review:} The tool is designed for research acceleration, not clinical decision-making. All outputs should be independently verified before use in publications or clinical contexts.
+\end{itemize}

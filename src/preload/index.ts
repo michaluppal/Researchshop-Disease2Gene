@@ -67,6 +67,8 @@ export interface ElectronAPI {
     fetchDetails: (pmids: string[]) => Promise<Record<string, { title: string; journal: string; authors: string[]; pubYear: string; doi?: string; pmc?: string; url: string }>>
     fetchAbstracts: (pmids: string[]) => Promise<{ abstracts: Record<string, string>; error: string | null }>
     count: (query: string) => Promise<{ count: number }>
+    expandQuery: (query: string) => Promise<{ expandedQuery?: string; changes?: string; error?: string }>
+    buildQuery: (description: string) => Promise<{ query?: string; explanation?: string; error?: string }>
   }
   citations: {
     fetch: (pmids: string[]) => Promise<Record<string, number>>
@@ -74,8 +76,20 @@ export interface ElectronAPI {
   app: {
     version: () => Promise<string>
   }
+  updater: {
+    onStatus: (callback: (data: {
+      status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+      version?: string
+      releaseNotes?: string
+      percent?: number
+      error?: string
+    }) => void) => () => void
+    download: () => Promise<boolean>
+    install: () => Promise<boolean>
+  }
   gemini: {
     getDailyUsage: () => Promise<{ used: number; limit: number; date: string }>
+    onUsageChanged: (callback: (data: { used: number; limit: number; date: string }) => void) => () => void
   }
   pythonSetup: {
     onProgress: (callback: (data: { stage: string; message: string }) => void) => () => void
@@ -146,7 +160,9 @@ const api: ElectronAPI = {
     search: (query, retmax) => ipcRenderer.invoke('pubmed:search', query, retmax),
     fetchDetails: (pmids) => ipcRenderer.invoke('pubmed:fetch-details', pmids),
     fetchAbstracts: (pmids) => ipcRenderer.invoke('pubmed:fetch-abstracts', pmids),
-    count: (query) => ipcRenderer.invoke('pubmed:count', query)
+    count: (query) => ipcRenderer.invoke('pubmed:count', query),
+    expandQuery: (query) => ipcRenderer.invoke('pubmed:expand-query', query),
+    buildQuery: (description) => ipcRenderer.invoke('pubmed:build-query', description)
   },
   citations: {
     fetch: (pmids) => ipcRenderer.invoke('citations:fetch', pmids)
@@ -154,8 +170,22 @@ const api: ElectronAPI = {
   app: {
     version: () => ipcRenderer.invoke('app:version')
   },
+  updater: {
+    onStatus: (callback) => {
+      const handler = (_event: unknown, data: Parameters<typeof callback>[0]) => callback(data)
+      ipcRenderer.on('updater:status', handler)
+      return () => ipcRenderer.removeListener('updater:status', handler)
+    },
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install')
+  },
   gemini: {
-    getDailyUsage: () => ipcRenderer.invoke('gemini:getDailyUsage')
+    getDailyUsage: () => ipcRenderer.invoke('gemini:getDailyUsage'),
+    onUsageChanged: (callback) => {
+      const handler = (_event: unknown, data: Parameters<typeof callback>[0]) => callback(data)
+      ipcRenderer.on('gemini:usage-changed', handler)
+      return () => ipcRenderer.removeListener('gemini:usage-changed', handler)
+    }
   },
   pythonSetup: {
     onProgress: (callback) => {

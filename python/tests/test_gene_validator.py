@@ -106,3 +106,44 @@ class TestCitationExistsInPaper:
         # depending on proximity in the sample text).
         assert isinstance(exists, bool)
         assert 0.0 <= confidence <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Smoke test — C19 regression guard
+# ---------------------------------------------------------------------------
+
+def test_citation_smoke_verbatim_match():
+    """
+    Smoke test: citation validator MUST return True for a verbatim substring of paper_text.
+
+    This guards against the C19 silent failure regression where a TypeError inside
+    _citation_exists_in_paper was swallowed, causing the function to return False/0.0
+    for every citation without raising any error. The pipeline would run normally but
+    produce zero validated citations.
+
+    Reference: CLAUDE.md Common Mistakes #5, AUDIT.md C19.
+    Known-good calibration: PMID 17463248 (T2D GWAS, Scott et al. 2007) — 5/5 citations
+    verified verbatim in PMC XML (2026-02-25).
+    """
+    paper_text = (
+        "We identified a genome-wide significant association between TCF7L2 rs7903146 "
+        "and type 2 diabetes risk (p = 2.1e-9). The TCF7L2 variant showed an odds ratio "
+        "of 1.37 (95% CI 1.28-1.47) in the discovery cohort. Carriers of the risk allele "
+        "had significantly impaired insulin secretion compared to non-carriers."
+    )
+    citation = (
+        "TCF7L2 rs7903146 and type 2 diabetes risk (p = 2.1e-9)"
+    )
+
+    exists, ratio, reason = _citation_exists_in_paper(citation, paper_text, gene_symbol="TCF7L2")
+
+    assert exists is True, (
+        "Citation validator returned False on a verbatim sentence present in paper_text. "
+        "This is the C19 regression: a silent TypeError causes the validator to return "
+        "False/0.0 for all rows without raising an error. "
+        f"Got: exists={exists}, ratio={ratio:.3f}, reason={reason}"
+    )
+    assert ratio >= 0.85, (
+        f"Expected matching ratio >= 0.85 for verbatim match, got {ratio:.3f}. "
+        f"Reason: {reason}"
+    )

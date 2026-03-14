@@ -1,8 +1,9 @@
-import { ipcMain, dialog, shell, app } from 'electron'
+import { ipcMain, dialog, shell, app, BrowserWindow } from 'electron'
 import { getSettings, setSetting, getDefaultOutputDir, SettingsSchema } from './settings-store'
 import { createJob, getJob, updateJob, listJobs, deleteJob } from './job-store'
 import { startPipeline, cancelPipeline, isPipelineRunning, PipelineArgs } from './python-bridge'
-import { getGeminiDailyUsage } from './usage-store'
+import { getGeminiDailyUsage, addGeminiApiCalls } from './usage-store'
+import { downloadUpdate, installUpdate } from './updater'
 import { readFileSync, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
 import path from 'node:path'
@@ -250,6 +251,97 @@ export function registerIpcHandlers(): void {
     } catch {
       return { count: 0 }
     }
+  })
+
+  // ---- PubMed AI Query Builder (Gemini-assisted) ----
+  ipcMain.handle('pubmed:build-query', async (_e, description: unknown) => {
+    if (typeof description !== 'string' || description.trim().length === 0) return { error: 'Please describe your research topic' }
+    if (description.length > 2000) return { error: 'Description too long (max 2000 characters)' }
+
+    const settings = getSettings()
+    const apiKey = settings.geminiApiKey
+    if (!apiKey) return { error: 'No Gemini API key configured. Add your key in Settings.' }
+
+    const prompt = `You are a biomedical PubMed search expert. The user will describe their research topic in plain English. Your job is to construct the best possible PubMed query to find relevant papers.
+
+User's research description: ${description}
+
+Rules:
+- Use valid PubMed Entrez syntax: quoted phrases, [tiab]/[MeSH Terms] field tags, AND/OR/NOT operators, parentheses
+- For gene symbols, include known aliases and full gene names grouped with OR
+- For diseases, include common synonyms and MeSH equivalents
+- Use appropriate field tags ([tiab], [MeSH Terms], [Gene]) based on term type
+- Balance precision and recall — the query should find relevant papers without too much noise
+- Group related concepts with OR, connect different concepts with AND
+- If the description mentions a date range, include it as YYYY:YYYY[dp]
+
+Return a JSON object with exactly these fields:
+{
+  "query": "<the complete PubMed query string>",
+  "explanation": "<brief explanation of the query structure and key terms included>"
+}`
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30_000)
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+        }),
+        signal: controller.signal
+      })
+      if (!res.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let geminiMsg: string | undefined
+        try { geminiMsg = ((await res.json()) as any)?.error?.message } catch { /* ignore */ }
+        if (res.status === 429) return { error: `Gemini rate limit reached — try again shortly${geminiMsg ? `: ${geminiMsg}` : ''}` }
+        if (res.status === 400 || res.status === 403) return { error: geminiMsg ? `Gemini error: ${geminiMsg}` : 'Invalid Gemini API key' }
+        return { error: geminiMsg ? `Gemini error: ${geminiMsg}` : `Gemini API error (HTTP ${res.status})` }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await res.json() as any
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+      if (!text) return { error: 'Empty response from Gemini' }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        return { error: 'Gemini returned invalid JSON — try again' }
+      }
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        typeof (parsed as Record<string, unknown>).query !== 'string' ||
+        !(parsed as Record<string, unknown>).query
+      ) {
+        return { error: 'Unexpected response format from Gemini' }
+      }
+      const p = parsed as Record<string, unknown>
+      addGeminiApiCalls(1)
+      const updatedUsage = getGeminiDailyUsage()
+      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('gemini:usage-changed', updatedUsage) })
+      return { query: p.query as string, explanation: typeof p.explanation === 'string' ? p.explanation : '' }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return { error: 'Request timed out — try again' }
+      return { error: `Query building failed: ${String(err)}` }
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
+
+  // ---- Auto-updater ----
+  ipcMain.handle('updater:download', () => {
+    downloadUpdate()
+    return true
+  })
+
+  ipcMain.handle('updater:install', () => {
+    installUpdate()
+    return true
   })
 
   ipcMain.handle('citations:fetch', async (_e, pmids: string[]) => {

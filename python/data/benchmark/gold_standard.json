@@ -137,6 +137,17 @@
       "oa_confirmed": true,
       "has_figure_genes": false,
       "notes": "Blanco-Melo et al 2020 Cell. COVID-19 transcriptional profiling via RNA-seq. Key finding: imbalanced innate immune response with low IFN but high chemokine expression."
+    },
+    {
+      "pmid": "35152405",
+      "type": "pharmacogenomics",
+      "title": "The Clinical Pharmacogenetics Implementation Consortium Guideline for SLCO1B1, ABCG2, and CYP2C9 genotypes and Statin-Associated Musculoskeletal Symptoms.",
+      "expected_genes": ["SLCO1B1", "ABCG2", "CYP2C9"],
+      "gold_standard_source": "Abstract: 'SLCO1B1 encodes a transporter (SLCO1B1) that facilitates the hepatic uptake of all statins. ABCG2 encodes an efflux transporter (BCRP) that modulates the absorption and disposition of rosuvastatin. CYP2C9 encodes a phase I drug metabolizing enzyme responsible for the oxidation of some statins. Genetic variation in each of these genes alters systemic exposure to statins, which can increase the risk for SAMS.'",
+      "pmcid": "PMC9035072",
+      "oa_confirmed": true,
+      "has_figure_genes": false,
+      "notes": "Cooper-DeHoff et al 2022 Clin Pharmacol Ther. CPIC guideline replacing 2012/2014 SLCO1B1 guidelines. 3 genes with actionable therapeutic recommendations. Key variants: SLCO1B1 rs4149056, ABCG2 rs2231142, CYP2C9*2 rs1799853/*3 rs1057910. HMGCR, CYP3A4, CYP3A5 mentioned but excluded (insufficient evidence). Replaces paywalled SEARCH study (PMID 18650507) in benchmark — BENCHMARK_EXPANSION_PLAN.md had wrong PMCID (PMC2848885 maps to PMID 20083201)."
     }
   ]
 }

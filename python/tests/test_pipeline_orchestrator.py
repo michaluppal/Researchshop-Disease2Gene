@@ -97,6 +97,7 @@ def test_confidence_high():
     from modules.pipeline_orchestrator import _compute_row_confidence
 
     row = {
+        "Gene/Group": "BRCA1",
         "validation_confidence": 1.0,
         "Gene Source": "both",
         "Candidate Source": "deterministic_lexicon,pubtator",
@@ -114,6 +115,7 @@ def test_confidence_review_citation_mismatch():
     from modules.pipeline_orchestrator import _compute_row_confidence
 
     row = {
+        "Gene/Group": "BRCA1",
         "validation_confidence": 1.0,
         "Gene Source": "both",
         "Candidate Source": "deterministic_lexicon,pubtator",
@@ -123,7 +125,7 @@ def test_confidence_review_citation_mismatch():
     }
     level, note = _compute_row_confidence(row, ["Key Finding"])
     assert level == "REVIEW"
-    assert note == "Citation mismatch"
+    assert note == "Citation text not found in paper"
 
 
 def test_confidence_low_abstract_only():
@@ -131,6 +133,7 @@ def test_confidence_low_abstract_only():
     from modules.pipeline_orchestrator import _compute_row_confidence
 
     row = {
+        "Gene/Group": "BRCA1",
         "validation_confidence": 1.0,
         "Gene Source": "both",
         "Candidate Source": "pubtator",
@@ -146,6 +149,7 @@ def test_confidence_review_figure_only():
     from modules.pipeline_orchestrator import _compute_row_confidence
 
     row = {
+        "Gene/Group": "BRCA1",
         "validation_confidence": 1.0,
         "Gene Source": "llm",
         "Candidate Source": "llm_figure",
@@ -153,4 +157,4 @@ def test_confidence_review_figure_only():
     }
     level, note = _compute_row_confidence(row, [])
     assert level == "REVIEW"
-    assert note == "Figure-only"
+    assert note == "Figure-only gene — no prose citation available"

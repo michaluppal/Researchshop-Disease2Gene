@@ -4,19 +4,20 @@
 impress the genomics crowd. Every open item below is framed as: what it is, why it matters,
 and exactly how to execute it.
 
-Last updated: 2026-02-26
+Last updated: 2026-03-09
 
 ---
 
 ## How to read this document
 
-- **P0** — Blocking. The paper cannot exist without these.
-- **P1** — Architecture-freeze prerequisites. Must be done before the pipeline is considered stable.
-- **P2** — Paper depth. Strengthen claims and figures; not strictly blocking.
-- **P3** — Polish. Do during other work, not as standalone sessions.
+- **P0** — Blocking. The paper cannot exist without these. ✅ All done.
+- **P1** — Architecture-freeze prerequisites. ✅ All done.
+- **P2** — Paper depth. Strengthen claims and figures. ✅ All done.
+- **P3** — Pre-submission work identified post-Elicit analysis (2026-03-09). Blocking or high priority.
+- **P4** — Polish. Low-effort items, do during other work.
 
-Recommended execution order:
-`P0-B → P1-A → P1-E → P1-C → P0-A + P0-C + P1-D (one benchmark session) → P1-B → P2-B → P2-A → P2-C → paper`
+Remaining work order (P0-P2 complete):
+`P3-A (benchmark expansion) → P3-B (smoke test) → P3-C (limitations in paper) → P3-D (future work in paper) → P4 polish → submit`
 
 ---
 
@@ -250,22 +251,73 @@ citation coverage with std. Output documented for at least one benchmark paper.
 
 ---
 
-## P3 — Polish (do during other work)
+## P3 — Pre-submission (new items from Elicit gap analysis, 2026-03-09)
 
-- **Archive completed TODOs in AUDIT.md** — the `[x]` list is 20+ items and buries
-  the open ones. Move to a `## Completed` section or collapse. Do at start of next session.
-- **`--runs` flag on repeatability harness** — currently hardcoded, should be a CLI arg.
-  5-minute fix.
-- **Full forensic run-analytics** — per-stage artifact persistence for complete candidate
-  lifecycle transparency. Useful for debugging and paper appendix. Implement after benchmark.
-- **Table-aware citation path** — for clinical papers where findings are table-only. Novel
-  contribution for a follow-on paper. Post-architecture-freeze.
-- **HGNC snapshot refresh** — the bundled `hgnc_genes.json` was generated at 44,933 genes.
-  Refresh before submission to capture genes approved in 2025–2026.
+### P3-A · Expand benchmark to 20-30 papers 🔴 Blocking
+
+**Why it's P3-A (blocking):** Elicit benchmarked 58 systematic reviews for screening and ~128 gold
+standard answers for extraction. RS's 12-paper benchmark is statistically underpowered — SoftwareX
+reviewers will notice. Need 20-30 papers with external validation from a domain expert (Suski).
+
+**Goal:** Add 8-18 papers to `gold_standard.json` covering rare disease, pharmacogenomics, RNA-seq,
+and multi-ethnic GWAS. Have Suski independently verify gold standard gene lists for ≥3 papers.
+
+**Acceptance criteria:** ≥20 papers in benchmark. ≥3 externally validated. Updated F1 numbers in paper.
 
 ---
 
-## Current state summary (as of 2026-02-26)
+### P3-B · Citation smoke test
+
+**Why it matters:** The citation validator silently returned False/0.0 for months (C19). A single
+regression test on known-good input prevents this from recurring.
+
+**Goal:** Add a test asserting >0 citations validate True on PMID 17463248 (T2D GWAS, 95% accuracy).
+
+**Acceptance criteria:** `pytest python/tests/test_gene_validator.py::test_citation_smoke` passes.
+
+---
+
+### P3-C · Document Elicit-identified limitations in paper
+
+**Why it matters:** Honest comparison with Elicit strengthens the paper. Reviewers respect
+self-awareness of gaps more than omission.
+
+**Goal:** Add to paper Section 6 (Limitations): (a) no search quality eval pipeline, (b) benchmark
+underpowered vs commercial tools, (c) single-shot batch vs interactive workspace, (d) gene-relevance
+screening is hardcoded vs user-defined criteria.
+
+**Acceptance criteria:** Four limitation paragraphs in `publication/main.tex` Section 6.
+
+---
+
+### P3-D · Future work items (document in paper, do not implement)
+
+These items emerged from the Elicit competitive analysis. They are out of scope for SoftwareX
+but should be mentioned as future work directions:
+
+- **Claim-level verification for Key Findings** — factored verification (Elicit's approach) applied
+  to free-text extraction fields
+- **LLM-assisted PubMed query construction** — use Gemini + HGNC aliases to expand user queries
+- **ClinicalTrials.gov integration** — trials as first-class data source (highest-value for pharmacogenomics)
+- **Cross-run CSV aggregation UI** — notebook-style result exploration across multiple pipeline runs
+
+**Acceptance criteria:** Future work section in paper mentions all 4 directions.
+
+---
+
+## P4 — Polish (carry-forward from previous P3)
+
+- **`--runs` flag on repeatability harness** — currently hardcoded, should be a CLI arg. 5-minute fix.
+- **HGNC snapshot refresh** — the bundled `hgnc_genes.json` was generated at 44,933 genes.
+  Refresh before submission to capture genes approved in 2025–2026.
+- **Full forensic run-analytics** ✅ Done (2026-02-28) — per-stage artifact persistence implemented.
+- **Table-aware citation path** ✅ Done (2026-02-28) — `StructuredTable` extraction + table-cell validation.
+
+---
+
+## Current state summary (as of 2026-03-09)
+
+> Updated after Elicit competitive analysis (12 articles). See `publication/elicit_research/README.md`.
 
 | Component | Status |
 |-----------|--------|
@@ -277,7 +329,7 @@ citation coverage with std. Output documented for at least one benchmark paper.
 | Citation encoding normalization | ✅ Fixed (C22) |
 | Electron desktop app (UI, IPC, Python bridge) | ✅ Working |
 | GitHub Actions build (macOS/Windows/Linux) | ✅ Working |
-| Benchmark dataset | ✅ Done (12 papers, full LLM, cancer_genomics F1=0.668, gwas F1=0.611) |
+| Benchmark dataset | ⚠️ 12 papers done — needs expansion to 20-30 (P3-A) |
 | pytest test suite | ✅ Done (47 tests, all offline) |
 | LICENSE file | ✅ Done |
 | README | ✅ Done (local_pivot/README.md) |
@@ -286,4 +338,8 @@ citation coverage with std. Output documented for at least one benchmark paper.
 | Disambiguation clause benchmark | ✅ Done (P1-D: 0/5 molecular FN, 1/5 clinical FP-free) |
 | Citation validation on real genetics papers | ✅ Done (P0-C: 95% accuracy on T2D GWAS) |
 | Figure extraction benchmark | ✅ Done (P2-A: 166 figure-only genes across 3/4 papers; oncoprint 130×, COVID volcano 35×) |
-| Figure-on vs figure-off controlled F1 comparison | ✅ Done (A4 YELLOW #4, 2026-03-03: 36 runs, 6 papers × 2 modes × 3 runs. Primary finding: figure analysis improves precision and repeatability, not just recall. GBM paper ΔF1=+0.833 — F1-on=1.000 vs F1-off=0.167. GWAS control ΔF1=0 ✓. Mechanism: figure captions anchor LLM extraction to authors' editorial priorities, suppressing false-positive text mentions.) |
+| Figure-on vs figure-off controlled F1 comparison | ✅ Done (A4 YELLOW #4, 2026-03-03: 36 runs, ΔF1=+0.833 on GBM) |
+| Elicit competitive analysis | ✅ Done (2026-03-09: 12 articles, `publication/elicit_research/`) |
+| Inter-rater reliability | ⬜ Pending (Suski — A3 RED #4) |
+| Paper co-author sections | ⬜ Pending (Suski: bio methods; Gorski: AI methods + reproducibility) |
+| Windows EXE build | ⬜ Pending |

@@ -50,6 +50,8 @@ export default function QueryBuilder() {
   ])
   const [startYear, setStartYear] = useState('')
   const [endYear, setEndYear] = useState('')
+  const [rawMode, setRawMode] = useState(false)
+  const [rawQuery, setRawQuery] = useState('')
   const [paperCount, setPaperCount] = useState<number | null>(null)
   const [isTopicPreviewOpen, setIsTopicPreviewOpen] = useState(false)
   const [topicPapers, setTopicPapers] = useState<PaperItem[]>([])
@@ -69,8 +71,9 @@ export default function QueryBuilder() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Construct query from conditions
+  // Construct query from conditions (or return raw query when in raw mode)
   const constructQuery = useCallback(() => {
+    if (rawMode) return rawQuery
     let query = ''
     conditions.forEach((cond, i) => {
       if (!cond.term.trim()) return
@@ -89,7 +92,7 @@ export default function QueryBuilder() {
       query = query ? `(${query}) AND ${s}:${e}[dp]` : `${s}:${e}[dp]`
     }
     return query
-  }, [conditions, startYear, endYear])
+  }, [conditions, startYear, endYear, rawMode, rawQuery])
 
   // Debounced paper count fetch
   useEffect(() => {
@@ -230,6 +233,10 @@ export default function QueryBuilder() {
               constructedQuery={constructQuery()}
               paperCount={paperCount}
               onPreview={() => setIsTopicPreviewOpen(true)}
+              rawMode={rawMode}
+              rawQuery={rawQuery}
+              onRawModeChange={(val) => { setRawMode(val); if (!val) setRawQuery('') }}
+              onRawQueryChange={setRawQuery}
             />
           </section>
         )}
