@@ -16,6 +16,8 @@ import {
   ChevronUp,
   FlaskConical,
   CircleMinus,
+  Lock,
+  LockOpen,
 } from 'lucide-react'
 import { getJournalQuality, calculateCompositeScore, getScoreBreakdown } from '../utils/journalQuality'
 import { scoreGeneRelevance, type RelevanceResult } from '../utils/geneRelevanceScorer'
@@ -33,6 +35,7 @@ interface PaperItem {
   pubYear?: string
   abstract?: string
   relevance?: RelevanceResult
+  publicationTypes?: string[]
 }
 
 interface TopicResultsModalProps {
@@ -141,6 +144,7 @@ export default function TopicResultsModal({
             pubYear: d?.pubYear,
             abstract,
             relevance,
+            publicationTypes: d?.publicationTypes || [],
           }
         })
 
@@ -274,6 +278,20 @@ export default function TopicResultsModal({
 
   const isLowRelevance = (paper: PaperItem) =>
     paper.relevance && (paper.relevance.tier === 'low' || paper.relevance.tier === 'none')
+
+  const getLowRelevanceReason = (paper: PaperItem): string => {
+    const types = paper.publicationTypes || []
+    if (types.some(t => ['Review', 'Meta-Analysis', 'Systematic Review'].includes(t))) return 'Review article'
+    if (!paper.relevance) return 'Not scored'
+    const { score, hasMolecularContext, geneSymbols } = paper.relevance
+    if (score <= 0 && geneSymbols.length === 0) return 'No molecular gene content'
+    if (!hasMolecularContext && geneSymbols.length === 0) return 'No gene symbols detected'
+    if (!hasMolecularContext) return 'No molecular context'
+    return 'Low gene signal'
+  }
+
+  const currentPagePmids = new Set(visiblePapers.map(p => p.pmid).filter(Boolean) as string[])
+  const offPageSelected = Array.from(selected).filter(pmid => !currentPagePmids.has(pmid)).length
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-50 flex flex-col">
@@ -483,6 +501,13 @@ export default function TopicResultsModal({
                         )}
                       </div>
 
+                      {/* Abstract preview — always visible, 2-line clamp */}
+                      {paper.abstract && (
+                        <p className="text-xs text-slate-500 line-clamp-2 mb-2 leading-relaxed">
+                          {paper.abstract}
+                        </p>
+                      )}
+
                       {/* Badges row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-xs font-mono">
@@ -493,11 +518,47 @@ export default function TopicResultsModal({
                             {paper.citationCount} citations
                           </span>
                         )}
+                        {/* Publication type warning */}
+                        {(() => {
+                          const reviewType = (paper.publicationTypes || []).find(t =>
+                            ['Review', 'Meta-Analysis', 'Systematic Review', 'Editorial', 'Comment', 'Letter'].includes(t)
+                          )
+                          if (!reviewType) return null
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-xs font-medium border border-red-200">
+                              <AlertTriangle className="w-3 h-3" /> {reviewType}
+                            </span>
+                          )
+                        })()}
+                        {/* Full text availability */}
+                        {paper.pmc
+                          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-200">
+                              <LockOpen className="w-3 h-3" /> Full text
+                            </span>
+                          : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 text-xs font-medium border border-amber-200">
+                              <Lock className="w-3 h-3" /> Abstract only
+                            </span>
+                        }
                         {getRelevanceBadge(paper.relevance)}
-                        {paper.doi && (
-                          <span className="text-xs text-slate-400">DOI: {paper.doi}</span>
-                        )}
                       </div>
+
+                      {/* Gene symbols + keywords */}
+                      {paper.relevance && paper.relevance.geneSymbols.length > 0 && (
+                        <p className="text-xs text-slate-400 mt-1.5">
+                          <span className="font-medium text-slate-500">Genes: </span>
+                          {paper.relevance.geneSymbols.slice(0, 6).join(' · ')}
+                        </p>
+                      )}
+                      {paper.relevance && paper.relevance.topKeywords.length > 0 && (
+                        <p className="text-xs text-slate-400">
+                          <span className="font-medium text-slate-500">Keywords: </span>
+                          {paper.relevance.topKeywords.join(', ')}
+                        </p>
+                      )}
+                      {/* Low-relevance reason */}
+                      {lowRelevance && (
+                        <p className="text-xs text-amber-500 mt-1 italic">{getLowRelevanceReason(paper)}</p>
+                      )}
 
                       {/* Action row */}
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
@@ -519,6 +580,26 @@ export default function TopicResultsModal({
                           <ExternalLink className="w-3 h-3" />
                           View on PubMed
                         </span>
+                        {paper.doi && (
+                          <span
+                            role="link"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.api.shell.openExternal(`https://doi.org/${paper.doi}`)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.stopPropagation()
+                                window.api.shell.openExternal(`https://doi.org/${paper.doi}`)
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            DOI
+                          </span>
+                        )}
                         {paper.abstract && (
                           <span
                             onClick={(e) => {
@@ -528,7 +609,7 @@ export default function TopicResultsModal({
                             className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
                           >
                             {expandedAbstract === paper.pmid ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                            Abstract
+                            Full abstract
                           </span>
                         )}
                         {paper.compositeScore !== undefined && (
@@ -654,6 +735,9 @@ export default function TopicResultsModal({
               {selected.size}
             </span>
             paper{selected.size !== 1 ? 's' : ''} selected
+            {offPageSelected > 0 && (
+              <span className="text-xs font-normal text-slate-400 ml-1">(+{offPageSelected} on other pages)</span>
+            )}
           </span>
           {allPmids.length > 0 && (
             <span className="text-xs text-slate-400">

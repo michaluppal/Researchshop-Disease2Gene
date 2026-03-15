@@ -193,7 +193,8 @@ export function registerIpcHandlers(): void {
                 authors: d.authors?.slice(0, 3).map((a: any) => a.name) || [],
                 pubYear: d.pubdate?.split(' ')[0] || d.sortpubdate?.substring(0, 4) || '',
                 doi, pmc,
-                url: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}`
+                url: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}`,
+                publicationTypes: (d.pubtype || []) as string[],
               }
             }
           }
