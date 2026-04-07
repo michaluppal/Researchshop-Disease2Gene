@@ -16,6 +16,76 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - [%(module)s] - %(message)s"
 )
 
+# ---------------------------------------------------------------------------
+# Prompt instruction constants — extracted verbatim from methods for readability.
+# Dynamic parts (paper text, PubTator genes, column descriptions) are injected
+# at the call site. Do NOT change wording without evaluating hallucination impact.
+# ---------------------------------------------------------------------------
+
+_GENE_DISCOVERY_INSTRUCTION_ABSTRACT = (
+    "You are a biomedical gene extraction assistant. "
+    "Extract ALL genes, cytokines, chemokines, interleukins, and gene products mentioned in this abstract. "
+    "Focus on HUMAN protein-coding genes. Do not extract genes from model organisms (mouse, rat, "
+    "zebrafish) unless the paper explicitly maps them to human orthologs. "
+    "Only include non-coding RNA genes (lncRNA, miRNA) if they are a primary finding of the paper. "
+    "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF). "
+    "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
+    "If no specific variant is mentioned for a gene, use an empty string for variant. "
+    "Only extract genes that are ACTUALLY mentioned in the text. Do NOT hallucinate or invent genes. "
+    "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
+    "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "
+    "Do NOT extract abbreviations that are used solely as clinical laboratory measurements or diagnostic test results "
+    "(e.g., 'ESR 78 mm/h' is a lab value, not the ESR1 gene; 'AST 120 U/L' is a liver function test, not the GOT1 gene; "
+    "'CRP 45 mg/L' is an inflammatory marker measurement, not the CRP gene). "
+    "If a paper discusses both the clinical measurement AND the gene/protein at a molecular level, "
+    "only extract it as a gene if the paper explicitly discusses it at the molecular level "
+    "(e.g., gene expression, genetic variants, mRNA/protein levels, polymorphisms, pathway involvement)."
+)
+
+_GENE_DISCOVERY_INSTRUCTION_FULLTEXT = (
+    "You are a biomedical gene extraction assistant. "
+    "Extract ALL genes, cytokines, chemokines, interleukins, growth factors, receptors, and gene products mentioned in this paper. "
+    "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF, IL17A not IL-17A). "
+    "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
+    "If no specific variant is mentioned for a gene, use an empty string for variant. "
+    "Only extract genes that are ACTUALLY discussed in the paper text. Do NOT hallucinate or invent genes that are not in the text. "
+    "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
+    "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "
+    "Do NOT extract abbreviations that are used solely as clinical laboratory measurements or diagnostic test results "
+    "(e.g., 'ESR 78 mm/h' is a lab value, not the ESR1 gene; 'AST 120 U/L' is a liver function test, not the GOT1 gene; "
+    "'CRP 45 mg/L' is an inflammatory marker measurement, not the CRP gene). "
+    "If a paper discusses both the clinical measurement AND the gene/protein at a molecular level, "
+    "only extract it as a gene if the paper explicitly discusses it at the molecular level "
+    "(e.g., gene expression, genetic variants, mRNA/protein levels, polymorphisms, pathway involvement)."
+)
+
+_FIGURE_ANALYSIS_INSTRUCTION = (
+    "You are analyzing a biomedical research figure. "
+    "Extract gene symbols and specific variants that are explicitly visible in the figure text, "
+    "axes labels, legends, annotations, or caption context. "
+    "Use official HGNC gene symbols when possible. "
+    "If no variant is shown, return an empty string for variant. "
+    "Do not guess genes that are not explicitly shown."
+)
+
+_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS = (
+    "\n\nCRITICAL INSTRUCTIONS:"
+    "\n- For gene_name and variant_name: Use exactly the values provided in Associations JSON."
+    '\n- If variant_name is empty in Associations JSON, keep variant_name as empty string "".'
+    "\n- Each gene is INDEPENDENT. You MUST fill in values for EVERY gene in the list, even if multiple genes appear together in the paper. Do NOT leave gene-level rows empty because another gene was already filled."
+    "\n- Always include one gene-only row per gene (variant_name empty). Put gene-level facts specific to THAT gene in those rows."
+    "\n- In variant rows (variant_name non-empty) for the same gene: provide only variant-specific details; if none, leave those variant rows empty."
+    "\n- Do NOT repeat the same sentence across multiple VARIANT rows of the SAME gene. But across different genes, each gene gets its own independent facts even if the paper discusses them together."
+    "\n- For any field that is filled, provide a separate '{Field} Citation' as a direct quote or page/section reference. Leave citation empty if the field is empty."
+    "\n- Do NOT output placeholders like 'No supporting citation found in paper'. Use empty string instead."
+    "\n- Format for gene_name and variant_name: Just the name (e.g., 'BRCA1' or 'rs123456')."
+    "\n- Do NOT combine answers and citations in the same field."
+    "\n- VERBATIM NUMBERS AND UNITS: Copy all numerical values and their units EXACTLY as written in the paper. Do NOT convert, round, or substitute units. For example: if the paper says '242 mg/L', write '242 mg/L' — never '242 mg/dl' or '0.242 g/L'. If the paper says 'p < 0.01', write 'p < 0.01' — not 'p=0.01'."
+    "\n- NO ELLIPSIS IN CITATIONS: Citation fields must be verbatim excerpts from the paper — do NOT use '...', '[...]', or any other ellipsis or truncation. If the full sentence is too long, quote only the most specific relevant clause. If you cannot provide a verbatim quote, leave the citation field empty."
+    "\n- CITATION SOURCE PRIORITY: Prefer citing prose sentences from Results/Discussion/Methods. If the ONLY textual support for a finding is in a table with no accompanying prose sentence, you MAY cite the table in this exact format: '[Table N] caption_text: relevant_cell_values' (e.g., '[Table 2] Gene expression in tumor samples: BRCA1 | p=0.001 | FC=2.5'). Never cite raw number sequences without table label and column context."
+    "\n- GENE-NAMED CITATIONS: Every citation field must include at least one sentence that explicitly names the gene, its protein product, or one of its known aliases/abbreviations (e.g. 'BNP', 'NT-proBNP' for NPPB; 'PSA' for KLK3). If the most relevant sentence does not name the gene (e.g. it says 'heart injury markers' or 'the biomarker'), you may add AT MOST ONE immediately adjacent sentence — the sentence that directly precedes or directly follows it in the same paragraph with no section heading, subsection title, or paragraph break between them. Do NOT reach into Methods, definitions blocks, supplementary tables, or any other section to find the gene name. If no immediately adjacent sentence in the same paragraph names the gene, leave the citation field empty."
+)
+
 
 class GeneInfoPipeline:
     def __init__(
@@ -304,6 +374,11 @@ class GeneInfoPipeline:
         if not getattr(config, "ENABLE_STRICT_EVIDENCE_GATE", True):
             return df
 
+        # Read per-source thresholds once for the log message
+        llm_thresh = int(getattr(config, "EVIDENCE_MIN_NONEMPTY_CELLS_LLM_TEXT", "0"))
+        det_thresh = int(getattr(config, "EVIDENCE_MIN_NONEMPTY_CELLS_DETERMINISTIC", "1"))
+        mixed_thresh = int(getattr(config, "EVIDENCE_MIN_NONEMPTY_CELLS", "1"))
+
         keep_mask = []
         for _, row in df.iterrows():
             row_dict = row.to_dict()
@@ -353,7 +428,7 @@ class GeneInfoPipeline:
         if dropped > 0:
             logging.warning(
                 f"Strict evidence gate dropped {dropped}/{before} rows "
-                f"(per-source thresholds: LLM=0, Deterministic=1, Mixed=1)"
+                f"(per-source thresholds: LLM={llm_thresh}, Deterministic={det_thresh}, Mixed={mixed_thresh})"
             )
         return filtered
 
@@ -623,25 +698,7 @@ class GeneInfoPipeline:
             ),
         )
 
-        instruction = (
-            "You are a biomedical gene extraction assistant. "
-            "Extract ALL genes, cytokines, chemokines, interleukins, and gene products mentioned in this abstract. "
-            "Focus on HUMAN protein-coding genes. Do not extract genes from model organisms (mouse, rat, "
-            "zebrafish) unless the paper explicitly maps them to human orthologs. "
-            "Only include non-coding RNA genes (lncRNA, miRNA) if they are a primary finding of the paper. "
-            "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF). "
-            "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
-            "If no specific variant is mentioned for a gene, use an empty string for variant. "
-            "Only extract genes that are ACTUALLY mentioned in the text. Do NOT hallucinate or invent genes. "
-            "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
-            "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "
-            "Do NOT extract abbreviations that are used solely as clinical laboratory measurements or diagnostic test results "
-            "(e.g., 'ESR 78 mm/h' is a lab value, not the ESR1 gene; 'AST 120 U/L' is a liver function test, not the GOT1 gene; "
-            "'CRP 45 mg/L' is an inflammatory marker measurement, not the CRP gene). "
-            "If a paper discusses both the clinical measurement AND the gene/protein at a molecular level, "
-            "only extract it as a gene if the paper explicitly discusses it at the molecular level "
-            "(e.g., gene expression, genetic variants, mRNA/protein levels, polymorphisms, pathway involvement)."
-        )
+        instruction = _GENE_DISCOVERY_INSTRUCTION_ABSTRACT
 
         contents = [
             types.Content(
@@ -714,22 +771,7 @@ class GeneInfoPipeline:
         )
 
         # Build instruction + paper text
-        instruction = (
-            "You are a biomedical gene extraction assistant. "
-            "Extract ALL genes, cytokines, chemokines, interleukins, growth factors, receptors, and gene products mentioned in this paper. "
-            "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF, IL17A not IL-17A). "
-            "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
-            "If no specific variant is mentioned for a gene, use an empty string for variant. "
-            "Only extract genes that are ACTUALLY discussed in the paper text. Do NOT hallucinate or invent genes that are not in the text. "
-            "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
-            "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "
-            "Do NOT extract abbreviations that are used solely as clinical laboratory measurements or diagnostic test results "
-            "(e.g., 'ESR 78 mm/h' is a lab value, not the ESR1 gene; 'AST 120 U/L' is a liver function test, not the GOT1 gene; "
-            "'CRP 45 mg/L' is an inflammatory marker measurement, not the CRP gene). "
-            "If a paper discusses both the clinical measurement AND the gene/protein at a molecular level, "
-            "only extract it as a gene if the paper explicitly discusses it at the molecular level "
-            "(e.g., gene expression, genetic variants, mRNA/protein levels, polymorphisms, pathway involvement)."
-        )
+        instruction = _GENE_DISCOVERY_INSTRUCTION_FULLTEXT
 
         if self.pubtator_genes:
             # Hybrid mode: PubTator found these genes with high confidence
@@ -1036,14 +1078,9 @@ Paper text:
             label = (figure.get("label") or "").strip()
             caption = (figure.get("caption") or "").strip()
             prompt = (
-                "You are analyzing a biomedical research figure. "
-                "Extract gene symbols and specific variants that are explicitly visible in the figure text, "
-                "axes labels, legends, annotations, or caption context. "
-                "Use official HGNC gene symbols when possible. "
-                "If no variant is shown, return an empty string for variant. "
-                "Do not guess genes that are not explicitly shown."
-                f"\n\nFigure label: {label or 'N/A'}"
-                f"\nFigure caption: {caption or 'N/A'}"
+                _FIGURE_ANALYSIS_INSTRUCTION
+                + f"\n\nFigure label: {label or 'N/A'}"
+                + f"\nFigure caption: {caption or 'N/A'}"
             )
 
             contents = [
@@ -1207,21 +1244,7 @@ Paper text:
         if self.table_inputs and getattr(config, "ENABLE_TABLE_CITATIONS", True):
             prompt_text += f"\n\n--- STRUCTURED TABLE DATA ---\n{self._format_table_summary_for_prompt()}"
 
-        prompt_text += "\n\nCRITICAL INSTRUCTIONS:"
-        prompt_text += "\n- For gene_name and variant_name: Use exactly the values provided in Associations JSON."
-        prompt_text += '\n- If variant_name is empty in Associations JSON, keep variant_name as empty string "".'
-        prompt_text += "\n- Each gene is INDEPENDENT. You MUST fill in values for EVERY gene in the list, even if multiple genes appear together in the paper. Do NOT leave gene-level rows empty because another gene was already filled."
-        prompt_text += "\n- Always include one gene-only row per gene (variant_name empty). Put gene-level facts specific to THAT gene in those rows."
-        prompt_text += "\n- In variant rows (variant_name non-empty) for the same gene: provide only variant-specific details; if none, leave those variant rows empty."
-        prompt_text += "\n- Do NOT repeat the same sentence across multiple VARIANT rows of the SAME gene. But across different genes, each gene gets its own independent facts even if the paper discusses them together."
-        prompt_text += "\n- For any field that is filled, provide a separate '{Field} Citation' as a direct quote or page/section reference. Leave citation empty if the field is empty."
-        prompt_text += "\n- Do NOT output placeholders like 'No supporting citation found in paper'. Use empty string instead."
-        prompt_text += "\n- Format for gene_name and variant_name: Just the name (e.g., 'BRCA1' or 'rs123456')."
-        prompt_text += "\n- Do NOT combine answers and citations in the same field."
-        prompt_text += "\n- VERBATIM NUMBERS AND UNITS: Copy all numerical values and their units EXACTLY as written in the paper. Do NOT convert, round, or substitute units. For example: if the paper says '242 mg/L', write '242 mg/L' — never '242 mg/dl' or '0.242 g/L'. If the paper says 'p < 0.01', write 'p < 0.01' — not 'p=0.01'."
-        prompt_text += "\n- NO ELLIPSIS IN CITATIONS: Citation fields must be verbatim excerpts from the paper — do NOT use '...', '[...]', or any other ellipsis or truncation. If the full sentence is too long, quote only the most specific relevant clause. If you cannot provide a verbatim quote, leave the citation field empty."
-        prompt_text += "\n- CITATION SOURCE PRIORITY: Prefer citing prose sentences from Results/Discussion/Methods. If the ONLY textual support for a finding is in a table with no accompanying prose sentence, you MAY cite the table in this exact format: '[Table N] caption_text: relevant_cell_values' (e.g., '[Table 2] Gene expression in tumor samples: BRCA1 | p=0.001 | FC=2.5'). Never cite raw number sequences without table label and column context."
-        prompt_text += "\n- GENE-NAMED CITATIONS: Every citation field must include at least one sentence that explicitly names the gene, its protein product, or one of its known aliases/abbreviations (e.g. 'BNP', 'NT-proBNP' for NPPB; 'PSA' for KLK3). If the most relevant sentence does not name the gene (e.g. it says 'heart injury markers' or 'the biomarker'), you may add AT MOST ONE immediately adjacent sentence — the sentence that directly precedes or directly follows it in the same paragraph with no section heading, subsection title, or paragraph break between them. Do NOT reach into Methods, definitions blocks, supplementary tables, or any other section to find the gene name. If no immediately adjacent sentence in the same paragraph names the gene, leave the citation field empty."
+        prompt_text += _DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])]
 
@@ -1295,6 +1318,14 @@ Paper text:
     def run_pipeline(self, column_descriptions):
         """
         Run extraction end-to-end and return a DataFrame with gene and citation validation heuristics.
+
+        Stages:
+          0   — Context window validation and truncation
+          0.5–1.5 — Candidate discovery (abstract, full-text ×2, deterministic, figures, PubTator)
+          1.6 — Grounding check (drop hallucinated candidates)
+          2   — Gene validation heuristics + normalization
+          3   — Detail extraction (Stage 3 LLM call)
+          4   — Post-validation (strict gate, citation validation, evidence gate)
         """
         # Step 0: Validate and prepare paper text for context windows
         logging.info("Step 0: Validating paper text against model context limits")
@@ -1304,6 +1335,32 @@ Paper text:
             logging.error("Context validation failed - cannot proceed with pipeline")
             return pd.DataFrame()
 
+        # Steps 0.5–1.5: Candidate discovery
+        self._run_candidate_discovery()
+
+        # Step 1.6: Grounding check
+        self._run_grounding_check()
+
+        # Step 2: Gene validation + normalization
+        self._run_validation_and_normalize()
+
+        # Step 3: Detail extraction
+        extracted_info = self._run_detail_extraction(column_descriptions)
+        if not extracted_info:
+            return pd.DataFrame()
+
+        # Step 4: Post-validation (metadata, strict gate, citation, evidence gate)
+        df = pd.DataFrame(extracted_info)
+        if "variant_name" in df.columns:
+            df["variant_name"] = df["variant_name"].apply(self._normalize_variant_value)
+        return self._run_post_validation(df, column_descriptions, context_validation)
+
+    # ------------------------------------------------------------------
+    # run_pipeline sub-stages (extracted for readability, not reuse)
+    # ------------------------------------------------------------------
+
+    def _run_candidate_discovery(self) -> None:
+        """Steps 0.5–1.5: Discover gene candidates from all sources."""
         # Reset candidate tracking for this run.
         self.candidate_meta = {}
         self.dropped_candidates = []
@@ -1371,77 +1428,82 @@ Paper text:
                     f"Hybrid pipeline: Added {added_count} PubTator genes missed by Gemini"
                 )
 
-        # Step 1.6: Grounding check — drop candidates not found in the fetched paper text.
-        # Flash sometimes hallucinates gene names it associates with the disease topic
-        # (e.g., cytokines for MIS-C papers) even when those genes are absent from the
-        # fetched text (e.g., they only appear in supplementary tables). Without this gate
-        # those genes reach Stage 3, which correctly fills nothing, and empty rows appear
-        # in the final CSV. The check uses: canonical symbol + HGNC aliases + raw_gene_labels
-        # (the exact string the LLM extracted, e.g. "BNP" for NPPB) to maximise recall while
-        # rejecting genuine hallucinations.
-        if getattr(config, "ENABLE_GROUNDING_CHECK", True) and self.paper_text:
-            logging.info(
-                "Step 1.6: Grounding check — verifying candidates are present in paper text"
-            )
-            grounded = []
-            ungrounded_count = 0
-            for assoc in self.associations:
-                gene = (assoc.get("gene") or "").strip()
-                variant = self._normalize_variant_value(assoc.get("variant", ""))
-                if not gene:
-                    continue
-                key = self._assoc_key(gene, variant)
-                meta = self.candidate_meta.get(key) or {}
-                sources = meta.get("sources", set()) or set()
-                if isinstance(sources, set) and sources == {"llm_figure"}:
-                    # Verify gene appears in at least one figure caption or label.
-                    # This is a lighter check than prose grounding — we're confirming
-                    # the gene was actually visible in the figures, not hallucinated.
-                    figure_text_lower = " ".join(
-                        f"{fig.get('label', '')} {fig.get('caption', '')}"
-                        for fig in (self.figure_inputs or [])
-                    ).lower()
-                    candidate_terms = [gene] + list(meta.get("raw_gene_labels") or [])
-                    gene_in_figures = any(
-                        term.lower() in figure_text_lower for term in candidate_terms if term
+    def _run_grounding_check(self) -> None:
+        """Step 1.6: Drop candidates not found in the fetched paper text.
+
+        Flash sometimes hallucinates gene names it associates with the disease topic
+        (e.g., cytokines for MIS-C papers) even when those genes are absent from the
+        fetched text. The check uses: canonical symbol + HGNC aliases + raw_gene_labels
+        (the exact string the LLM extracted, e.g. "BNP" for NPPB) to maximise recall
+        while rejecting genuine hallucinations.
+        """
+        if not (getattr(config, "ENABLE_GROUNDING_CHECK", True) and self.paper_text):
+            return
+
+        logging.info(
+            "Step 1.6: Grounding check — verifying candidates are present in paper text"
+        )
+        grounded = []
+        ungrounded_count = 0
+        for assoc in self.associations:
+            gene = (assoc.get("gene") or "").strip()
+            variant = self._normalize_variant_value(assoc.get("variant", ""))
+            if not gene:
+                continue
+            key = self._assoc_key(gene, variant)
+            meta = self.candidate_meta.get(key) or {}
+            sources = meta.get("sources", set()) or set()
+            if isinstance(sources, set) and sources == {"llm_figure"}:
+                # Verify gene appears in at least one figure caption or label.
+                # This is a lighter check than prose grounding — we're confirming
+                # the gene was actually visible in the figures, not hallucinated.
+                figure_text_lower = " ".join(
+                    f"{fig.get('label', '')} {fig.get('caption', '')}"
+                    for fig in (self.figure_inputs or [])
+                ).lower()
+                candidate_terms = [gene] + list(meta.get("raw_gene_labels") or [])
+                gene_in_figures = any(
+                    term.lower() in figure_text_lower for term in candidate_terms if term
+                )
+                if gene_in_figures:
+                    logging.debug(
+                        f"Grounding check: passing '{gene}' (llm_figure — found in figure text)"
                     )
-                    if gene_in_figures:
-                        logging.debug(
-                            f"Grounding check: passing '{gene}' (llm_figure — found in figure text)"
-                        )
-                        grounded.append(assoc)
-                    else:
-                        logging.warning(
-                            f"Grounding check: dropping '{gene}' (llm_figure — not found in any figure caption/label)"
-                        )
-                        if key in self.candidate_meta:
-                            self.candidate_meta[key]["validation_outcome"] = "rejected_ungrounded_figure"
-                        ungrounded_count += 1
-                    continue
-                # Standard terms: canonical symbol + HGNC aliases
-                terms = list(self._candidate_terms_for_row(gene, variant))
-                # Also include the raw labels extracted by the LLM (e.g. "BNP" for NPPB,
-                # "M-CSF" for CSF1) so normalization doesn't cause false grounding failures.
-                for raw_label in meta.get("raw_gene_labels") or set():
-                    if raw_label and raw_label.upper() not in {t.upper() for t in terms}:
-                        terms.append(raw_label)
-                if self._find_evidence_snippet(terms):
                     grounded.append(assoc)
                 else:
                     logging.warning(
-                        f"Grounding check: dropping '{gene}' (raw: {list(meta.get('raw_gene_labels') or [])}) "
-                        f"— not found in paper text by any of {terms[:6]}"
+                        f"Grounding check: dropping '{gene}' (llm_figure — not found in any figure caption/label)"
                     )
-                    # Mark in meta so the debug artifact records why this candidate was removed
                     if key in self.candidate_meta:
-                        self.candidate_meta[key]["validation_outcome"] = "rejected_ungrounded"
+                        self.candidate_meta[key]["validation_outcome"] = "rejected_ungrounded_figure"
                     ungrounded_count += 1
-            if ungrounded_count:
-                logging.info(
-                    f"Grounding check removed {ungrounded_count}/{len(self.associations)} ungrounded candidates"
+                continue
+            # Standard terms: canonical symbol + HGNC aliases
+            terms = list(self._candidate_terms_for_row(gene, variant))
+            # Also include the raw labels extracted by the LLM (e.g. "BNP" for NPPB,
+            # "M-CSF" for CSF1) so normalization doesn't cause false grounding failures.
+            for raw_label in meta.get("raw_gene_labels") or set():
+                if raw_label and raw_label.upper() not in {t.upper() for t in terms}:
+                    terms.append(raw_label)
+            if self._find_evidence_snippet(terms):
+                grounded.append(assoc)
+            else:
+                logging.warning(
+                    f"Grounding check: dropping '{gene}' (raw: {list(meta.get('raw_gene_labels') or [])}) "
+                    f"— not found in paper text by any of {terms[:6]}"
                 )
-            self.associations = grounded
+                # Mark in meta so the debug artifact records why this candidate was removed
+                if key in self.candidate_meta:
+                    self.candidate_meta[key]["validation_outcome"] = "rejected_ungrounded"
+                ungrounded_count += 1
+        if ungrounded_count:
+            logging.info(
+                f"Grounding check removed {ungrounded_count}/{len(self.associations)} ungrounded candidates"
+            )
+        self.associations = grounded
 
+    def _run_validation_and_normalize(self) -> None:
+        """Step 2: Gene validation heuristics + ensure one gene-level row per gene."""
         pre_validation_associations = list(self.associations)
 
         # Step 2: Apply heuristics to validate extracted genes
@@ -1487,7 +1549,13 @@ Paper text:
         except Exception as e:
             logging.debug(f"Failed to ensure gene-level associations: {e}")
 
-        # Step 3: Extract detailed info for validated associations using larger model
+    def _run_detail_extraction(
+        self, column_descriptions: Dict[str, str]
+    ) -> List[Dict[str, Any]]:
+        """Step 3: Detail extraction + merge + fallback + evidence backfill.
+
+        Returns the extracted_info list (may be empty).
+        """
         logging.info("Step 3: Extracting detailed information for validated associations")
         extracted_info = self.extract_gene_info(column_descriptions)
 
@@ -1525,46 +1593,26 @@ Paper text:
         if extracted_info:
             self._backfill_sparse_row_evidence(extracted_info, column_descriptions)
 
-        # Add validation metadata to results
-        if extracted_info:
-            df = pd.DataFrame(extracted_info)
-            if "variant_name" in df.columns:
-                df["variant_name"] = df["variant_name"].apply(self._normalize_variant_value)
-            self._add_validation_metadata(df)
-            self._add_candidate_provenance_metadata(df)
+        return extracted_info
 
-            if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
-                min_final_conf = float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7))
-                if "validation_confidence" in df.columns:
-                    before = len(df)
-                    conf_mask = df["validation_confidence"].astype(float) >= min_final_conf
-                    dropped_df = df[~conf_mask]
-                    if not dropped_df.empty:
-                        for _, row in dropped_df.iterrows():
-                            row_dict = row.to_dict()
-                            self.strict_gate_drops.append(
-                                {
-                                    "gene": str(row_dict.get("gene_name") or "").strip(),
-                                    "variant": self._normalize_variant_value(
-                                        row_dict.get("variant_name", "")
-                                    ),
-                                    "reason": "below_final_validation_threshold",
-                                    "validation_confidence": row_dict.get("validation_confidence"),
-                                    "threshold": min_final_conf,
-                                }
-                            )
-                    df = df[conf_mask].reset_index(drop=True)
-                    dropped = before - len(df)
-                    if dropped > 0:
-                        logging.warning(
-                            f"Strict validation gate dropped {dropped}/{before} rows below confidence {min_final_conf:.2f}"
-                        )
-                else:
-                    # Defensive default: if confidence metadata missing, don't emit untrusted rows.
-                    logging.warning(
-                        "Strict validation gate active but validation_confidence missing; dropping all rows"
-                    )
-                    for _, row in df.iterrows():
+    def _run_post_validation(
+        self,
+        df: pd.DataFrame,
+        column_descriptions: Dict[str, str],
+        context_validation: Dict[str, Any],
+    ) -> pd.DataFrame:
+        """Step 4: Add metadata, apply strict gate, citation validation, and evidence gate."""
+        self._add_validation_metadata(df)
+        self._add_candidate_provenance_metadata(df)
+
+        if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
+            min_final_conf = float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7))
+            if "validation_confidence" in df.columns:
+                before = len(df)
+                conf_mask = df["validation_confidence"].astype(float) >= min_final_conf
+                dropped_df = df[~conf_mask]
+                if not dropped_df.empty:
+                    for _, row in dropped_df.iterrows():
                         row_dict = row.to_dict()
                         self.strict_gate_drops.append(
                             {
@@ -1572,22 +1620,44 @@ Paper text:
                                 "variant": self._normalize_variant_value(
                                     row_dict.get("variant_name", "")
                                 ),
-                                "reason": "missing_validation_confidence",
+                                "reason": "below_final_validation_threshold",
+                                "validation_confidence": row_dict.get("validation_confidence"),
+                                "threshold": min_final_conf,
                             }
                         )
-                    df = pd.DataFrame()
+                df = df[conf_mask].reset_index(drop=True)
+                dropped = before - len(df)
+                if dropped > 0:
+                    logging.warning(
+                        f"Strict validation gate dropped {dropped}/{before} rows below confidence {min_final_conf:.2f}"
+                    )
+            else:
+                # Defensive default: if confidence metadata missing, don't emit untrusted rows.
+                logging.warning(
+                    "Strict validation gate active but validation_confidence missing; dropping all rows"
+                )
+                for _, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    self.strict_gate_drops.append(
+                        {
+                            "gene": str(row_dict.get("gene_name") or "").strip(),
+                            "variant": self._normalize_variant_value(
+                                row_dict.get("variant_name", "")
+                            ),
+                            "reason": "missing_validation_confidence",
+                        }
+                    )
+                df = pd.DataFrame()
 
-            # Only add citation validation if enabled
-            if not df.empty and config.ENABLE_CITATION_VALIDATION:
-                self._add_citation_validation_metadata(df)
+        # Only add citation validation if enabled
+        if not df.empty and config.ENABLE_CITATION_VALIDATION:
+            self._add_citation_validation_metadata(df)
 
-            df = self._apply_evidence_gate(df, column_descriptions)
+        df = self._apply_evidence_gate(df, column_descriptions)
 
-            if not df.empty:
-                self._add_context_metadata(df, context_validation)
-            return df
-
-        return pd.DataFrame()
+        if not df.empty:
+            self._add_context_metadata(df, context_validation)
+        return df
 
     def _apply_gene_validation_heuristics(self):
         """
@@ -1989,7 +2059,10 @@ Paper text:
 
         for i, (start, key) in enumerate(matches):
             end = matches[i + 1][0] if i + 1 < len(matches) else len(text)
-            sections[key] = text[start:end]
+            if key in sections:
+                sections[key] += "\n\n" + text[start:end]
+            else:
+                sections[key] = text[start:end]
 
         return sections
 
@@ -2082,7 +2155,7 @@ Paper text:
             if "_preamble" in sections:
                 ordered_keys.append("_preamble")
             for key, _ in self._SECTION_HEADER_PATTERNS:
-                if key in sections:
+                if key in sections and key not in ordered_keys:
                     ordered_keys.append(key)
             if "_remainder" in sections:
                 ordered_keys.append("_remainder")

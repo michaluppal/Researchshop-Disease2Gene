@@ -848,6 +848,29 @@ logic:
 - Historical runs reopen with metadata/Excel/JSON support intact.
 - History stats now display extracted gene counts correctly.
 
+### C24. gemini_extractor readability refactor + two bug fixes (2026-04-07)
+
+Code review (Codex) identified two bugs and readability issues in `gemini_extractor.py`:
+
+**Bug 1 — Section dict key overwrite (P1):**
+`_split_paper_into_named_sections()` stored sections in a dict keyed by section name. Two regex
+patterns in `_SECTION_HEADER_PATTERNS` map to `"results"` (one for "Results and Discussion", one
+for standalone "Results"). If both matched, the second overwrites the first, silently losing
+content. Additionally, the reassembly loop iterated all pattern entries and added `"results"` to
+`ordered_keys` twice, doubling the results section in truncated output.
+Fix: concatenate when key exists; deduplicate `ordered_keys`.
+
+**Bug 2 — Hardcoded evidence gate log (P3):**
+`_apply_evidence_gate()` log message hardcoded `"LLM=0, Deterministic=1, Mixed=1"` while actual
+values are read from config at runtime. Fix: read config values once at method top, interpolate.
+
+**Readability refactor (behavior-preserving):**
+- Extracted 4 prompt instruction strings to module-level constants
+- Extracted `run_pipeline()` (296 lines) into 5 named private methods (~25-line orchestrator)
+- No pipeline behavior, stage ordering, or conditional logic changed
+
+**Files:** `python/modules/gemini_extractor.py`
+
 ---
 
 ## P1-C — Abstract Screener Calibration (2026-02-25)

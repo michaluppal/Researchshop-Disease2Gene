@@ -48,6 +48,7 @@ python/data/benchmark/**/*_metadata.csv
 *.log
 *.out
 *.toc
+_minted-*/
 *.brf
 *.blg
 *.fls
