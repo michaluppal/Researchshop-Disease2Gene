@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-04-07 — gemini_extractor refactor + parallel AI analysis feature
+
+**Done:**
+
+gemini_extractor.py readability refactor (commit `df674fe`):
+- Fixed P1 bug: `_split_paper_into_named_sections()` dict overwrite losing content when duplicate section keys matched
+- Fixed P3 bug: `_apply_evidence_gate()` log message hardcoded thresholds instead of reading from config
+- Extracted 4 prompt instruction strings to module-level constants
+- Extracted `run_pipeline()` from 296 lines → 25-line orchestrator with 5 named private methods
+- Cleaned up orphaned SYSTEM_REPORT LaTeX artifacts
+- 65/65 tests pass, no behavior changes
+
+Parallel AI analysis feature (commit `04f92cc`, Codex + local audit):
+- Settings toggle in new "Performance" section (default OFF, warns free-tier users about 15 RPM)
+- `parallelAnalysis` threaded through settings-store → preload → useSettings → python-bridge (env var)
+- `PARALLEL_ANALYSIS` config flag in Python
+- Orchestrator dual-mode: unchanged sequential (default) + in-flight parallel scheduler
+- Extracted `_prepare_paper_inputs()`, `_finalize_paper_result()`, `_accumulate_result()` as shared helpers
+- Parallel scheduler: maintains ≤pool_size workers active, polls ready() every 200ms, input-order assembly
+- Timeout: skip without retry, harvest ready results before pool restart, re-submit interrupted healthy work
+- P1 fix: sequential mode now polls ready()+check_cancellation() instead of blocking ar.get(timeout=600)
+- 2-agent audit: frontend APPROVED, backend CONDITIONAL APPROVE → P1 fixed by Codex
+
+**Workflow note:** Ultraplan (Claude Code web) implemented both features but couldn't push due to missing GitHub credentials. Implementation was recovered/redone locally. Future Ultraplan sessions need `gh auth login` configured first.
+
+**Files touched:**
+- `python/modules/gemini_extractor.py`, `python/modules/config.py`, `python/modules/pipeline_orchestrator.py`
+- `src/main/settings-store.ts`, `src/main/python-bridge.ts`, `src/preload/index.ts`
+- `src/renderer/hooks/useSettings.ts`, `src/renderer/pages/Settings.tsx`
+- `.gitignore`, `AUDIT.md`
+
+---
+
 ## 2026-04-07 — Code-review fixes: job lifecycle, cancellation, and history reopening
 
 **Done:**
