@@ -813,6 +813,41 @@ After all encoding normalizations and prompt instructions, run `8992eca5` still 
 
 **Conclusion from this sprint:** All deterministic encoding bugs are fixed. The residual citation failures are a consequence of testing on a clinical outcomes paper (PMID 34876594) where BNP data is exclusively in tables, not accompanied by matching prose sentences. Evaluation on a molecular genetics paper where gene findings have explicit Results-section prose is required to properly assess citation quality.
 
+### C23. Desktop lifecycle/history integrity fixes (2026-04-07)
+
+Code review identified four user-visible desktop integrity issues outside the biomedical extraction
+logic:
+
+1. Cancelling a run cleared bridge state immediately after `SIGTERM`, even though the Python child
+   could still emit late `pipeline:*` events on unscoped IPC channels.
+2. Jobs inserted into `jobs.db` started in `queued` but were never marked `running`, so early exits
+   before a `RESULT:` line could remain stuck as `queued`.
+3. Successful jobs persisted only `result_path`, so reopening a historical run from History lost
+   access to metadata CSV / Excel / JSON artifacts even when they had been generated.
+4. History UI read stale stat key `genes_found` while the orchestrator publishes `genes_extracted`.
+
+**Fixes shipped:**
+- `src/main/python-bridge.ts`
+  - mark jobs `running` immediately after spawn
+  - keep `currentProcess` / `currentJobId` live until `close` / `error`
+  - ignore `RESULT:` payloads for already-cancelled jobs
+  - persist `metadata_path`, `excel_path`, and `json_path` on successful completion
+- `src/main/job-store.ts`
+  - extend `jobs` schema with nullable artifact-path columns
+  - add startup migration for existing user databases
+- `src/renderer/pages/History.tsx`
+  - reopen Results with the full artifact bundle, not just primary CSV
+  - display `genes_extracted` in expanded job details
+- `src/preload/index.ts`, `src/renderer/hooks/useJobHistory.ts`
+  - thread new history fields through the typed preload/UI boundary
+
+**Impact:**
+- Cancelling a run no longer permits overlap with the next run on the same IPC channels.
+- Early bridge/bootstrap failures now land in History as `failed` instead of getting stuck
+  forever in `queued`.
+- Historical runs reopen with metadata/Excel/JSON support intact.
+- History stats now display extracted gene counts correctly.
+
 ---
 
 ## P1-C — Abstract Screener Calibration (2026-02-25)

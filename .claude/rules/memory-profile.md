@@ -30,7 +30,7 @@ HGNC, outputs CSV. Users bring their own Gemini API key.
 - **Python venv** auto-created at `python/.venv/` on first app launch
 - **Local HGNC database** — 44,943 genes bundled at `python/data/reference/hgnc_genes.json` (6.6 MB, refreshed 2026-02-28)
 - **electron-store** — encrypted settings (API key, email)
-- **better-sqlite3** — local job history
+- **better-sqlite3** — local job history; `jobs.db` now stores primary CSV plus metadata/Excel/JSON artifact paths so History can reopen full result bundles
 
 ## External APIs Used
 
@@ -44,7 +44,7 @@ HGNC, outputs CSV. Users bring their own Gemini API key.
 
 ## Benchmark Infrastructure
 
-- **Gold standard:** `python/data/benchmark/gold_standard.json` — 13 papers, 5 types (target: 24-30)
+- **Gold standard:** `python/data/benchmark/gold_standard.json` — 24 papers, 5 types; 23/24 have v2 two-tier schema (21076407 paywalled)
 - **Gold standard creation:** `/annotate-paper <PMID>` skill — PubMed MCP + Playwright figures + Claude multimodal
 - **Figure extraction:** `python/scripts/extract_pmc_figures.js` — Playwright headless Chromium, per-figure screenshots
 - **Runner:** `python/scripts/benchmark_runner.py` — calls `repeatability_check.py` per paper

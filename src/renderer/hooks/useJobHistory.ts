@@ -8,6 +8,9 @@ export interface Job {
   created_at: string
   completed_at: string | null
   result_path: string | null
+  metadata_path: string | null
+  excel_path: string | null
+  json_path: string | null
   stats: string | null
   error: string | null
 }

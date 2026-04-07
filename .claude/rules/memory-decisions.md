@@ -4,6 +4,44 @@
 
 ---
 
+## 2026-04-07 — Pipeline cancellation remains single-flight until child exit
+
+**Decision:** Keep `currentProcess` and `currentJobId` populated after a cancel request until the Python child actually emits `close`/`error`. Do not clear bridge state immediately after `SIGTERM`.
+**Rationale:** Pipeline IPC events are broadcast on global `pipeline:*` channels with no job ID. Clearing bridge state early allowed a new run to start while the old process was still draining, which could mix stale logs/progress/results into the next run. The bridge must remain busy until shutdown completes.
+**Files:** `src/main/python-bridge.ts`
+
+## 2026-04-07 — Persist auxiliary artifact paths in jobs.db
+
+**Decision:** Store `metadata_path`, `excel_path`, and `json_path` alongside `result_path` in the local jobs database, with a startup migration that adds missing columns for existing installs.
+**Rationale:** The Results page needs those paths to reopen metadata and export artifacts from historical runs. Persisting only the primary CSV path silently degraded old runs when opened from History.
+**Files:** `src/main/job-store.ts`, `src/main/python-bridge.ts`, `src/renderer/pages/History.tsx`, `src/preload/index.ts`, `src/renderer/hooks/useJobHistory.ts`
+
+## 2026-04-07 — Query-builder Gemini model ID explicitly verified
+
+**Decision:** Treat `gemini-2.5-flash-lite` in the PubMed query-builder IPC path as an explicitly verified model ID, not an inferred replacement.
+**Rationale:** `CLAUDE.md` forbids guessing model names because stale IDs fail at runtime. The model was checked after review and confirmed valid/stable, so the current hardcoded query-builder endpoint is acceptable until it is next intentionally revised.
+**Files:** `src/main/ipc-handlers.ts`
+
+## 2026-03-15 — Gold standard v2 schema: agent team backfill strategy
+
+**Decision:** Use one Sonnet background agent per paper to backfill `expected_genes_comprehensive`. Each agent independently runs PubTator + pubmed_gene eLink + PMC full text and saves to `/tmp/backfill/{PMID}.json`. Human reviews all results before writing to `gold_standard.json`.
+**Rationale:** Parallelism is safe here because papers are independent. Keeping output in temp files (not directly writing to gold_standard) forces human review before committing. The three-source cross-reference (PT/PG/FT) is the same methodology as the annotate-paper skill.
+**Files:** `python/data/benchmark/gold_standard.json`
+
+## 2026-03-15 — OA indicator uses pmc field presence, not esummary availablefull
+
+**Decision:** Show "Full text" / "Abstract only" badge based on whether `pmc` field is populated in the fetchDetails response, rather than trying to extract `availablefull`/`freefull` from esummary.
+**Rationale:** The PubMed search already applies `"loattrfull text"[sb]`, so results are pre-filtered for OA. The `pmc` field (PMC ID) is the clearest signal that PMC full text is accessible — if PMC ID exists, the pipeline can fetch it. The `availablefull` esummary field is less reliable.
+**Files:** `src/renderer/components/TopicResultsModal.tsx`
+
+## 2026-03-15 — Publication type from esummary pubtype, not query-time filter
+
+**Decision:** Expose `publicationTypes` per paper by extracting `d.pubtype` in the `fetchDetails` IPC handler and threading it through to the UI for display. Previously, publication type filtering was applied only at query-build time (as a NOT clause) and was invisible per-paper.
+**Rationale:** Users need to see which papers are reviews/meta-analyses so they can make informed selection decisions. The query filter catches most reviews but some slip through. Showing a per-paper badge is more transparent than silently filtering.
+**Files:** `src/main/ipc-handlers.ts`, `src/preload/index.ts`, `src/renderer/components/TopicResultsModal.tsx`
+
+---
+
 ## 2026-03-14 — `/annotate-paper` Skill for Automated Gold Standard Creation
 
 ### Automated gold standard creation over manual curation

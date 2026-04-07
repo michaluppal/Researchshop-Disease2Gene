@@ -4,6 +4,74 @@
 
 ---
 
+## 2026-04-07 — Code-review fixes: job lifecycle, cancellation, and history reopening
+
+**Done:**
+- Fixed bridge/job lifecycle regression where jobs could stay `queued` forever on early Python exit:
+  `startPipeline()` now marks jobs `running` immediately, and fallback close/error handling preserves
+  `failed`/`cancelled` outcomes correctly.
+- Fixed cancel semantics in `python-bridge.ts`: the bridge now stays single-flight until the child
+  process really exits, preventing a cancelled run from overlapping with the next run on the same
+  unscoped `pipeline:*` IPC channels.
+- Extended `jobs.db` schema with `metadata_path`, `excel_path`, and `json_path`, with startup
+  migration for existing installs. Historical runs can now reopen the full result bundle instead of
+  only the primary CSV.
+- Updated History UI to pass auxiliary artifact paths back into Results and fixed the stats key
+  mismatch (`genes_extracted` instead of stale `genes_found`).
+- Documented the findings and fixes in `memory-decisions.md`, `memory-profile.md`, and `AUDIT.md`
+  so future Claude sessions inherit the context.
+
+**Files touched:**
+- `src/main/job-store.ts`
+- `src/main/python-bridge.ts`
+- `src/preload/index.ts`
+- `src/renderer/hooks/useJobHistory.ts`
+- `src/renderer/pages/History.tsx`
+- `.claude/rules/memory-decisions.md`
+- `.claude/rules/memory-profile.md`
+- `.claude/rules/memory-sessions.md`
+- `AUDIT.md`
+
+**Verification follow-up:**
+- Review verification confirmed the cancellation single-flight fix, running-state transition, DB
+  migration, artifact-path reopening, and stats-key correction all behave as intended.
+- `gemini-2.5-flash-lite` in the PubMed query-builder IPC path was explicitly verified as a valid,
+  stable model ID, so that hardcoded endpoint is currently intentional rather than guessed.
+
+## 2026-03-15 — Gold standard v2 backfill (12 papers) + paper selection UI overhaul
+
+**Done:**
+
+Gold standard v2 backfill:
+- Launched 12 parallel Sonnet background agents (one per v1 paper) to generate `expected_genes_comprehensive` arrays
+- Each agent ran PubTator3 NER + pubmed_gene eLink + PMC full text, cross-referencing all three sources
+- Wrote results to `/tmp/backfill/{PMID}.json`, reviewed, then merged into `gold_standard.json`
+- 23/24 papers now have two-tier schema (21076407 paywalled — skip confirmed)
+- Notable: PubTator returned empty for old papers (2007–2009); pubmed_gene eLink also sparse for older PMIDs
+- Agent for 24132290 (pan-cancer) couldn't write file due to permissions — JSON provided in output, saved manually
+
+Paper selection UI (TopicResultsModal) — 7 fixes committed `9d2cdbf`:
+1. OA badge: green "Full text" / amber "Abstract only" based on `pmc` field presence
+2. Inline abstract preview: 2-line clamp always visible (no click needed)
+3. Gene symbols + keywords shown: `geneSymbols` and `topKeywords` from existing `RelevanceResult`
+4. Low-relevance reason: "Review article" / "No molecular context" / "No gene symbols detected"
+5. DOI clickable: opens doi.org (same pattern as PubMed link)
+6. Cross-page selection: footer shows "(+N on other pages)" using `Array.from(selected)`
+7. Publication type badge: red "Review"/"Meta-Analysis" warning from esummary `pubtype` field
+- Also enriched `ipc-handlers.ts` fetchDetails to return `publicationTypes` + updated preload type
+
+**Context:**
+- P3-A benchmark expansion now at 24 papers (target 24-30 ✅ range hit)
+- Benchmark F1 numbers for new 11 papers still TBD (needs Gemini API key to run)
+- Pre-existing typecheck errors in `tsconfig.node.json` (electron-store, AbortController) — not introduced by this session
+
+**Next:**
+- Run full-LLM benchmark on new 11 papers (needs GEMINI_API_KEY + ENTREZ_EMAIL in shell)
+- P3-B citation smoke test
+- P3-C/D paper sections (limitations + future work)
+
+---
+
 ## 2026-03-14 — `/annotate-paper` Skill + Benchmark Expansion Planning
 
 **Goal:** Deep-dive into benchmarking infrastructure, then build an automated gold standard

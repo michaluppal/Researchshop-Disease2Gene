@@ -92,6 +92,11 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
       ENTREZ_EMAIL: settings.entrezEmail,
     }
   })
+  updateJob(jobId, {
+    status: 'running',
+    error: null,
+    completed_at: null
+  })
 
   const mainWindow = BrowserWindow.getAllWindows()[0]
 
@@ -149,6 +154,10 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
           if (!isResultPayload(raw)) {
             console.error('[python-bridge] Invalid RESULT payload:', line.slice(0, 200))
           } else {
+            const job = getJob(jobId)
+            if (job?.status === 'cancelled') {
+              continue
+            }
             mainWindow?.webContents.send('pipeline:result', raw)
             if (raw.error) {
               updateJob(jobId, {
@@ -160,6 +169,9 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
               updateJob(jobId, {
                 status: 'completed',
                 result_path: raw.local_path || null,
+                metadata_path: raw.metadata_path || null,
+                excel_path: raw.excel_path || null,
+                json_path: raw.json_path || null,
                 completed_at: new Date().toISOString()
               })
             }
@@ -177,47 +189,53 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
   })
 
   currentProcess.on('close', (code) => {
-    currentProcess = null
     mainWindow?.webContents.send('pipeline:exit', { code })
 
     // If process exited without a RESULT line, mark as failed
     if (currentJobId === jobId) {
       const job = getJob(jobId)
-      if (job && job.status === 'running') {
+      if (job?.status === 'running') {
         updateJob(jobId, {
           status: code === 0 ? 'completed' : 'failed',
           error: code !== 0 ? `Process exited with code ${code}` : null,
           completed_at: new Date().toISOString()
         })
+      } else if (job?.status === 'cancelled' && !job.completed_at) {
+        updateJob(jobId, {
+          completed_at: new Date().toISOString()
+        })
       }
       currentJobId = null
     }
+    currentProcess = null
+    lastJobApiCalls = 0
   })
 
   currentProcess.on('error', (err) => {
-    currentProcess = null
     mainWindow?.webContents.send('pipeline:error', { message: err.message })
-    updateJob(jobId, {
-      status: 'failed',
-      error: err.message,
-      completed_at: new Date().toISOString()
-    })
+    const job = getJob(jobId)
+    if (job?.status !== 'cancelled') {
+      updateJob(jobId, {
+        status: 'failed',
+        error: err.message,
+        completed_at: new Date().toISOString()
+      })
+    }
     currentJobId = null
+    currentProcess = null
+    lastJobApiCalls = 0
   })
 }
 
 export function cancelPipeline(): boolean {
   if (currentProcess) {
-    currentProcess.kill('SIGTERM')
     if (currentJobId) {
       updateJob(currentJobId, {
         status: 'cancelled',
         completed_at: new Date().toISOString()
       })
-      currentJobId = null
     }
-    currentProcess = null
-    return true
+    return currentProcess.kill('SIGTERM')
   }
   return false
 }

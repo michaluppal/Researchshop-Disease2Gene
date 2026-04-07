@@ -100,7 +100,7 @@ function ExpandedDetails({ job }: { job: Job }) {
         </div>
         <div>
           <span className="text-slate-400 text-xs block">Genes found</span>
-          {stats?.genes_found != null ? String(stats.genes_found) : '--'}
+          {stats?.genes_extracted != null ? String(stats.genes_extracted) : '--'}
         </div>
         <div>
           <span className="text-slate-400 text-xs block">API calls</span>
@@ -150,8 +150,13 @@ export default function History() {
     }
   }
 
-  const openResult = (path: string) => {
-    navigate(`/results?path=${encodeURIComponent(path)}`)
+  const openResult = (job: Job) => {
+    if (!job.result_path) return
+    const params = new URLSearchParams({ path: job.result_path })
+    if (job.excel_path) params.set('excel', job.excel_path)
+    if (job.metadata_path) params.set('meta', job.metadata_path)
+    if (job.json_path) params.set('json', job.json_path)
+    navigate(`/results?${params.toString()}`)
   }
 
   const toggleExpand = (id: string) => {
@@ -257,7 +262,7 @@ export default function History() {
                             >
                               {job.result_path && job.status === 'completed' && (
                                 <button
-                                  onClick={() => openResult(job.result_path!)}
+                                  onClick={() => openResult(job)}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50"
                                   title="View results"
                                 >
