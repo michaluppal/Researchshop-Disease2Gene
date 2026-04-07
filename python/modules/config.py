@@ -151,6 +151,11 @@ AI_PER_PAPER_TIMEOUT_SECONDS = int(os.getenv("AI_PER_PAPER_TIMEOUT_SECONDS", "60
 # Hard-capped at 4 to avoid excessive memory use on the user's local machine.
 AI_WORKER_POOL_SIZE = int(os.getenv("AI_WORKER_POOL_SIZE", "2"))
 
+# Parallel AI analysis: process multiple papers concurrently using the worker pool.
+# Default OFF (sequential) — safe for free-tier Gemini keys (15 RPM).
+# Enable for paid keys with higher rate limits to speed up multi-paper runs.
+PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
+
 # Overfetch factor: how many extra candidate papers to analyze relative to requested top_n_cited
 # to increase the chance of returning the desired number of papers with results
 ANALYSIS_OVERFETCH_FACTOR = int(os.getenv("ANALYSIS_OVERFETCH_FACTOR", "4"))

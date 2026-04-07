@@ -7,6 +7,7 @@ export function useSettings() {
     outputDirectory: string
     theme: 'light' | 'dark' | 'system'
     onboardingComplete: boolean
+    parallelAnalysis: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
 

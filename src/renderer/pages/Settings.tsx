@@ -3,6 +3,7 @@ import {
   Key,
   Mail,
   Folder,
+  Zap,
   Check,
   Loader2,
   Eye,
@@ -19,6 +20,7 @@ export default function Settings() {
   const [geminiKey, setGeminiKey] = useState('')
   const [entrezEmail, setEntrezEmail] = useState('')
   const [outputDir, setOutputDir] = useState('')
+  const [parallelAnalysis, setParallelAnalysis] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -32,6 +34,7 @@ export default function Settings() {
       setGeminiKey(settings.geminiApiKey)
       setEntrezEmail(settings.entrezEmail)
       setOutputDir(settings.outputDirectory)
+      setParallelAnalysis(settings.parallelAnalysis)
     }
   }, [settings])
 
@@ -44,9 +47,10 @@ export default function Settings() {
     return (
       geminiKey !== settings.geminiApiKey ||
       entrezEmail !== settings.entrezEmail ||
-      outputDir !== settings.outputDirectory
+      outputDir !== settings.outputDirectory ||
+      parallelAnalysis !== settings.parallelAnalysis
     )
-  }, [settings, geminiKey, entrezEmail, outputDir])
+  }, [settings, geminiKey, entrezEmail, outputDir, parallelAnalysis])
 
   const validateKey = async () => {
     if (!geminiKey.trim()) return
@@ -83,6 +87,7 @@ export default function Settings() {
     await updateSetting('geminiApiKey', geminiKey)
     await updateSetting('entrezEmail', entrezEmail)
     await updateSetting('outputDirectory', outputDir)
+    await updateSetting('parallelAnalysis', parallelAnalysis)
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -210,6 +215,43 @@ export default function Settings() {
           </button>
         </div>
         <p className="mt-1 text-xs text-slate-400">Where pipeline results (CSV, metadata) are saved</p>
+      </div>
+
+      {/* Performance */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-500 uppercase tracking-wide mb-4">
+          <Zap className="w-4 h-4" />
+          Performance
+        </h2>
+
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3">
+          <div className="pr-2">
+            <label className="block text-sm font-medium text-slate-700">
+              Parallel AI Analysis
+            </label>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              Analyze multiple papers simultaneously using your existing worker pool.
+              Recommended for paid Gemini API keys with higher rate limits. Free-tier keys
+              (15 RPM) may experience rate-limit errors with this enabled.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setParallelAnalysis((value) => !value)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors ${
+              parallelAnalysis ? 'bg-brand-600' : 'bg-slate-300'
+            }`}
+            aria-pressed={parallelAnalysis}
+            aria-label="Toggle parallel AI analysis"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                parallelAnalysis ? 'translate-x-5' : 'translate-x-0.5'
+              } mt-0.5`}
+            />
+          </button>
+        </div>
       </div>
 
       {/* About */}

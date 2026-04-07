@@ -90,6 +90,7 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
       ...process.env,
       GEMINI_API_KEY: settings.geminiApiKey,
       ENTREZ_EMAIL: settings.entrezEmail,
+      PARALLEL_ANALYSIS: settings.parallelAnalysis ? 'true' : 'false',
     }
   })
   updateJob(jobId, {

@@ -8,6 +8,7 @@ export interface SettingsSchema {
   outputDirectory: string
   theme: 'light' | 'dark' | 'system'
   onboardingComplete: boolean
+  parallelAnalysis: boolean
 }
 
 const DEFAULTS: SettingsSchema = {
@@ -15,7 +16,8 @@ const DEFAULTS: SettingsSchema = {
   entrezEmail: '',
   outputDirectory: '',
   theme: 'system',
-  onboardingComplete: false
+  onboardingComplete: false,
+  parallelAnalysis: false
 }
 
 let _store: Store<SettingsSchema> | null = null
@@ -38,7 +40,8 @@ export function getSettings(): SettingsSchema {
     entrezEmail: s.get('entrezEmail'),
     outputDirectory: s.get('outputDirectory'),
     theme: s.get('theme'),
-    onboardingComplete: s.get('onboardingComplete')
+    onboardingComplete: s.get('onboardingComplete'),
+    parallelAnalysis: s.get('parallelAnalysis')
   }
 }
 

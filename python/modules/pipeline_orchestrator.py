@@ -350,6 +350,194 @@ def _ensure_unique_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _get_citation_record(pmid, citation_records):
+    rec = citation_records.get(pmid, {}) if citation_records else {}
+    return {
+        "count": int(rec.get("count", 0) or 0),
+        "source": rec.get("source", "none") or "none",
+        "retrieved_at": rec.get("retrieved_at", "") or "",
+        "icite_count": rec.get("icite_count"),
+        "semantic_scholar_count": rec.get("semantic_scholar_count"),
+    }
+
+
+def _prepare_paper_inputs(pmid, content_dict, paper_details, pubtator_results):
+    content = content_dict.get(pmid, {})
+    paper_text = content.get("content", "")
+    figure_inputs = (
+        content.get("figures", [])
+        if getattr(config, "ENABLE_FIGURE_ANALYSIS", True)
+        else []
+    )
+    table_inputs = (
+        content.get("tables", [])
+        if getattr(config, "ENABLE_TABLE_CITATIONS", True)
+        else []
+    )
+    base_info = paper_details.get(pmid, {})
+    abstract = base_info.get("abstract", "")
+    title = base_info.get("title", "")
+
+    pt_gene_symbols = []
+    if pmid in pubtator_results:
+        pt_gene_symbols = [g.symbol for g in pubtator_results[pmid].pubtator_genes]
+        if pt_gene_symbols:
+            logging.debug(
+                f"PMID {pmid}: Passing {len(pt_gene_symbols)} PubTator genes to LLM"
+            )
+
+    return {
+        "pmid": pmid,
+        "paper_text": paper_text,
+        "figure_inputs": figure_inputs,
+        "table_inputs": table_inputs,
+        "base_info": base_info,
+        "abstract": abstract,
+        "title": title,
+        "pt_gene_symbols": pt_gene_symbols,
+    }
+
+
+def _finalize_paper_result(
+    payload,
+    pmid,
+    base_info,
+    citation_records,
+    figure_inputs,
+    pubtator_results,
+    pipeline_stats,
+    emit_log,
+):
+    """Normalize worker output, attach metadata, and build the debug artifact."""
+    paper_df = pd.DataFrame()
+    worker_debug = {}
+
+    if isinstance(payload, dict) and payload.get("error"):
+        logging.error(f"AI analysis error for PMID {pmid}: {payload['error']}")
+        worker_debug = {
+            "status": "worker_error",
+            "reason": str(payload.get("error")),
+        }
+    elif isinstance(payload, dict) and payload.get("records") is not None:
+        paper_df = pd.DataFrame(payload["records"])
+        if isinstance(payload.get("debug"), dict):
+            worker_debug = payload["debug"]
+        else:
+            worker_debug = {"status": "ok"}
+        pipeline_stats["gemini_api_calls"] += int(payload.get("gemini_api_calls", 0))
+        ctx_warn = (worker_debug or {}).get("context_warning")
+        if ctx_warn:
+            emit_log("warn", f"PMID {pmid}: {ctx_warn}")
+
+    paper_df = paper_df.rename(
+        columns={"gene_name": "Gene/Group", "variant_name": "Variant Name"}
+    )
+
+    paper_df["PMID"] = pmid
+    paper_df["DOI"] = base_info.get("doi", "")
+    paper_df["Study Title"] = base_info.get("title", "N/A")
+    paper_df["Authors"] = ", ".join(base_info.get("authors", []))
+    paper_df["Publication Year"] = base_info.get("year", "N/A")
+    paper_df["Journal Name"] = base_info.get("journal", "N/A")
+    paper_df["Author Affiliations"] = "; ".join(base_info.get("affiliations", []))
+    citation = _get_citation_record(pmid, citation_records)
+    paper_df["Citations"] = citation["count"]
+    paper_df["Citation Source"] = citation["source"]
+    paper_df["Citation Retrieved At"] = citation["retrieved_at"]
+    paper_df["iCite Citations"] = citation["icite_count"]
+    paper_df["Semantic Scholar Citations"] = citation["semantic_scholar_count"]
+    paper_df["Metadata Completeness"] = base_info.get("_metadata_completeness", 0)
+    paper_df["Metadata Warnings"] = "; ".join(base_info.get("_metadata_warnings", []))
+    paper_df["Figure Count"] = len(figure_inputs)
+    paper_df["Figure Analysis Enabled"] = bool(
+        getattr(config, "ENABLE_FIGURE_ANALYSIS", True)
+    )
+
+    if not paper_df.empty and pmid in pubtator_results:
+        hybrid_result = pubtator_results[pmid]
+        pt_symbols = {g.symbol.upper() for g in hybrid_result.pubtator_genes}
+
+        if "Gene/Group" in paper_df.columns:
+            llm_genes = paper_df["Gene/Group"].dropna().unique().tolist()
+            hybrid_result.llm_genes = [g for g in llm_genes if g]
+
+        def get_gene_source(gene):
+            if not gene:
+                return ""
+            gene_upper = str(gene).upper()
+            in_pubtator = gene_upper in pt_symbols
+            in_llm = gene_upper in {str(g).upper() for g in hybrid_result.llm_genes}
+            if in_pubtator and in_llm:
+                return "both"
+            if in_pubtator:
+                return "pubtator"
+            return "llm"
+
+        def get_ncbi_id(gene):
+            if not gene:
+                return ""
+            gene_upper = str(gene).upper()
+            for g in hybrid_result.pubtator_genes:
+                if g.symbol.upper() == gene_upper and g.ncbi_gene_id:
+                    return g.ncbi_gene_id
+            return ""
+
+        paper_df["Gene Source"] = paper_df["Gene/Group"].apply(get_gene_source)
+        paper_df["NCBI Gene ID"] = paper_df["Gene/Group"].apply(get_ncbi_id)
+
+    if "Abstract" in paper_df.columns:
+        paper_df["Abstract"] = base_info.get("abstract", "No abstract available")
+
+    if paper_df.empty and not worker_debug:
+        worker_debug = {"status": "empty_result"}
+
+    debug_artifact = {
+        "pmid": pmid,
+        "status": worker_debug.get("status", "ok"),
+        "reason": worker_debug.get("reason", ""),
+        "candidate_count": worker_debug.get("candidate_count"),
+        "candidates": worker_debug.get("candidates", []),
+        "detail_extraction_status": worker_debug.get("detail_extraction_status", ""),
+        "detail_extraction_error": worker_debug.get("detail_extraction_error", ""),
+        "detail_extraction_rows": worker_debug.get("detail_extraction_rows"),
+        "validation_drops": worker_debug.get("validation_drops", []),
+        "strict_gate_drops": worker_debug.get("strict_gate_drops", []),
+        "evidence_gate_drops": worker_debug.get("evidence_gate_drops", []),
+        "final_associations": worker_debug.get("final_associations", []),
+        "emitted_rows": int(len(paper_df)),
+    }
+    return paper_df, debug_artifact
+
+
+def _accumulate_result(
+    all_results_df,
+    paper_df,
+    pmid,
+    collected_rows,
+    full_rows_pmids,
+    pipeline_stats,
+    emit_log,
+):
+    if paper_df.empty:
+        return all_results_df
+
+    paper_df = _ensure_unique_columns(paper_df)
+    all_results_df = _ensure_unique_columns(all_results_df)
+    all_results_df = pd.concat([all_results_df, paper_df], ignore_index=True)
+    collected_rows.append(pmid)
+    full_rows_pmids.add(pmid)
+
+    if "Gene/Group" in paper_df.columns:
+        unique_genes = paper_df["Gene/Group"].dropna().nunique()
+        pipeline_stats["genes_extracted"] = (
+            pipeline_stats.get("genes_extracted", 0) + unique_genes
+        )
+        if unique_genes > 0:
+            emit_log("info", f"Extracted {unique_genes} genes from PMID {pmid}")
+
+    return all_results_df
+
+
 def run_complete_pipeline(
     query,
     specific_pmids,
@@ -405,18 +593,8 @@ def run_complete_pipeline(
     forensic_screening = []
     fetch_report = []
 
-    def get_citation_record(pmid, citation_records):
-        rec = citation_records.get(pmid, {}) if citation_records else {}
-        return {
-            "count": int(rec.get("count", 0) or 0),
-            "source": rec.get("source", "none") or "none",
-            "retrieved_at": rec.get("retrieved_at", "") or "",
-            "icite_count": rec.get("icite_count"),
-            "semantic_scholar_count": rec.get("semantic_scholar_count"),
-        }
-
     def build_minimal_row(pmid, base_info, citation_records, gene_group="", variant_name=""):
-        citation = get_citation_record(pmid, citation_records)
+        citation = _get_citation_record(pmid, citation_records)
         return {
             "Gene/Group": gene_group,
             "Variant Name": variant_name,
@@ -797,244 +975,351 @@ def run_complete_pipeline(
     pool_size = max(1, min(int(getattr(config, "AI_WORKER_POOL_SIZE", 2)), 4))
     worker_pool = mp.Pool(processes=pool_size)
     logging.info(f"AI worker pool created: {pool_size} processes")
+    parallel_mode = bool(getattr(config, "PARALLEL_ANALYSIS", False))
+    ordered_results = None
+    in_flight = {}
 
     try:
-        for i, pmid in enumerate(tqdm(pmids_to_process, desc="Processing papers")):
-            analyzed_attempts += 1
-            # Report progress for AI analysis phase (70-95%)
-            ai_progress = 70 + int((i / total_papers) * 25)
-            # This call raises JobCancelledException if cancellation signal detected
-            report_progress(
-                "Analyzing papers with AI", ai_progress, {"papers_analyzed": analyzed_attempts}
-            )
-
-            # Emit per-paper log
-            base_title = paper_details.get(pmid, {}).get("title", "")
-            short_title = (base_title[:60] + "...") if len(base_title) > 60 else base_title
+        if parallel_mode:
             emit_log(
-                "info", f"Analyzing paper {i + 1}/{total_papers}: {short_title}", f"PMID {pmid}"
+                "info",
+                f"Parallel AI analysis enabled using the existing worker pool ({pool_size} workers)",
             )
+            ordered_results = [None] * total_papers
+            submit_idx = 0
+            completed_count = 0
 
-            content = content_dict.get(pmid, {})
-            paper_text = content.get("content", "")
-            if not paper_text:
-                # No extracted content: create a minimal row so the study is still represented
-                base_info = paper_details.get(pmid, {})
-                minimal_rows.append(build_minimal_row(pmid, base_info, citation_records))
-                paper_debug_artifacts.append(
-                    {
+            def report_parallel_progress():
+                ai_progress = 70 + int((completed_count / max(total_papers, 1)) * 25)
+                report_progress(
+                    "Analyzing papers with AI",
+                    ai_progress,
+                    {"papers_analyzed": completed_count},
+                )
+
+            def submit_next():
+                nonlocal submit_idx, completed_count, analyzed_attempts
+                while len(in_flight) < pool_size and submit_idx < total_papers:
+                    pmid = pmids_to_process[submit_idx]
+                    idx = submit_idx
+                    submit_idx += 1
+                    analyzed_attempts += 1
+
+                    prepared = _prepare_paper_inputs(
+                        pmid, content_dict, paper_details, pubtator_results
+                    )
+                    short_title = (
+                        (prepared["title"][:60] + "...")
+                        if len(prepared["title"]) > 60
+                        else prepared["title"]
+                    )
+
+                    if not prepared["paper_text"]:
+                        ordered_results[idx] = {
+                            "kind": "minimal",
+                            "pmid": pmid,
+                            "base_info": prepared["base_info"],
+                            "debug": {
+                                "pmid": pmid,
+                                "status": "no_full_text",
+                                "reason": "missing_paper_text_after_fetch",
+                                "emitted_rows": 0,
+                            },
+                        }
+                        completed_count += 1
+                        report_parallel_progress()
+                        continue
+
+                    ctx = {
+                        **prepared,
+                        "submitted_at": time.time(),
+                    }
+                    ar = worker_pool.apply_async(
+                        _run_pipeline_worker,
+                        args=(
+                            prepared["paper_text"],
+                            column_descriptions,
+                            prepared["pt_gene_symbols"],
+                            prepared["figure_inputs"],
+                            prepared["abstract"],
+                            prepared["table_inputs"],
+                        ),
+                    )
+                    in_flight[pmid] = {"idx": idx, "async_result": ar, "ctx": ctx}
+                    emit_log(
+                        "info",
+                        f"[parallel] Submitted paper {idx + 1}/{total_papers}: {short_title}",
+                        f"PMID {pmid}",
+                    )
+
+            submit_next()
+
+            while in_flight:
+                check_cancellation()
+
+                newly_done = [
+                    pmid
+                    for pmid, info in list(in_flight.items())
+                    if info["async_result"].ready()
+                ]
+                timed_out = []
+                for pmid, info in list(in_flight.items()):
+                    if pmid in newly_done:
+                        continue
+                    elapsed = time.time() - info["ctx"]["submitted_at"]
+                    if elapsed > config.AI_PER_PAPER_TIMEOUT_SECONDS:
+                        timed_out.append(pmid)
+
+                if not newly_done and not timed_out:
+                    time.sleep(0.2)
+                    continue
+
+                for pmid in newly_done:
+                    info = in_flight.pop(pmid)
+                    idx = info["idx"]
+                    ctx = info["ctx"]
+                    try:
+                        payload = info["async_result"].get(timeout=0)
+                    except Exception as e:
+                        payload = {"error": str(e)}
+                    paper_df, debug_artifact = _finalize_paper_result(
+                        payload,
+                        pmid,
+                        ctx["base_info"],
+                        citation_records,
+                        ctx["figure_inputs"],
+                        pubtator_results,
+                        pipeline_stats,
+                        emit_log,
+                    )
+                    ordered_results[idx] = {
+                        "kind": "result",
                         "pmid": pmid,
-                        "status": "no_full_text",
-                        "reason": "missing_paper_text_after_fetch",
+                        "paper_df": paper_df,
+                        "debug": debug_artifact,
+                    }
+                    completed_count += 1
+                    report_parallel_progress()
+                    short_title = (
+                        (ctx["title"][:60] + "...") if len(ctx["title"]) > 60 else ctx["title"]
+                    )
+                    emit_log(
+                        "info",
+                        f"[parallel] Completed paper {idx + 1}/{total_papers}: {short_title}",
+                        f"PMID {pmid}",
+                    )
+
+                if timed_out:
+                    for pmid in timed_out:
+                        info = in_flight.pop(pmid, None)
+                        if info is None:
+                            continue
+                        ordered_results[info["idx"]] = {
+                            "kind": "timeout",
+                            "pmid": pmid,
+                            "debug": {
+                                "pmid": pmid,
+                                "status": "timeout",
+                                "reason": f"ai_timeout_{config.AI_PER_PAPER_TIMEOUT_SECONDS}s",
+                                "emitted_rows": 0,
+                            },
+                        }
+                        completed_count += 1
+                        report_parallel_progress()
+                        emit_log(
+                            "warn",
+                            f"[parallel] Timed out PMID {pmid} — skipping (no retry)",
+                        )
+
+                    for pmid, info in list(in_flight.items()):
+                        if not info["async_result"].ready():
+                            continue
+                        try:
+                            payload = info["async_result"].get(timeout=0)
+                        except Exception as e:
+                            payload = {"error": str(e)}
+                        paper_df, debug_artifact = _finalize_paper_result(
+                            payload,
+                            pmid,
+                            info["ctx"]["base_info"],
+                            citation_records,
+                            info["ctx"]["figure_inputs"],
+                            pubtator_results,
+                            pipeline_stats,
+                            emit_log,
+                        )
+                        ordered_results[info["idx"]] = {
+                            "kind": "result",
+                            "pmid": pmid,
+                            "paper_df": paper_df,
+                            "debug": debug_artifact,
+                        }
+                        completed_count += 1
+                        report_parallel_progress()
+                        del in_flight[pmid]
+
+                    worker_pool.terminate()
+                    worker_pool.join(timeout=10)
+                    worker_pool = mp.Pool(processes=pool_size)
+                    logging.info(f"AI worker pool recreated: {pool_size} processes")
+
+                    for pmid, info in list(in_flight.items()):
+                        ctx = info["ctx"]
+                        ctx["submitted_at"] = time.time()
+                        new_ar = worker_pool.apply_async(
+                            _run_pipeline_worker,
+                            args=(
+                                ctx["paper_text"],
+                                column_descriptions,
+                                ctx["pt_gene_symbols"],
+                                ctx["figure_inputs"],
+                                ctx["abstract"],
+                                ctx["table_inputs"],
+                            ),
+                        )
+                        in_flight[pmid] = {
+                            "idx": info["idx"],
+                            "async_result": new_ar,
+                            "ctx": ctx,
+                        }
+                        emit_log(
+                            "info",
+                            f"[parallel] Re-submitted PMID {pmid} after pool restart",
+                        )
+
+                submit_next()
+        else:
+            for i, pmid in enumerate(tqdm(pmids_to_process, desc="Processing papers")):
+                analyzed_attempts += 1
+                ai_progress = 70 + int((i / total_papers) * 25)
+                report_progress(
+                    "Analyzing papers with AI", ai_progress, {"papers_analyzed": analyzed_attempts}
+                )
+
+                prepared = _prepare_paper_inputs(
+                    pmid, content_dict, paper_details, pubtator_results
+                )
+                short_title = (
+                    (prepared["title"][:60] + "...") if len(prepared["title"]) > 60 else prepared["title"]
+                )
+                emit_log(
+                    "info", f"Analyzing paper {i + 1}/{total_papers}: {short_title}", f"PMID {pmid}"
+                )
+
+                if not prepared["paper_text"]:
+                    minimal_rows.append(
+                        build_minimal_row(pmid, prepared["base_info"], citation_records)
+                    )
+                    paper_debug_artifacts.append(
+                        {
+                            "pmid": pmid,
+                            "status": "no_full_text",
+                            "reason": "missing_paper_text_after_fetch",
+                            "emitted_rows": 0,
+                        }
+                    )
+                    continue
+
+                try:
+                    ar = worker_pool.apply_async(
+                        _run_pipeline_worker,
+                        args=(
+                            prepared["paper_text"],
+                            column_descriptions,
+                            prepared["pt_gene_symbols"],
+                            prepared["figure_inputs"],
+                            prepared["abstract"],
+                            prepared["table_inputs"],
+                        ),
+                    )
+                    submitted_at = time.time()
+                    while not ar.ready():
+                        check_cancellation()
+                        elapsed = time.time() - submitted_at
+                        if elapsed > config.AI_PER_PAPER_TIMEOUT_SECONDS:
+                            raise mp.TimeoutError()
+                        time.sleep(0.2)
+                    try:
+                        payload = ar.get(timeout=0)
+                    except mp.TimeoutError:
+                        emit_log("warn", f"AI analysis timed out for PMID {pmid}, skipping")
+                        logging.warning(
+                            f"AI analysis timed out for PMID {pmid} after {config.AI_PER_PAPER_TIMEOUT_SECONDS}s; skipping"
+                        )
+                        paper_debug_artifacts.append(
+                            {
+                                "pmid": pmid,
+                                "status": "timeout",
+                                "reason": f"ai_timeout_{config.AI_PER_PAPER_TIMEOUT_SECONDS}s",
+                                "emitted_rows": 0,
+                            }
+                        )
+                        try:
+                            worker_pool.terminate()
+                            worker_pool.join(timeout=10)
+                        except Exception as e:
+                            logging.warning(f"Worker pool cleanup after timeout failed: {e}")
+                        worker_pool = mp.Pool(processes=pool_size)
+                        logging.info(f"AI worker pool recreated: {pool_size} processes")
+                        continue
+                except Exception as e:
+                    emit_log("error", f"AI analysis failed for PMID {pmid}", str(e))
+                    logging.error(f"Failed AI analysis for PMID {pmid}: {e}")
+                    paper_df = pd.DataFrame()
+                    debug_artifact = {
+                        "pmid": pmid,
+                        "status": "orchestrator_error",
+                        "reason": str(e),
+                        "candidate_count": None,
+                        "candidates": [],
+                        "detail_extraction_status": "",
+                        "detail_extraction_error": "",
+                        "detail_extraction_rows": None,
+                        "validation_drops": [],
+                        "strict_gate_drops": [],
+                        "evidence_gate_drops": [],
+                        "final_associations": [],
                         "emitted_rows": 0,
                     }
+                else:
+                    paper_df, debug_artifact = _finalize_paper_result(
+                        payload,
+                        pmid,
+                        prepared["base_info"],
+                        citation_records,
+                        prepared["figure_inputs"],
+                        pubtator_results,
+                        pipeline_stats,
+                        emit_log,
+                    )
+
+                all_results_df = _accumulate_result(
+                    all_results_df,
+                    paper_df,
+                    pmid,
+                    collected_rows,
+                    full_rows_pmids,
+                    pipeline_stats,
+                    emit_log,
                 )
-                continue
-
-            figure_inputs = (
-                content.get("figures", [])
-                if getattr(config, "ENABLE_FIGURE_ANALYSIS", True)
-                else []
-            )
-
-            table_inputs = (
-                content.get("tables", [])
-                if getattr(config, "ENABLE_TABLE_CITATIONS", True)
-                else []
-            )
-
-            base_info = paper_details.get(pmid, {})
-            abstract = base_info.get("abstract", "")
-            title = base_info.get("title", "")
-
-            # Get PubTator genes for this paper (if available) to pass to LLM
-            pt_gene_symbols = []
-            if pmid in pubtator_results:
-                pt_gene_symbols = [g.symbol for g in pubtator_results[pmid].pubtator_genes]
-                if pt_gene_symbols:
-                    logging.debug(
-                        f"PMID {pmid}: Passing {len(pt_gene_symbols)} PubTator genes to LLM"
-                    )
-
-            paper_df = pd.DataFrame()
-            worker_debug = {}
-            try:
-                ar = worker_pool.apply_async(
-                    _run_pipeline_worker,
-                    args=(
-                        paper_text,
-                        column_descriptions,
-                        pt_gene_symbols,
-                        figure_inputs,
-                        abstract,
-                        table_inputs,
-                    ),
-                )
-                try:
-                    payload = ar.get(timeout=config.AI_PER_PAPER_TIMEOUT_SECONDS)
-                except mp.TimeoutError:
-                    emit_log("warn", f"AI analysis timed out for PMID {pmid}, skipping")
-                    logging.warning(
-                        f"AI analysis timed out for PMID {pmid} after {config.AI_PER_PAPER_TIMEOUT_SECONDS}s; skipping"
-                    )
-                    worker_debug = {
-                        "status": "timeout",
-                        "reason": f"ai_timeout_{config.AI_PER_PAPER_TIMEOUT_SECONDS}s",
-                    }
-                    # Terminate the stuck worker(s) and create a fresh pool so subsequent
-                    # papers aren't blocked waiting for an unresponsive worker process.
-                    try:
-                        worker_pool.terminate()
-                        worker_pool.join(timeout=10)
-                    except Exception as e:
-                        logging.warning(f"Worker pool cleanup after timeout failed: {e}")
-                    worker_pool = mp.Pool(processes=pool_size)
-                    payload = None
-                if payload is not None:
-                    if isinstance(payload, dict) and payload.get("error"):
-                        logging.error(f"AI analysis error for PMID {pmid}: {payload['error']}")
-                        worker_debug = {
-                            "status": "worker_error",
-                            "reason": str(payload.get("error")),
-                        }
-                        paper_df = pd.DataFrame()
-                    elif isinstance(payload, dict) and payload.get("records") is not None:
-                        paper_df = pd.DataFrame(payload["records"])  # reconstruct DataFrame
-                        if isinstance(payload.get("debug"), dict):
-                            worker_debug = payload["debug"]
-                        else:
-                            worker_debug = {"status": "ok"}
-                        pipeline_stats["gemini_api_calls"] += int(
-                            payload.get("gemini_api_calls", 0)
-                        )
-                        # Surface context window warnings to the user
-                        ctx_warn = (worker_debug or {}).get("context_warning")
-                        if ctx_warn:
-                            emit_log("warn", f"PMID {pmid}: {ctx_warn}")
-            except Exception as e:
-                emit_log("error", f"AI analysis failed for PMID {pmid}", str(e))
-                logging.error(f"Failed AI analysis for PMID {pmid}: {e}")
-                worker_debug = {
-                    "status": "orchestrator_error",
-                    "reason": str(e),
-                }
-                paper_df = pd.DataFrame()
-
-            # Rename columns to match user requirements
-            paper_df = paper_df.rename(
-                columns={"gene_name": "Gene/Group", "variant_name": "Variant Name"}
-            )
-
-            base_info = paper_details.get(pmid, {})
-            paper_df["PMID"] = pmid
-            paper_df["DOI"] = base_info.get("doi", "")
-            paper_df["Study Title"] = base_info.get("title", "N/A")
-            paper_df["Authors"] = ", ".join(base_info.get("authors", []))
-            paper_df["Publication Year"] = base_info.get("year", "N/A")
-            paper_df["Journal Name"] = base_info.get("journal", "N/A")
-            paper_df["Author Affiliations"] = "; ".join(base_info.get("affiliations", []))
-            citation = get_citation_record(pmid, citation_records)
-            paper_df["Citations"] = citation["count"]
-            paper_df["Citation Source"] = citation["source"]
-            paper_df["Citation Retrieved At"] = citation["retrieved_at"]
-            paper_df["iCite Citations"] = citation["icite_count"]
-            paper_df["Semantic Scholar Citations"] = citation["semantic_scholar_count"]
-            paper_df["Metadata Completeness"] = base_info.get("_metadata_completeness", 0)
-            paper_df["Metadata Warnings"] = "; ".join(base_info.get("_metadata_warnings", []))
-            paper_df["Figure Count"] = len(figure_inputs)
-            paper_df["Figure Analysis Enabled"] = bool(
-                getattr(config, "ENABLE_FIGURE_ANALYSIS", True)
-            )
-
-            # HYBRID PIPELINE: Add gene source tracking
-            if not paper_df.empty and pmid in pubtator_results:
-                hybrid_result = pubtator_results[pmid]
-                pt_symbols = {g.symbol.upper() for g in hybrid_result.pubtator_genes}
-
-                # Track LLM genes in hybrid result
-                if "Gene/Group" in paper_df.columns:
-                    llm_genes = paper_df["Gene/Group"].dropna().unique().tolist()
-                    hybrid_result.llm_genes = [g for g in llm_genes if g]
-
-                # Add gene source column
-                def get_gene_source(gene):
-                    if not gene:
-                        return ""
-                    gene_upper = str(gene).upper()
-                    in_pubtator = gene_upper in pt_symbols
-                    in_llm = gene_upper in {str(g).upper() for g in hybrid_result.llm_genes}
-                    if in_pubtator and in_llm:
-                        return "both"
-                    elif in_pubtator:
-                        return "pubtator"
-                    else:
-                        return "llm"
-
-                paper_df["Gene Source"] = paper_df["Gene/Group"].apply(get_gene_source)
-
-                # Add NCBI Gene ID from PubTator
-                def get_ncbi_id(gene):
-                    if not gene:
-                        return ""
-                    gene_upper = str(gene).upper()
-                    for g in hybrid_result.pubtator_genes:
-                        if g.symbol.upper() == gene_upper and g.ncbi_gene_id:
-                            return g.ncbi_gene_id
-                    return ""
-
-                paper_df["NCBI Gene ID"] = paper_df["Gene/Group"].apply(get_ncbi_id)
-
-            # Use actual paper data for basic fields instead of AI extraction
-            if "Abstract" in paper_df.columns:
-                # Get abstract from paper details (fetched from PubMed)
-                abstract_text = base_info.get("abstract", "No abstract available")
-                paper_df["Abstract"] = abstract_text
-
-            # If AI produced no rows from available full text, log it but do NOT create
-            # an empty-gene placeholder row — it has zero informational value and would
-            # appear in the researcher-facing CSV with a misleading MEDIUM confidence.
-            if paper_df.empty:
-                if not worker_debug:
-                    worker_debug = {"status": "empty_result"}
-            else:
-                # Defensively ensure unique column names before concatenation
-                paper_df = _ensure_unique_columns(paper_df)
-                all_results_df = _ensure_unique_columns(all_results_df)
-                all_results_df = pd.concat([all_results_df, paper_df], ignore_index=True)
-                collected_rows.append(pmid)
-                full_rows_pmids.add(pmid)
-                # Update genes_extracted stat
-                if "Gene/Group" in paper_df.columns:
-                    unique_genes = paper_df["Gene/Group"].dropna().nunique()
-                    pipeline_stats["genes_extracted"] = (
-                        pipeline_stats.get("genes_extracted", 0) + unique_genes
-                    )
-                    if unique_genes > 0:
-                        emit_log("info", f"Extracted {unique_genes} genes from PMID {pmid}")
-
-            paper_debug_artifacts.append(
-                {
-                    "pmid": pmid,
-                    "status": worker_debug.get("status", "ok"),
-                    "reason": worker_debug.get("reason", ""),
-                    "candidate_count": worker_debug.get("candidate_count"),
-                    "candidates": worker_debug.get("candidates", []),
-                    "detail_extraction_status": worker_debug.get("detail_extraction_status", ""),
-                    "detail_extraction_error": worker_debug.get("detail_extraction_error", ""),
-                    "detail_extraction_rows": worker_debug.get("detail_extraction_rows"),
-                    "validation_drops": worker_debug.get("validation_drops", []),
-                    "strict_gate_drops": worker_debug.get("strict_gate_drops", []),
-                    "evidence_gate_drops": worker_debug.get("evidence_gate_drops", []),
-                    "final_associations": worker_debug.get("final_associations", []),
-                    "emitted_rows": int(len(paper_df)),
-                }
-            )
+                paper_debug_artifacts.append(debug_artifact)
 
     except JobCancelledException:
         logging.warning("Job cancellation detected! Stopping new paper processing.")
 
         # Mark remaining PMIDs as Cancelled
-        processed_set = set(collected_rows) | {r["PMID"] for r in minimal_rows}
+        recorded_pmids = set()
+        if ordered_results is not None:
+            recorded_pmids = {
+                slot["pmid"]
+                for slot in ordered_results
+                if isinstance(slot, dict) and slot.get("pmid")
+            }
+        processed_set = (
+            set(collected_rows)
+            | {r["PMID"] for r in minimal_rows}
+            | recorded_pmids
+        )
         remaining = [p for p in pmids_to_process if p not in processed_set]
 
         for pmid in remaining:
@@ -1059,6 +1344,30 @@ def run_complete_pipeline(
         except Exception as e:
             logging.warning(f"Worker pool final cleanup failed: {e}")
         logging.info("AI worker pool terminated")
+
+    if parallel_mode and ordered_results is not None:
+        for slot in ordered_results:
+            if not isinstance(slot, dict):
+                continue
+            kind = slot.get("kind")
+            if kind == "minimal":
+                minimal_rows.append(
+                    build_minimal_row(slot["pmid"], slot["base_info"], citation_records)
+                )
+                paper_debug_artifacts.append(slot["debug"])
+            elif kind == "timeout":
+                paper_debug_artifacts.append(slot["debug"])
+            elif kind == "result":
+                all_results_df = _accumulate_result(
+                    all_results_df,
+                    slot["paper_df"],
+                    slot["pmid"],
+                    collected_rows,
+                    full_rows_pmids,
+                    pipeline_stats,
+                    emit_log,
+                )
+                paper_debug_artifacts.append(slot["debug"])
 
     if all_results_df.empty:
         if minimal_rows:

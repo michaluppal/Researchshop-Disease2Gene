@@ -8,6 +8,7 @@ export interface ElectronAPI {
       outputDirectory: string
       theme: 'light' | 'dark' | 'system'
       onboardingComplete: boolean
+      parallelAnalysis: boolean
     }>
     set: (key: string, value: unknown) => Promise<boolean>
     validateGeminiKey: (key: string) => Promise<{ valid: boolean; error?: string }>
