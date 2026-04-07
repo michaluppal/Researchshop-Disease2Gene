@@ -1,0 +1,17 @@
+{
+  "pmid": "20129251",
+  "type": "rna_seq",
+  "expected_genes": ["EGFR", "NF1", "PDGFRA", "IDH1"],
+  "expected_genes_comprehensive": [
+    "EGFR", "NF1", "PDGFRA", "IDH1",
+    "TP53", "PTEN", "CDKN2A", "CDKN2B",
+    "CDK4", "CDK6", "RB1", "MDM2", "MDM4",
+    "PIK3CA", "PIK3R1", "MGMT",
+    "NOTCH1", "NOTCH2", "NRAS"
+  ],
+  "sources": {
+    "pubtator_genes": ["EGFR", "NF1", "PDGFRA", "IDH1", "TP53", "PTEN", "CDKN2A", "CDKN2B", "CDK4", "RB1", "MDM2", "MDM4", "PIK3CA", "PIK3R1", "MGMT"],
+    "full_text_extracted": ["EGFR", "NF1", "PDGFRA", "IDH1", "TP53", "PTEN", "CDKN2A", "CDKN2B", "CDK4", "CDK6", "RB1", "MDM2", "MDM4", "PIK3CA", "PIK3R1", "MGMT", "NOTCH1", "NOTCH2", "NRAS"],
+    "notes": "Classical: EGFR amplification (97%), EGFRvIII mutation, CDKN2A/CDKN2B deletion at 9p21.3, CDK4/CDK6 as RB pathway components. Mesenchymal: NF1 hemizygous deletion+mutation (53%), PTEN co-mutations. Proneural: PDGFRA focal amplification, IDH1 point mutations, TP53 mutations, PIK3CA/PIK3R1 mutations. MDM2/MDM4 amplification in RB pathway discussion. MGMT methylation with hypermutator phenotype and treatment response data. NOTCH1/NOTCH2 in Classical subtype signature. NRAS mutations with subtype-specific data. All genes have explicit copy number, mutation, or expression results in Results section."
+  }
+}

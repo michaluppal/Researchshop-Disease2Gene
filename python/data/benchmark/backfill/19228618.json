@@ -1,0 +1,11 @@
+{
+  "pmid": "19228618",
+  "type": "pharmacogenomics",
+  "expected_genes": ["VKORC1", "CYP2C9"],
+  "expected_genes_comprehensive": ["VKORC1", "CYP2C9", "CYP4F2", "GGCX", "APOE"],
+  "sources": {
+    "pubtator_genes": ["VKORC1", "CYP2C9"],
+    "full_text_extracted": ["VKORC1", "CYP2C9", "CYP4F2", "GGCX", "APOE"],
+    "notes": "VKORC1 and CYP2C9 are the two primary genes — the pharmacogenetic algorithm is built exclusively on their genotypes. CYP4F2 (cytochrome P450, family 4, subfamily F, polypeptide 2), GGCX (gamma-glutamyl carboxylase), and APOE (apolipoprotein E) are included in comprehensive because the Discussion explicitly lists them as known pharmacogenetic contributors to warfarin dose variability not included in this model due to data availability. This is a results-relevant discussion of gene exclusions, not mere background. CYP2C19 not mentioned. VKORC1 resistance mutations mentioned in Discussion refer to the same gene already in primary list. PMC full text strips gene symbols to empty strings in XML; gene names identified from long-form descriptions."
+  }
+}

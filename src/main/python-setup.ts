@@ -140,16 +140,23 @@ export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: strin
       sendLog(`[check] Found venv at ${venvPython}`)
       sendLog(`[check] Verifying installed packages...`)
       try {
-        execSync(`"${venvPython}" -c "import tqdm, google.genai, pandas, Bio, trafilatura, lxml, lxml_html_clean, pdfminer, requests"`, {
+        // Use pip list instead of importing — google.genai import takes 2+ minutes cold
+        const pipList = execSync(`"${venvPython}" -m pip list --format=columns`, {
           stdio: 'pipe',
           timeout: 15000
-        })
-        sendLog('[check] All dependencies verified ✓')
-        sendLog('')
-        sendProgress('ready', 'Python environment is ready')
-        return { ready: true }
+        }).toString().toLowerCase()
+        const required = ['google-genai', 'pandas', 'tqdm', 'biopython', 'trafilatura', 'lxml', 'pdfminer']
+        const missing = required.filter(pkg => !pipList.includes(pkg))
+        if (missing.length === 0) {
+          sendLog('[check] All dependencies verified ✓')
+          sendLog('')
+          sendProgress('ready', 'Python environment is ready')
+          return { ready: true }
+        }
+        sendLog(`[check] Missing packages: ${missing.join(', ')}`)
+        needsSetup = true
       } catch {
-        sendLog('[check] Some dependencies missing, reinstalling...')
+        sendLog('[check] Could not verify packages, reinstalling...')
         sendLog('')
         needsSetup = true
       }
@@ -183,17 +190,25 @@ export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: strin
       sendLog('')
 
       sendProgress('verifying', 'Verifying installation...')
-      sendLog('[verify] Running import checks...')
+      sendLog('[verify] Checking installed packages...')
       try {
-        execSync(`"${venvPython}" -c "import tqdm, google.genai, pandas, Bio, trafilatura, lxml, lxml_html_clean, pdfminer, requests"`, {
+        const pipList = execSync(`"${venvPython}" -m pip list --format=columns`, {
           stdio: 'pipe',
           timeout: 15000
-        })
-        sendLog('[verify] All imports successful ✓')
+        }).toString().toLowerCase()
+        const required = ['google-genai', 'pandas', 'tqdm', 'biopython', 'trafilatura', 'lxml', 'pdfminer']
+        const missing = required.filter(pkg => !pipList.includes(pkg))
+        if (missing.length > 0) {
+          return {
+            ready: false,
+            error: `Missing packages after install: ${missing.join(', ')}`
+          }
+        }
+        sendLog('[verify] All packages installed ✓')
       } catch (err) {
         return {
           ready: false,
-          error: `Dependencies installed but verification failed: ${err instanceof Error ? err.message : String(err)}`
+          error: `Verification failed: ${err instanceof Error ? err.message : String(err)}`
         }
       }
 

@@ -1,0 +1,11 @@
+{
+  "pmid": "20711175",
+  "type": "rare_disease",
+  "expected_genes": ["KMT2D"],
+  "expected_genes_comprehensive": ["KMT2D"],
+  "sources": {
+    "pubtator_genes": ["KMT2D", "MLL2"],
+    "full_text_extracted": ["KMT2D"],
+    "notes": "Ng et al. 2010 Nat Genet. Kabuki syndrome. MLL2 (now KMT2D per HGNC) is the sole gene of interest — 7/10 discovery probands, 26/43 validation probands had novel nonsense/frameshift mutations. No other causal genes identified or proposed in this paper (KDM6A/Kabuki-2 was not yet known in 2010). Expected_genes and comprehensive are both ['KMT2D']. Pipeline should resolve MLL2 → KMT2D via HGNC previous-symbol lookup. PMC2930028, OA confirmed."
+  }
+}

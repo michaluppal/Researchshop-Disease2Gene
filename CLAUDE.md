@@ -68,6 +68,7 @@ Read `.claude/rules/memory-pipeline.md` before modifying any pipeline module.
 - Do not test citation validation quality on PMID 34876594 (MIS-C) or similar clinical/lab-table papers — BNP data is table-only, so valid citation scores are structurally impossible regardless of extraction quality. Use molecular genetics papers for citation benchmarks. (Caught: 2026-02-25)
 - Do not report a single-run citation score as a quality metric — scores fluctuate 0/8–8/8 on the same paper due to stochastic LLM compliance. Multi-run averaging is required. (Caught: 2026-02-25)
 - Do not assume citation validation is working because it runs without errors — False/0.0/"No validation performed" is structurally indistinguishable from a silent TypeError. Add a smoke test that asserts at least one citation validates True on known-good input before trusting the metric. (Caught: 2026-02-24, C19)
+- Do not hardcode or guess AI model names (e.g. Gemini, OpenAI) — model availability changes without warning and deprecated models cause runtime errors. Always fetch the official documentation first (https://ai.google.dev/gemini-api/docs/models for Gemini) before choosing a model ID. (Caught: 2026-03-25)
 
 ## Auto-Update Memory (MANDATORY)
 

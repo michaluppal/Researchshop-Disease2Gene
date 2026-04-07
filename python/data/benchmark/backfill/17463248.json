@@ -1,0 +1,22 @@
+{
+  "pmid": "17463248",
+  "type": "gwas",
+  "expected_genes": ["TCF7L2", "SLC30A8", "HHEX", "CDKAL1", "IGF2BP2", "CDKN2A", "CDKN2B", "FTO", "PPARG", "KCNJ11"],
+  "expected_genes_comprehensive": [
+    "TCF7L2",
+    "SLC30A8",
+    "HHEX",
+    "CDKAL1",
+    "IGF2BP2",
+    "CDKN2A",
+    "CDKN2B",
+    "FTO",
+    "PPARG",
+    "KCNJ11"
+  ],
+  "sources": {
+    "pubtator_genes": ["TCF7L2", "SLC30A8", "HHEX", "CDKAL1", "IGF2BP2", "CDKN2A", "CDKN2B", "FTO", "PPARG", "KCNJ11"],
+    "full_text_extracted": ["TCF7L2", "SLC30A8", "HHEX", "CDKAL1", "IGF2BP2", "CDKN2A", "CDKN2B", "FTO", "PPARG", "KCNJ11"],
+    "notes": "Scott et al. 2007 Science. The abstract explicitly names all 10 T2D loci confirmed/identified: TCF7L2, SLC30A8, HHEX, FTO, PPARG, KCNJ11 (confirmed replications) and IGF2BP2, CDKAL1, CDKN2A/CDKN2B region (contributed to identification of). The paper states 'this brings the number of T2D loci now confidently identified to at least 10'. Full text (PMC3214617) was empty in the MCP response (full_text field blank — likely a Science paywall issue at PMC), but the abstract text provides the complete gene list. The abstract explicitly names all 10 genes. The chromosome 11p12 intergenic region mentioned in the abstract does not correspond to a named gene. KCNQ1 is NOT mentioned in this paper — it was identified in subsequent 2008 Japanese GWAS studies (Yasuda et al., Unoki et al.). No suggestive-only loci are named in the abstract beyond the 10 confirmed ones. Comprehensive list equals expected_genes for this paper because the abstract is the primary source and it fully enumerates the findings. No additional genes appear in full-text results sections accessible via MCP."
+  }
+}

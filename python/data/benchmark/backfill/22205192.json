@@ -1,0 +1,11 @@
+{
+  "pmid": "22205192",
+  "type": "pharmacogenomics",
+  "expected_genes": ["CYP2D6"],
+  "expected_genes_comprehensive": ["CYP2D6", "UGT2B7", "CYP3A4", "ABCB1", "OPRM1"],
+  "sources": {
+    "pubtator_genes": ["CYP2D6"],
+    "full_text_extracted": ["CYP2D6", "UGT2B7", "CYP3A4", "ABCB1", "OPRM1"],
+    "notes": "CYP2D6 is the sole primary gene — the guideline is specifically for CYP2D6 genotype-guided codeine dosing. PMC full text returned empty from PubMed MCP (likely XML encoding issue); content retrieved via PMC web page (pmc.ncbi.nlm.nih.gov/articles/PMC3289963/). Four additional genes included in comprehensive: UGT2B7 (glucuronidation of codeine and morphine to M6G/M3G, polymorphic with UGT2B7*2 variant impact discussed), CYP3A4 (N-demethylation of codeine to norcodeine, ~80% of codeine clearance), ABCB1/MDR1 (transporter polymorphisms with modest association with opioid dose requirements), OPRM1 (opioid receptor mu-1, variation influences codeine response). All four discussed with specific pharmacogenetic relevance, not merely background citations. CYP3A5 not mentioned."
+  }
+}

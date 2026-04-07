@@ -1,0 +1,48 @@
+{
+  "pmid": "17554300",
+  "type": "gwas",
+  "expected_genes": ["NOD2", "ATG16L1", "IL23R", "IRGM", "MST1", "PTPN2", "NKX2-3"],
+  "expected_genes_comprehensive": [
+    "NOD2",
+    "ATG16L1",
+    "IL23R",
+    "IRGM",
+    "MST1",
+    "PTPN2",
+    "NKX2-3",
+    "TCF7L2",
+    "PPARG",
+    "KCNJ11",
+    "FTO",
+    "CDKAL1",
+    "HHEX",
+    "CDKN2A",
+    "CDKN2B",
+    "PTPN22",
+    "IL2RA",
+    "CTLA4",
+    "ERBB3",
+    "SH2B3",
+    "TRAF3IP2",
+    "PTPN11",
+    "STAT3",
+    "TNFAIP3",
+    "TNFSF15",
+    "BSN"
+  ],
+  "sources": {
+    "pubtator_genes": [
+      "NOD2", "ATG16L1", "IL23R", "IRGM", "MST1", "PTPN2", "NKX2-3",
+      "TCF7L2", "PPARG", "KCNJ11", "FTO", "CDKAL1", "PTPN22"
+    ],
+    "full_text_extracted": [
+      "NOD2", "ATG16L1", "IL23R", "IRGM", "MST1", "PTPN2", "NKX2-3",
+      "TCF7L2", "PPARG", "KCNJ11", "FTO", "CDKAL1", "HHEX",
+      "CDKN2A", "CDKN2B",
+      "PTPN22", "IL2RA", "CTLA4",
+      "ERBB3", "SH2B3", "TRAF3IP2", "PTPN11",
+      "STAT3", "TNFAIP3", "TNFSF15", "BSN"
+    ],
+    "notes": "WTCCC 2007 Nature. Seven diseases studied. Only genes named explicitly in results text with reported association data are included. Crohn's disease (CD): NOD2 (rs17221417, P=9.4e-10), IL23R (rs11805303, P=6.5e-10), ATG16L1 (rs10210302/T300A, P=7.1e-10), IRGM (rs1000113, P=5.1e-10; named as 'immunity-related guanosine triphosphatase'), MST1/BSN region (rs9858542 in BSN, P=7.7e-10 — text notes MST1 is more plausible candidate; including both as they are named), NKX2-3 (rs10883365, P=1.4e-9), PTPN2 (rs2542151, P=4.6e-10); also TNFAIP3 (rs7753394, second-tier CD), STAT3 (rs3816769, CD modest), TNFSF15 (rs6478108, CD). Type 2 diabetes (T2D): TCF7L2 (rs4506565/rs7903146, P=5.7e-10 — strongest T2D signal, explicitly named), KCNJ11 (rs5215, named), PPARG (rs17036328, named), FTO (rs9939609 et al., named), CDKAL1 (rs9465871, named), HHEX region (rs10748582, named in context of French scan replication). Coronary artery disease (CAD): CDKN2A/CDKN2B at 9p21.3 (rs1333049, P=1.8e-10 — paper says the region contains 'coding sequences for two cyclin dependent kinase inhibitors CDKN2A (p16) and CDKN2B (p15)', named explicitly). Rheumatoid arthritis (RA): PTPN22 (rs6679677, named explicitly as established RA gene confirmed). Type 1 diabetes (T1D): PTPN22 (also confirmed), IL2RA/CD25 (rs2104286, named), CTLA4 (named, nominally significant rs3087243/rs11571300), ERBB3 (12q13, named), SH2B3 (12q24, named), TRAF3IP2 (12q24, named), PTPN11 (12q24, named). Bipolar disorder (BD): No individual genes reach genome-wide significance; rs420259 at 16p12 is strongest but gene not definitively named in text (PALB2/NDUFAB1/DCTN4 mentioned as nearby candidates only). Hypertension (HT): No genome-wide significant findings; no genes reach threshold. Excluded: genes mentioned only as pathway context, functional background, or prior literature (e.g. LTA4H, ALOX5AP for CAD background); genes from the expanded reference group analysis where text explicitly says 'replication required'; MTAP at 9p21 (named but only as third gene near CAD signal, not itself associated); MTHFR (mentioned as pathway context for CAD, not associated in this scan); IDE (mentioned in T2D French scan context but not confirmed by WTCCC)."
+  }
+}

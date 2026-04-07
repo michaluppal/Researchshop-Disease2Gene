@@ -1,0 +1,18 @@
+{
+  "pmid": "32416070",
+  "type": "rna_seq",
+  "expected_genes": ["ACE2", "IL6", "CXCL8", "CXCL9", "CXCL16", "CCL2", "CCL8", "MX1", "STAT1"],
+  "expected_genes_comprehensive": [
+    "ACE2", "IL6", "CXCL8", "CXCL9", "CXCL16", "CCL2", "CCL8", "MX1", "STAT1",
+    "IRF9", "ICAM1", "TNF", "TBK1",
+    "CCL20", "CXCL1", "CXCL2", "CXCL3", "CXCL5", "CXCL6",
+    "CCL11", "IL1B", "IL1RN",
+    "ISG20", "OASL",
+    "IFNB1", "IFNL1", "IFNL2", "IFNL3"
+  ],
+  "sources": {
+    "pubtator_genes": ["ACE2", "IL6", "CXCL8", "CXCL9", "CXCL16", "CCL2", "CCL8", "MX1", "STAT1", "IRF9", "ICAM1", "TNF", "TBK1", "CXCL1", "CXCL2", "CXCL3", "CCL20", "IL1B", "IL1RN"],
+    "full_text_extracted": ["ACE2", "IL6", "CXCL8", "CXCL9", "CXCL16", "CCL2", "CCL8", "MX1", "STAT1", "IRF9", "ICAM1", "TNF", "TBK1", "CCL20", "CXCL1", "CXCL2", "CXCL3", "CXCL5", "CXCL6", "CCL11", "IL1B", "IL1RN", "ISG20", "OASL", "IFNB1", "IFNL1", "IFNL2", "IFNL3"],
+    "notes": "ACE2: viral receptor, low expression in A549 explains non-permissiveness. IL6: uniquely elevated in COVID-19 vs other viruses (serum proteomics). CXCL8/9/16, CCL2/8: significantly elevated in patient serum with quantitative data. MX1/STAT1: IFN-stimulated genes absent in SARS-CoV-2 low-MOI. IRF9/ICAM1/TNF: among 8 shared induced genes between SARS-CoV-2 and IAV in NHBE. TBK1: kinase for IFN-I/III, notably NOT activated (Western blot). CCL20/CXCL1-3/5/6: NHBE DEGs listed explicitly. CCL11: post-mortem lung RNA-seq. IL1B: NHBE and ferret results. IL1RN: elevated in ferrets and patient serum. ISG20/OASL: IAV IFN signature genes in trachea comparison. IFNB1/IFNL1-3: undetectable in SARS-CoV-2 (key negative finding with RNA-seq + qPCR + serum ELISA data). Excluded: GAPDH (housekeeping control only)."
+  }
+}
