@@ -19,7 +19,7 @@ import {
   Lock,
   LockOpen,
 } from 'lucide-react'
-import { getJournalQuality, calculateCompositeScore, getScoreBreakdown } from '../utils/journalQuality'
+import { getJournalQuality, calculateCompositeScore, getScoreBreakdown, getQuartile } from '../utils/journalQuality'
 import { scoreGeneRelevance, type RelevanceResult } from '../utils/geneRelevanceScorer'
 
 interface PaperItem {
@@ -27,6 +27,7 @@ interface PaperItem {
   pmid?: string
   doi?: string
   pmc?: string
+  issn?: string
   url: string
   journal?: string
   authors?: string[]
@@ -127,7 +128,7 @@ export default function TopicResultsModal({
         const items: PaperItem[] = pagePmids.map((pmid) => {
           const d = details[pmid]
           const citationCount = citations[pmid] || 0
-          const journalQuality = d ? getJournalQuality(d.journal) : 40
+          const journalQuality = d ? getJournalQuality(d.journal, d.issn) : 30
           const compositeScore = calculateCompositeScore(citationCount, journalQuality)
           const abstract = abstracts[pmid] || ''
           const relevance = scoreGeneRelevance(abstract, d?.title || '')
@@ -136,6 +137,7 @@ export default function TopicResultsModal({
             title: d?.title,
             doi: d?.doi,
             pmc: d?.pmc,
+            issn: d?.issn,
             url: d?.url || `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
             journal: d?.journal,
             authors: d?.authors,
@@ -439,7 +441,8 @@ export default function TopicResultsModal({
           <div className="space-y-3">
             {visiblePapers.map((paper) => {
               const isSelected = paper.pmid ? selected.has(paper.pmid) : false
-              const journalScore = paper.journal ? getJournalQuality(paper.journal) : null
+              const journalScore = paper.journal ? getJournalQuality(paper.journal, paper.issn) : null
+              const quartile = paper.journal ? getQuartile(paper.journal, paper.issn) : 'Unranked'
               const lowRelevance = isLowRelevance(paper)
               return (
                 <div
@@ -486,17 +489,17 @@ export default function TopicResultsModal({
                         {paper.pubYear && (
                           <span className="text-xs text-slate-400">{paper.pubYear}</span>
                         )}
-                        {journalScore !== null && (
+                        {journalScore !== null && quartile !== 'Unranked' && (
                           <span
                             className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                              journalScore >= 80
+                              quartile === 'Q1'
                                 ? 'bg-emerald-100 text-emerald-700'
-                                : journalScore >= 60
+                                : quartile === 'Q2'
                                   ? 'bg-amber-100 text-amber-700'
                                   : 'bg-slate-100 text-slate-500'
                             }`}
                           >
-                            Q{journalScore >= 80 ? '1' : journalScore >= 60 ? '2' : '3'}
+                            {quartile}
                           </span>
                         )}
                       </div>
@@ -630,7 +633,7 @@ export default function TopicResultsModal({
                   </button>
                   {/* Expandable panels — outside button to avoid nesting interactive elements */}
                   {expandedScore === paper.pmid && paper.citationCount !== undefined && paper.journal && (() => {
-                    const bd = getScoreBreakdown(paper.citationCount!, getJournalQuality(paper.journal!))
+                    const bd = getScoreBreakdown(paper.citationCount!, getJournalQuality(paper.journal!, paper.issn), paper.issn, paper.journal!)
                     return (
                       <div className="mx-4 mb-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
                         <p className="font-semibold text-slate-700 mb-2">Impact Score Breakdown</p>

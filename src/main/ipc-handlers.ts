@@ -182,17 +182,20 @@ export function registerIpcHandlers(): void {
           for (const pmid of batch) {
             if (data.result[pmid] && !data.result[pmid].error) {
               const d = data.result[pmid]
-              let doi, pmc
+              let doi, pmc, issn
               if (d.articleids) {
                 doi = d.articleids.find((id: any) => id.idtype === 'doi')?.value
                 pmc = d.articleids.find((id: any) => id.idtype === 'pmc')?.value
+                issn = d.articleids.find((id: any) => id.idtype === 'issn')?.value
               }
+              // Fallback: esummary also exposes issn/essn at top level
+              if (!issn) issn = d.issn || d.essn || ''
               results[pmid] = {
                 title: d.title || 'Title unavailable',
                 journal: d.fulljournalname || d.source || 'Unknown Journal',
                 authors: d.authors?.slice(0, 3).map((a: any) => a.name) || [],
                 pubYear: d.pubdate?.split(' ')[0] || d.sortpubdate?.substring(0, 4) || '',
-                doi, pmc,
+                doi, pmc, issn,
                 url: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}`,
                 publicationTypes: (d.pubtype || []) as string[],
               }

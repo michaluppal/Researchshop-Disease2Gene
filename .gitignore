@@ -58,6 +58,9 @@ _minted-*/
 *.run.xml
 *.spl
 
+# ─── SJR source data (large CSV, not shipped) ───────
+scimagojr*.csv
+
 # ─── Environment & secrets ───────────────────────────
 .env
 *.env
