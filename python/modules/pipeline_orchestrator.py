@@ -28,10 +28,18 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
     """Compute a single confidence signal per output row.
 
     Returns (level, note) where level is HIGH/MEDIUM/LOW/REVIEW.
-    - HIGH: gene confirmed by both NER+LLM sources, with verified citation
-    - MEDIUM: passed all gates; citation stochastic or LLM-only
-    - LOW: abstract-only paper or borderline validation confidence
-    - REVIEW: citation mismatch detected OR gene from figure-only (no prose)
+
+    - HIGH:   Gene corroborated by both PubTator NER + Gemini LLM, AND at least
+              one citation verified in paper text. Strongest evidence tier.
+    - MEDIUM: Gene passed all validation gates (confidence >= 0.85, grounding
+              check, strict gate) but lacks full corroboration. Typical cases:
+              LLM-only gene (PubTator missed it), corroborated gene without a
+              validated citation (LLM stochastically omitted citations), or
+              single-source gene with a valid citation.
+    - LOW:    Abstract-only paper (no full text available) or validation
+              confidence below 0.85 (borderline HGNC match).
+    - REVIEW: Citation text not found in paper (mismatch), OR gene extracted
+              only from figures with no prose source. Requires manual check.
     """
     # Guard: empty gene name is never a valid extraction
     if not str(row.get("Gene/Group", "") or "").strip():
