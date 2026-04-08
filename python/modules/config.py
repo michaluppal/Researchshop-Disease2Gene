@@ -114,9 +114,6 @@ ENABLE_EVIDENCE_BACKFILL = os.getenv("ENABLE_EVIDENCE_BACKFILL", "true").lower()
 EVIDENCE_SNIPPET_MAX_CHARS = int(os.getenv("EVIDENCE_SNIPPET_MAX_CHARS", "240"))
 ENABLE_STRICT_EVIDENCE_GATE = os.getenv("ENABLE_STRICT_EVIDENCE_GATE", "true").lower() == "true"
 
-# Biotype filtering: only protein-coding genes pass validation by default.
-# Set to "false" for non-coding RNA studies (lncRNA, miRNA) where non-coding genes are expected.
-VALIDATE_PROTEIN_CODING_ONLY = os.getenv("VALIDATE_PROTEIN_CODING_ONLY", "true").lower() == "true"
 EVIDENCE_MIN_NONEMPTY_CELLS = int(os.getenv("EVIDENCE_MIN_NONEMPTY_CELLS", "1"))
 # Per-source evidence gate thresholds.
 # LLM-extracted rows carry inherent trust (the LLM translation itself is evidence).

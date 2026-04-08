@@ -463,15 +463,6 @@ class GeneValidator:
         # Resolve canonical symbol for biotype/organism checks
         resolved_symbol, _ = self.resolve_gene_symbol(gene) if gene else (None, "empty")
 
-        # Biotype filter: penalize non-protein-coding genes when config requires it
-        if resolved_symbol and is_valid_gene:
-            biotype = self.get_gene_biotype(resolved_symbol)
-            is_protein_coding = biotype == 'gene with protein product'
-
-            if config.VALIDATE_PROTEIN_CODING_ONLY and not is_protein_coding:
-                validation_source += f' | non_coding:{biotype}'
-                confidence = min(confidence, 0.5)  # Below the 0.7 strict gate
-
         # Detect potential murine-convention symbols (Title case: Brca1, Tp53)
         gene_stripped = (gene or '').strip()
         if resolved_symbol and gene_stripped and gene_stripped != resolved_symbol:

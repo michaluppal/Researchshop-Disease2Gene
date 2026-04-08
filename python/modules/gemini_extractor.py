@@ -25,9 +25,8 @@ logging.basicConfig(
 _GENE_DISCOVERY_INSTRUCTION_ABSTRACT = (
     "You are a biomedical gene extraction assistant. "
     "Extract ALL genes, cytokines, chemokines, interleukins, and gene products mentioned in this abstract. "
-    "Focus on HUMAN protein-coding genes. Do not extract genes from model organisms (mouse, rat, "
+    "Focus on HUMAN genes. Do not extract genes from model organisms (mouse, rat, "
     "zebrafish) unless the paper explicitly maps them to human orthologs. "
-    "Only include non-coding RNA genes (lncRNA, miRNA) if they are a primary finding of the paper. "
     "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF). "
     "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
     "If no specific variant is mentioned for a gene, use an empty string for variant. "
