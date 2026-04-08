@@ -303,16 +303,12 @@ a post-extraction validation schema becomes more reliable. Monitor instruction c
 
 ## 2026-02-28 — Genomics correctness cluster (#12, #13)
 
-### Biotype filtering: soft gate, not hard drop
-**Decision:** Non-protein-coding genes (pseudogenes, lncRNAs, miRNAs) get confidence reduced to 0.5
-(below the 0.7 strict gate) rather than being hard-dropped from the pipeline.
-**Rationale:** With strict gate ON (default): non-coding genes are filtered out automatically.
-With strict gate OFF: non-coding genes appear with `non_coding:{locus_type}` annotation in
-`validation_source`. Users studying lncRNAs can set `VALIDATE_PROTEIN_CODING_ONLY=false`.
-**Tradeoff:** Soft gating adds complexity vs. hard drops, but preserves optionality for
-non-coding RNA researchers. The HGNC database has 25,638 non-protein-coding entries (57%)
-that were previously accepted without annotation.
-**Files:** `config.py`, `gene_validator.py`
+### ~~Biotype filtering: soft gate, not hard drop~~ [REMOVED 2026-04-08]
+**Original decision (2026-02-28):** Non-protein-coding genes got confidence reduced to 0.5.
+**Removed because:** The filter silently excluded lncRNA/miRNA researchers' primary findings
+with no UI toggle to override. All valid HGNC genes now pass validation at equal confidence
+regardless of biotype. `Gene Biotype` column is still populated for informational display.
+**Removal commit:** `2010c65`
 
 ### Mouse symbol flag is informational, not blocking
 **Decision:** Title-case symbols (`Brca1`, `Tp53`) that resolve to human HGNC genes are flagged

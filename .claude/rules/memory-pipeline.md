@@ -234,11 +234,9 @@ Adds confidence scores, validation source, and suggestions for near-misses.
 - `validate_citations()`: dense word matching to verify AI-cited passages exist in paper text
 - `validate_extracted_genes()`: adds validation columns + `Gene Biotype` to result DataFrame
 
-**Biotype filtering** (added 2026-02-28):
-- `VALIDATE_PROTEIN_CODING_ONLY=true` (default): non-protein-coding genes get confidence capped at 0.5,
-  below the 0.7 strict gate. They appear with `non_coding:{locus_type}` in `validation_source`.
-- Only 19,295 of 44,933 HGNC entries are `gene with protein product` — the filter excludes pseudogenes
-  (14,381), lncRNAs (6,673), miRNAs (1,912), etc. from default output.
+**Biotype handling:**
+- ~~Biotype filtering removed 2026-04-08~~ — all valid HGNC genes pass at equal confidence.
+  `Gene Biotype` column is still populated from `get_gene_biotype()` for informational display.
 - Murine-convention symbols (Title case: `Brca1`) are flagged `potential_murine_symbol` but not penalized.
 
 **Variant pattern coverage (12+ HGVS patterns):**
@@ -336,4 +334,4 @@ Stage 7 → deduplicated, citation-ranked CSV
 | `ENABLE_STRICT_VALIDATION_GATE` | True | Low-confidence genes reach CSV |
 | `ENABLE_FIGURE_ANALYSIS` | True | Figures skipped; some genes only in figures missed |
 | `FINAL_VALIDATION_MIN_CONFIDENCE` | 0.7 | Medical accuracy decision — benchmark before changing |
-| `VALIDATE_PROTEIN_CODING_ONLY` | True | Non-coding genes (lncRNA, miRNA, pseudogene) pass validation |
+| ~~`VALIDATE_PROTEIN_CODING_ONLY`~~ | ~~Removed~~ | Removed 2026-04-08 — all HGNC genes pass equally |
