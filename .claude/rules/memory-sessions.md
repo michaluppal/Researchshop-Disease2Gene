@@ -4,6 +4,43 @@
 
 ---
 
+## 2026-04-07–08 — Feature audit, SJR journal scoring, biotype filter removal, confidence docs
+
+**Done:**
+
+Feature audit (2-agent team):
+- Pipeline backend: 6 features audited, all PASS except 2 concerns (confidence tiers)
+- Frontend + bridge: 22 features audited, all PASS (security, UX, data integrity)
+- Impact score identified as not research-grade (hardcoded 50-journal list, arbitrary ceiling)
+
+SJR journal scoring (commit `8b4a185`):
+- Built `scripts/build-sjr-lookup.js` — converts Scimago CSV to compact JSON (49K ISSN, 30K name entries)
+- Rewrote `journalQuality.ts` — ISSN lookup (exact) → name lookup → Unranked fallback
+- Extracted ISSN from PubMed esummary in `ipc-handlers.ts`
+- Q1/Q2/Q3/Q4 badges from real SJR data, citable in paper
+- Citation ceiling lowered from 500 → 200, removed all fuzzy overrides
+- Renderer bundle: 596KB → 2.9MB (SJR data cost, gzips to ~400KB)
+
+Biotype filter removal (commit `2010c65`):
+- Removed `VALIDATE_PROTEIN_CODING_ONLY` config flag and confidence penalty
+- Non-coding genes (lncRNA, miRNA) no longer silently filtered
+- Updated LLM prompt: "Focus on HUMAN genes" (was "HUMAN protein-coding genes")
+- Updated memory-decisions.md, memory-pipeline.md to mark as removed
+
+Confidence tier docs (commit `4c02728`):
+- Expanded `_compute_row_confidence()` docstring with explicit criteria per tier
+- MEDIUM tier now documented: LLM-only, corroborated without citation, single-source with citation
+
+DMG build fix (commit `8566b85`):
+- `package:mac:local` now uses `--arm64 -c.mac.target=dmg` (universal target hangs on Apple Silicon)
+
+**Remaining tasks (paper writing only):**
+- #13: Fill paper abstract TODO
+- #14: Add Future Work section (P3-D)
+- #15: Expand Limitations section (P3-C)
+
+---
+
 ## 2026-04-07 — gemini_extractor refactor + parallel AI analysis feature
 
 **Done:**
