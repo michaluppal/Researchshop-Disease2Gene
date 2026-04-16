@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { createContext, createElement, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 
 export interface StructuredLog {
   level: string
@@ -18,7 +18,14 @@ interface PipelineState {
   structuredLogs: StructuredLog[]
 }
 
-export function usePipeline() {
+interface PipelineContextValue extends PipelineState {
+  start: (args: Parameters<typeof window.api.pipeline.start>[0]) => ReturnType<typeof window.api.pipeline.start>
+  cancel: () => ReturnType<typeof window.api.pipeline.cancel>
+}
+
+const PipelineContext = createContext<PipelineContextValue | null>(null)
+
+export function PipelineProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PipelineState>({
     stage: '',
     percent: 0,
@@ -94,5 +101,11 @@ export function usePipeline() {
 
   const cancel = useCallback(() => window.api.pipeline.cancel(), [])
 
-  return { ...state, start, cancel }
+  return createElement(PipelineContext.Provider, { value: { ...state, start, cancel } }, children)
+}
+
+export function usePipeline(): PipelineContextValue {
+  const ctx = useContext(PipelineContext)
+  if (!ctx) throw new Error('usePipeline must be used within PipelineProvider')
+  return ctx
 }

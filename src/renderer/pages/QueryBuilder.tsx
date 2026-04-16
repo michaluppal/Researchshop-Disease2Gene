@@ -8,6 +8,7 @@ import SmartInput from '../components/SmartInput'
 import AuthorListInput from '../components/AuthorListInput'
 import ColumnEditor from '../components/ColumnEditor'
 import FinalReviewModal from '../components/FinalReviewModal'
+import { usePipeline } from '../hooks/usePipeline'
 
 interface PaperItem {
   title?: string
@@ -39,6 +40,7 @@ const DEFAULT_COLUMNS: Record<string, string> = {
 
 export default function QueryBuilder() {
   const navigate = useNavigate()
+  const { start: startPipeline } = usePipeline()
 
   // Protocol selection
   const [activeModules, setActiveModules] = useState<ProtocolConfig | null>(null)
@@ -155,7 +157,7 @@ export default function QueryBuilder() {
 
     const query = activeModules?.topic ? constructQuery() : ''
 
-    const result = await window.api.pipeline.start({
+    const result = await startPipeline({
       query,
       pmids: allPmids,
       authors: [],

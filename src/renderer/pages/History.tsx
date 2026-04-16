@@ -11,6 +11,7 @@ import {
   Archive,
   CheckCircle,
   XCircle,
+  Activity,
 } from 'lucide-react'
 import { useJobHistory, Job } from '../hooks/useJobHistory'
 
@@ -260,6 +261,15 @@ export default function History() {
                               className="inline-flex gap-1"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              {job.status === 'running' && (
+                                <button
+                                  onClick={() => navigate('/pipeline')}
+                                  className="p-1.5 rounded-lg text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                                  title="View live progress"
+                                >
+                                  <Activity className="w-4 h-4 animate-pulse" />
+                                </button>
+                              )}
                               {job.result_path && job.status === 'completed' && (
                                 <button
                                   onClick={() => openResult(job)}

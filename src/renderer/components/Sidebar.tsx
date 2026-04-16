@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Search, Clock, Settings, Plus, FlaskConical, Sparkles, Download, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { Search, Clock, Settings, Plus, FlaskConical, Sparkles, Download, RefreshCw, CheckCircle2, Activity } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { usePipeline } from '../hooks/usePipeline'
 
 const mainNavItems = [
   { to: '/query', icon: Search, label: 'Query Builder' },
@@ -19,6 +20,7 @@ export default function Sidebar() {
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const navigate = useNavigate()
+  const { isRunning, percent, stage } = usePipeline()
 
   useEffect(() => {
     window.api.app.version().then(setVersion)
@@ -72,6 +74,23 @@ export default function Sidebar() {
             {label}
           </NavLink>
         ))}
+        {isRunning && (
+          <NavLink
+            to="/pipeline"
+            title={stage || 'Running'}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                isActive
+                  ? 'bg-amber-50 text-amber-700 border-l-[3px] border-amber-500'
+                  : 'text-amber-700 hover:bg-amber-50 border-l-[3px] border-transparent'
+              }`
+            }
+          >
+            <Activity className="w-4 h-4 animate-pulse" />
+            <span className="flex-1 truncate">Current Run</span>
+            <span className="text-xs tabular-nums text-amber-600">{Math.round(percent)}%</span>
+          </NavLink>
+        )}
       </nav>
 
       {usage !== null && (() => {

@@ -8,6 +8,7 @@ import QueryBuilder from './pages/QueryBuilder'
 import Pipeline from './pages/Pipeline'
 import Results from './pages/Results'
 import History from './pages/History'
+import { PipelineProvider } from './hooks/usePipeline'
 
 declare global {
   interface Window {
@@ -253,7 +254,9 @@ function App() {
 
   return (
     <HashRouter>
-      <AppRoutes />
+      <PipelineProvider>
+        <AppRoutes />
+      </PipelineProvider>
     </HashRouter>
   )
 }
