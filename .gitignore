@@ -11,7 +11,7 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
-python/.venv/
+pipeline/.venv/
 env/
 
 # ─── Node / Electron ─────────────────────────────────
@@ -20,6 +20,9 @@ dist/
 out/
 build/
 *.tsbuildinfo
+# electron-vite dev generates timestamp-suffixed config files
+electron.vite.config.*.mjs
+electron.vite.config.*.js
 
 # ─── IDE ──────────────────────────────────────────────
 .idea/
@@ -38,10 +41,10 @@ Desktop.ini
 data/output/
 
 # ─── Benchmark transient artifacts ───────────────────
-python/data/benchmark/**/drop_debug_*.json
-python/data/benchmark/**/*.pkl.gz
-python/data/benchmark/**/*.xlsx
-python/data/benchmark/**/*_metadata.csv
+pipeline/data/benchmark/**/drop_debug_*.json
+pipeline/data/benchmark/**/*.pkl.gz
+pipeline/data/benchmark/**/*.xlsx
+pipeline/data/benchmark/**/*_metadata.csv
 
 # ─── LaTeX build artifacts ───────────────────────────
 *.aux

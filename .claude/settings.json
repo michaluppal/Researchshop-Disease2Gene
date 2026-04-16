@@ -19,7 +19,7 @@
       "Read(.env)",
       "Read(.env.*)",
       "Read(*.env)",
-      "Read(python/.venv/**)",
+      "Read(pipeline/.venv/**)",
       "Bash(rm -rf *)"
     ]
   },

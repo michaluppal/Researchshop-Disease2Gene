@@ -7,18 +7,28 @@
 Free Electron desktop app for automated biomedical gene/variant extraction from PubMed papers.
 Users provide their own Gemini API key. No server. Goal: open-source tool + SoftwareX journal paper.
 
+## Repo Layout (top level)
+
+- `app/` — Electron desktop frontend (`app/src/{main,preload,renderer}`, `app/resources/`, `app/scripts/`)
+- `pipeline/` — Python backend: modules, scripts, tests, data (HGNC, benchmark, output)
+- `docs/` — AUDIT.md, ROADMAP.md, pipeline-internals.md, bug-hunting.md, reports/
+- `publication/` — SoftwareX paper (main.tex, sections/, references.bib, figures/, working/)
+- `.claude/` — routing file + rules + slash commands + session hooks
+
+Build configs (electron-vite, tsconfig*, tailwind, electron-builder) live at root so electron-vite/electron-builder pick them up from CWD. Source is in `app/src/`.
+
 ## Key Files to Know
 
 | Layer | File | Purpose |
 |---|---|---|
-| Entry | `python/run_pipeline.py` | CLI spawned by Electron |
-| Orchestration | `python/modules/pipeline_orchestrator.py` | chains all stages |
-| Extraction | `python/modules/gemini_extractor.py` | LLM extraction engine |
-| Validation | `python/modules/gene_validator.py` | HGNC + remote APIs |
-| NER | `python/modules/pubtator_tool.py` | high-precision gene NER |
-| Config | `python/modules/config.py` | all pipeline feature flags |
-| IPC | `src/main/python-bridge.ts` | Electron ↔ Python protocol |
-| Audit | `AUDIT.md` | source of truth for pipeline quality |
+| Entry | `pipeline/run_pipeline.py` | CLI spawned by Electron |
+| Orchestration | `pipeline/modules/pipeline_orchestrator.py` | chains all stages |
+| Extraction | `pipeline/modules/gemini_extractor.py` | LLM extraction engine |
+| Validation | `pipeline/modules/gene_validator.py` | HGNC + remote APIs |
+| NER | `pipeline/modules/pubtator_tool.py` | high-precision gene NER |
+| Config | `pipeline/modules/config.py` | all pipeline feature flags |
+| IPC | `app/src/main/python-bridge.ts` | Electron ↔ Python protocol |
+| Audit | `docs/AUDIT.md` | source of truth for pipeline quality |
 
 **Read before modifying pipeline code:** `.claude/rules/memory-pipeline.md`
 **Full project memory:** `.claude/rules/`
@@ -32,7 +42,7 @@ npx tsc --noEmit -p tsconfig.web.json   # typecheck renderer
 npx tsc --noEmit -p tsconfig.node.json  # typecheck main
 
 # Python
-cd python && python3 -m venv .venv && source .venv/bin/activate
+cd pipeline && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python run_pipeline.py --help
 ```
@@ -49,7 +59,7 @@ IMPORTANT: These constraints exist for scientific accuracy and must not be overr
   with the reasoning and the tradeoff explicitly accepted.
 - **False negatives at abstract screening are silent failures** — a paper dropped there cannot be recovered.
   Do not raise the screening threshold without evaluating recall impact.
-- **YOU MUST keep AUDIT.md synchronized** — any change to pipeline behaviour requires an update.
+- **YOU MUST keep docs/AUDIT.md synchronized** — any change to pipeline behaviour requires an update.
 - **Secrets via env vars only** — never CLI args (visible in `ps aux`)
 - **OA papers only** — no paywall bypass, no Playwright
 - **No over-engineering** — minimum complexity for the current task. Replace, don't deprecate.

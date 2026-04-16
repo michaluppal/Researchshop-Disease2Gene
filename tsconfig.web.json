@@ -8,8 +8,8 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/renderer/*"]
+      "@/*": ["app/src/renderer/*"]
     }
   },
-  "include": ["src/renderer/**/*"]
+  "include": ["app/src/renderer/**/*"]
 }

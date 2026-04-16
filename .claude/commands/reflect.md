@@ -7,7 +7,7 @@ description: Capture session learnings into memory files and AUDIT.md
 
 - Today's date: !`date +%Y-%m-%d`
 - Files changed this session: !`git diff HEAD --name-only 2>/dev/null || git status --short`
-- Pipeline modules touched: !`git diff HEAD --name-only 2>/dev/null | grep -E "^python/|^src/main/" || echo "none"`
+- Pipeline modules touched: !`git diff HEAD --name-only 2>/dev/null | grep -E "^pipeline/|^app/src/main/" || echo "none"`
 
 ## Your task
 

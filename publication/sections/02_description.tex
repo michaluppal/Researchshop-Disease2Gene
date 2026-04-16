@@ -33,7 +33,7 @@ The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.95\textwidth]{architecture_diagram.pdf}
+    \includegraphics[width=0.95\textwidth]{figures/architecture_diagram.pdf}
     \caption{\textcolor{red}{\textbf{tool name}} system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes full-text acquisition, PubTator NER, and LLM extraction in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
     \label{fig:architecture}
 \end{figure*}

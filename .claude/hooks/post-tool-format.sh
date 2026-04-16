@@ -8,5 +8,5 @@ FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""' 2
 [[ -z "$FILE" || "$FILE" == "null" ]] && exit 0
 [[ "$FILE" != *.py ]] && exit 0
 
-RUFF="$CLAUDE_PROJECT_DIR/python/.venv/bin/ruff"
+RUFF="$CLAUDE_PROJECT_DIR/pipeline/.venv/bin/ruff"
 [ -f "$RUFF" ] && "$RUFF" format "$FILE" 2>/dev/null || true

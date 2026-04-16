@@ -6,9 +6,10 @@ import { app } from 'electron'
 
 function getPythonDir(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'python')
+    return join(process.resourcesPath, 'pipeline')
   }
-  return join(__dirname, '../../python')
+  // Dev: __dirname is out/main at runtime → ../../pipeline
+  return join(__dirname, '../../pipeline')
 }
 
 function getVenvPython(pythonDir: string): string {

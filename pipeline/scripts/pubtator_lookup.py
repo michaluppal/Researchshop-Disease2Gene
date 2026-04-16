@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Standalone PubTator3 gene lookup for gold standard annotation.
 
-Usage: python3 python/scripts/pubtator_lookup.py <PMID> [<PMID2> ...]
+Usage: python3 pipeline/scripts/pubtator_lookup.py <PMID> [<PMID2> ...]
 Output: JSON to stdout
 
 Queries PubTator3 API for gene annotations, resolves each to HGNC symbol
 via GeneValidator, and outputs structured results with text mentions.
 
-Requires: python/.venv with pipeline dependencies installed.
-Must be run from the project root (python/ must be importable).
+Requires: pipeline/.venv with pipeline dependencies installed.
+Must be run from the project root (pipeline/ must be importable).
 """
 
 import json

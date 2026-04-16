@@ -2,21 +2,25 @@ publish:
   provider: github
   owner: michaluppal
   repo: RS_SOFTWAREX
-afterPack: scripts/afterpack.js
+afterPack: app/scripts/afterpack.js
 appId: com.researchshop.desktop
 productName: ResearchShop
 directories:
-  buildResources: resources
+  buildResources: app/resources
   output: dist
 files:
   - '!**/.vscode/*'
-  - '!src/*'
+  - '!app/src/*'
   - '!electron.vite.config.*'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{AUDIT.md,ROADMAP.md,CLAUDE.md}'
+  - '!docs/**/*'
+  - '!publication/**/*'
+  - '!.claude/**/*'
 extraResources:
-  - from: python
-    to: python
+  - from: pipeline
+    to: pipeline
     filter:
       - '**/*'
       - '!.venv/**'
@@ -24,7 +28,7 @@ extraResources:
       - '!**/*.pyc'
       - '!**/__pycache__/**'
 mac:
-  icon: resources/icon.icns
+  icon: app/resources/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSDocumentsFolderUsageDescription: ResearchShop needs access to save research results.
@@ -35,12 +39,12 @@ mac:
     - target: zip
       arch: universal
 win:
-  icon: resources/icon.ico
+  icon: app/resources/icon.ico
   target:
     - nsis
     - zip
 linux:
-  icon: resources/icon.png
+  icon: app/resources/icon.png
   maintainer: "ResearchShop <researchshop@users.noreply.github.com>"
   target:
     - AppImage
@@ -50,8 +54,8 @@ nsis:
   allowToChangeInstallationDirectory: true
 dmg:
   artifactName: ${name}-${version}.${ext}
-  background: resources/dmg-background.png
-  icon: resources/icon.icns
+  background: app/resources/dmg-background.png
+  icon: app/resources/icon.icns
   iconSize: 128
   contents:
     - x: 150

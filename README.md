@@ -41,7 +41,7 @@ npm install
 npm run dev          # opens the app in development mode
 ```
 
-Python dependencies are installed automatically on first launch into a local virtual environment (`python/.venv/`). No manual `pip install` needed.
+Python dependencies are installed automatically on first launch into a local virtual environment (`pipeline/.venv/`). No manual `pip install` needed.
 
 To build a distributable:
 ```bash
@@ -85,7 +85,7 @@ In Settings: enter your email in the **NCBI Email** field.
 The pipeline can also be run headlessly:
 
 ```bash
-cd python
+cd pipeline
 source .venv/bin/activate   # or .venv/Scripts/activate on Windows
 
 python run_pipeline.py \
@@ -183,10 +183,10 @@ On a 12-paper gold-standard evaluation (cancer genomics, GWAS, rare disease, RNA
 
 ## Reproducibility
 
-The benchmark dataset is at `python/data/benchmark/`. To reproduce the evaluation:
+The benchmark dataset is at `pipeline/data/benchmark/`. To reproduce the evaluation:
 
 ```bash
-cd python
+cd pipeline
 source .venv/bin/activate
 python scripts/benchmark_runner.py --all --runs 3
 python scripts/benchmark_analysis.py

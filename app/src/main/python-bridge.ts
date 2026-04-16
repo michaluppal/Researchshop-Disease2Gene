@@ -55,9 +55,10 @@ function getPythonPath(): string {
 
 function getPythonDir(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'python')
+    return join(process.resourcesPath, 'pipeline')
   }
-  return join(__dirname, '../../python')
+  // Dev: __dirname is out/main at runtime → ../../pipeline
+  return join(__dirname, '../../pipeline')
 }
 
 export function startPipeline(jobId: string, args: PipelineArgs): void {

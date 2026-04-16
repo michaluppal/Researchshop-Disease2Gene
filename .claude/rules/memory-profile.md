@@ -27,8 +27,8 @@ HGNC, outputs CSV. Users bring their own Gemini API key.
 ## Infrastructure
 
 - **No server** — fully local, privacy-preserving
-- **Python venv** auto-created at `python/.venv/` on first app launch
-- **Local HGNC database** — 44,943 genes bundled at `python/data/reference/hgnc_genes.json` (6.6 MB, refreshed 2026-02-28)
+- **Python venv** auto-created at `pipeline/.venv/` on first app launch
+- **Local HGNC database** — 44,943 genes bundled at `pipeline/data/reference/hgnc_genes.json` (6.6 MB, refreshed 2026-02-28)
 - **electron-store** — encrypted settings (API key, email)
 - **better-sqlite3** — local job history; `jobs.db` now stores primary CSV plus metadata/Excel/JSON artifact paths so History can reopen full result bundles
 
@@ -44,12 +44,12 @@ HGNC, outputs CSV. Users bring their own Gemini API key.
 
 ## Benchmark Infrastructure
 
-- **Gold standard:** `python/data/benchmark/gold_standard.json` — 24 papers, 5 types; 23/24 have v2 two-tier schema (21076407 paywalled)
+- **Gold standard:** `pipeline/data/benchmark/gold_standard.json` — 24 papers, 5 types; 23/24 have v2 two-tier schema (21076407 paywalled)
 - **Gold standard creation:** `/annotate-paper <PMID>` skill — PubMed MCP + Playwright figures + Claude multimodal
-- **Figure extraction:** `python/scripts/extract_pmc_figures.js` — Playwright headless Chromium, per-figure screenshots
-- **Runner:** `python/scripts/benchmark_runner.py` — calls `repeatability_check.py` per paper
-- **Analysis:** `python/scripts/benchmark_analysis.py` — computes P/R/F1 from summaries
-- **Per-paper results:** `python/data/benchmark/{pmid}/` — `run_0{n}_results.csv` + `repeatability_summary.json`
+- **Figure extraction:** `pipeline/scripts/extract_pmc_figures.js` — Playwright headless Chromium, per-figure screenshots
+- **Runner:** `pipeline/scripts/benchmark_runner.py` — calls `repeatability_check.py` per paper
+- **Analysis:** `pipeline/scripts/benchmark_analysis.py` — computes P/R/F1 from summaries
+- **Per-paper results:** `pipeline/data/benchmark/{pmid}/` — `run_0{n}_results.csv` + `repeatability_summary.json`
 - **Per-run full text:** `content_dict_{hash}.pkl.gz` — full text fetched during that run (gzipped pickle)
 - **Preliminary F1 (full-LLM mode):** cancer_genomics=0.668, gwas=0.611, rare_disease=0.167, rna_seq/pharmacogenomics TBD
 - **Playwright:** installed globally (`/opt/homebrew/bin/playwright` v1.55.0) + as devDependency; Chromium browser cached

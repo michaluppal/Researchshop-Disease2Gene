@@ -3,10 +3,10 @@
  * Build a compact SJR journal lookup from the Scimago CSV download.
  *
  * Usage:
- *   node scripts/build-sjr-lookup.js [path/to/scimagojr.csv]
+ *   node app/scripts/build-sjr-lookup.js [path/to/scimagojr.csv]
  *
  * Default input:  scimagojr.csv in repo root (or first CLI arg)
- * Output:         src/renderer/data/sjr-lookup.json
+ * Output:         app/src/renderer/data/sjr-lookup.json
  *
  * The output JSON has two maps:
  *   byIssn  — ISSN (hyphenated, e.g. "0028-0836") → { q, sjr, name }
@@ -16,8 +16,10 @@
 const fs = require('fs')
 const path = require('path')
 
-const inputPath = process.argv[2] || path.join(__dirname, '..', 'scimagojr.csv')
-const outputPath = path.join(__dirname, '..', 'src', 'renderer', 'data', 'sjr-lookup.json')
+// __dirname = app/scripts; repo root = ../..
+const repoRoot = path.join(__dirname, '..', '..')
+const inputPath = process.argv[2] || path.join(repoRoot, 'scimagojr.csv')
+const outputPath = path.join(repoRoot, 'app', 'src', 'renderer', 'data', 'sjr-lookup.json')
 
 if (!fs.existsSync(inputPath)) {
   console.error(`SJR CSV not found at: ${inputPath}`)

@@ -95,7 +95,7 @@ class GeneValidator:
                 if age_days > 365:
                     logger.warning(
                         f"HGNC snapshot is {age_days} days old (since {snapshot_date}). "
-                        "Run python/scripts/refresh_hgnc.py to update."
+                        "Run pipeline/scripts/refresh_hgnc.py to update."
                     )
             except Exception:
                 pass

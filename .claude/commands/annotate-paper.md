@@ -1,12 +1,12 @@
 ---
-allowed-tools: mcp__plugin_pubmed_PubMed__get_article_metadata, mcp__plugin_pubmed_PubMed__convert_article_ids, mcp__plugin_pubmed_PubMed__get_full_text_article, mcp__plugin_pubmed_PubMed__get_copyright_status, mcp__plugin_pubmed_PubMed__find_related_articles, Bash(node *), Bash(mkdir *), Bash(ls *), Bash(rm /tmp/annotate-paper/*), Bash(cd python *), Bash(source *), Bash(python3 *), Bash(python/.*), Read, Write, Edit
+allowed-tools: mcp__plugin_pubmed_PubMed__get_article_metadata, mcp__plugin_pubmed_PubMed__convert_article_ids, mcp__plugin_pubmed_PubMed__get_full_text_article, mcp__plugin_pubmed_PubMed__get_copyright_status, mcp__plugin_pubmed_PubMed__find_related_articles, Bash(node *), Bash(mkdir *), Bash(ls *), Bash(rm /tmp/annotate-paper/*), Bash(cd pipeline *), Bash(source *), Bash(python3 *), Bash(pipeline/.*), Read, Write, Edit
 description: Create a two-tier gold_standard.json entry for a PMID. Usage /annotate-paper <PMID>
 ---
 
 ## Context
 
-- Current gold standard: !`grep '"pmid"' python/data/benchmark/gold_standard.json`
-- Paper count: !`grep -c '"pmid"' python/data/benchmark/gold_standard.json`
+- Current gold standard: !`grep '"pmid"' pipeline/data/benchmark/gold_standard.json`
+- Paper count: !`grep -c '"pmid"' pipeline/data/benchmark/gold_standard.json`
 
 ## Your task
 
@@ -33,7 +33,7 @@ Run these **in parallel**:
 4. `find_related_articles` with pmids `["$ARGUMENTS"]` and `link_type: "pubmed_gene"` → NCBI Gene IDs
 5. PubTator3 independent NER:
 ```bash
-cd python && source .venv/bin/activate && python3 scripts/pubtator_lookup.py $ARGUMENTS
+cd pipeline && source .venv/bin/activate && python3 scripts/pubtator_lookup.py $ARGUMENTS
 ```
 
 **Stop if:** No PMCID found or not OA.
@@ -52,7 +52,7 @@ Run these **in parallel**:
 2. Figure extraction:
 ```bash
 mkdir -p /tmp/annotate-paper/$ARGUMENTS
-node python/scripts/extract_pmc_figures.js <PMCID> /tmp/annotate-paper/$ARGUMENTS
+node pipeline/scripts/extract_pmc_figures.js <PMCID> /tmp/annotate-paper/$ARGUMENTS
 ```
 
 If figures are produced:
@@ -79,7 +79,7 @@ Track separately:
 
 For genes found by full name only (not HGNC symbol), resolve to symbol:
 ```bash
-cd python && source .venv/bin/activate && python3 -c "
+cd pipeline && source .venv/bin/activate && python3 -c "
 from modules.gene_validator import GeneValidator
 v = GeneValidator()
 symbol, source = v.resolve_gene_symbol('<FULL_NAME_OR_ALIAS>')
@@ -93,7 +93,7 @@ print(f'{symbol} ({source})')
 
 For each NCBI Gene ID from `find_related_articles(pubmed_gene)`:
 ```bash
-cd python && source .venv/bin/activate && python3 -c "
+cd pipeline && source .venv/bin/activate && python3 -c "
 from modules.pubtator_tool import NCBIGeneTool
 t = NCBIGeneTool()
 m = t.get_gene_metadata('<GENE_ID>')
@@ -193,12 +193,12 @@ Do NOT proceed to Step 8 until the user explicitly approves.
 
 ### Step 8 — Append to gold_standard.json (only after user approval)
 
-1. Read `python/data/benchmark/gold_standard.json`
+1. Read `pipeline/data/benchmark/gold_standard.json`
 2. Append the new entry to the `papers` array
 3. Write the updated file
 4. Validate JSON:
 ```bash
-node -e "JSON.parse(require('fs').readFileSync('python/data/benchmark/gold_standard.json','utf8')); console.log('JSON valid ✅')"
+node -e "JSON.parse(require('fs').readFileSync('pipeline/data/benchmark/gold_standard.json','utf8')); console.log('JSON valid ✅')"
 ```
 5. Report: "Entry appended. Gold standard now has N papers."
 
