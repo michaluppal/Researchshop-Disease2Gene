@@ -58,6 +58,43 @@ const FIELDS = [
   { value: '', label: 'All Fields' },
 ]
 
+function FilterToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: () => void
+}) {
+  return (
+    <label
+      className={`flex items-start gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+        checked
+          ? 'bg-brand-50 border-brand-300'
+          : 'bg-white border-slate-200 hover:border-slate-300'
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className={`text-sm font-medium ${checked ? 'text-brand-700' : 'text-slate-700'}`}>
+          {label}
+        </div>
+        <div className={`text-xs ${checked ? 'text-brand-600' : 'text-slate-500'}`}>
+          {hint}
+        </div>
+      </div>
+    </label>
+  )
+}
+
 export default function QueryConditionForm({
   conditions,
   onChange,
@@ -542,42 +579,5 @@ export default function QueryConditionForm({
         </button>
       </div>
     </div>
-  )
-}
-
-function FilterToggle({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string
-  hint: string
-  checked: boolean
-  onChange: () => void
-}) {
-  return (
-    <label
-      className={`flex items-start gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
-        checked
-          ? 'bg-brand-50 border-brand-300'
-          : 'bg-white border-slate-200 hover:border-slate-300'
-      }`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
-      />
-      <div className="flex-1 min-w-0">
-        <div className={`text-sm font-medium ${checked ? 'text-brand-700' : 'text-slate-700'}`}>
-          {label}
-        </div>
-        <div className={`text-xs ${checked ? 'text-brand-600' : 'text-slate-500'}`}>
-          {hint}
-        </div>
-      </div>
-    </label>
   )
 }
