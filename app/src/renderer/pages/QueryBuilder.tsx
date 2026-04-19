@@ -31,6 +31,20 @@ interface Condition {
   term: string
 }
 
+export interface QueryFilters {
+  openAccessOnly: boolean
+  humansOnly: boolean
+  excludeReviews: boolean
+  excludeCaseReports: boolean
+}
+
+const DEFAULT_FILTERS: QueryFilters = {
+  openAccessOnly: false,
+  humansOnly: false,
+  excludeReviews: false,
+  excludeCaseReports: false,
+}
+
 const DEFAULT_COLUMNS: Record<string, string> = {
   'Disease Association': 'The disease or medical condition associated with this gene/variant',
   'Key Finding': 'Main research finding about this gene from the paper',
@@ -55,6 +69,7 @@ export default function QueryBuilder() {
   const [rawMode, setRawMode] = useState(false)
   const [rawQuery, setRawQuery] = useState('')
   const [paperCount, setPaperCount] = useState<number | null>(null)
+  const [filters, setFilters] = useState<QueryFilters>(DEFAULT_FILTERS)
   const [isTopicPreviewOpen, setIsTopicPreviewOpen] = useState(false)
   const [topicPapers, setTopicPapers] = useState<PaperItem[]>([])
 
@@ -73,28 +88,52 @@ export default function QueryBuilder() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Construct query from conditions (or return raw query when in raw mode)
+  // Construct query: build from conditions (or use raw), apply filter toggles,
+  // then append the date range filter. Applies to both modes so every input is honoured.
   const constructQuery = useCallback(() => {
-    if (rawMode) return rawQuery
-    let query = ''
-    conditions.forEach((cond, i) => {
-      if (!cond.term.trim()) return
-      const term = cond.term.includes(' ') ? `"${cond.term}"` : cond.term
-      const field = cond.field ? `[${cond.field}]` : ''
-      const part = `${term}${field}`
-      if (i === 0 || !query) {
-        query = part
-      } else {
-        query += ` ${cond.operator} ${part}`
-      }
-    })
+    let query: string
+    if (rawMode) {
+      query = rawQuery.trim()
+    } else {
+      query = ''
+      conditions.forEach((cond, i) => {
+        if (!cond.term.trim()) return
+        const term = cond.term.includes(' ') ? `"${cond.term}"` : cond.term
+        const field = cond.field ? `[${cond.field}]` : ''
+        const part = `${term}${field}`
+        if (i === 0 || !query) {
+          query = part
+        } else {
+          query += ` ${cond.operator} ${part}`
+        }
+      })
+    }
+
+    // Filter toggles — appended as AND/NOT clauses around the base query
+    const andClauses: string[] = []
+    const notClauses: string[] = []
+    if (filters.openAccessOnly) andClauses.push('"loattrfull text"[sb]')
+    if (filters.humansOnly) andClauses.push('"humans"[MeSH Terms]')
+    if (filters.excludeReviews) {
+      notClauses.push('"review"[Publication Type]', '"meta-analysis"[Publication Type]')
+    }
+    if (filters.excludeCaseReports) {
+      notClauses.push('"case reports"[Publication Type]', '"editorial"[Publication Type]')
+    }
+    if (query && (andClauses.length || notClauses.length)) {
+      let wrapped = `(${query})`
+      for (const c of andClauses) wrapped += ` AND ${c}`
+      if (notClauses.length) wrapped += ` NOT (${notClauses.join(' OR ')})`
+      query = wrapped
+    }
+
     if (startYear || endYear) {
       const s = startYear || '1900'
       const e = endYear || '3000'
       query = query ? `(${query}) AND ${s}:${e}[dp]` : `${s}:${e}[dp]`
     }
     return query
-  }, [conditions, startYear, endYear, rawMode, rawQuery])
+  }, [conditions, startYear, endYear, rawMode, rawQuery, filters])
 
   // Debounced paper count fetch
   useEffect(() => {
@@ -232,6 +271,8 @@ export default function QueryBuilder() {
               endYear={endYear}
               onStartYearChange={setStartYear}
               onEndYearChange={setEndYear}
+              filters={filters}
+              onFiltersChange={setFilters}
               constructedQuery={constructQuery()}
               paperCount={paperCount}
               onPreview={() => setIsTopicPreviewOpen(true)}

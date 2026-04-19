@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar, Sparkles, Check, X, Send } from 'lucide-react'
+import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar, Sparkles, Check, X, Send, Filter, AlertTriangle } from 'lucide-react'
+import type { QueryFilters } from '../pages/QueryBuilder'
 
 interface Condition {
   operator: string
@@ -14,6 +15,8 @@ interface QueryConditionFormProps {
   endYear: string
   onStartYearChange: (year: string) => void
   onEndYearChange: (year: string) => void
+  filters: QueryFilters
+  onFiltersChange: (filters: QueryFilters) => void
   constructedQuery: string
   paperCount: number | null
   onPreview: () => void
@@ -21,6 +24,30 @@ interface QueryConditionFormProps {
   rawQuery: string
   onRawModeChange: (rawMode: boolean) => void
   onRawQueryChange: (rawQuery: string) => void
+}
+
+const CURRENT_YEAR = new Date().getFullYear()
+
+const DATE_PRESETS: { label: string; yearsAgo: number | null }[] = [
+  { label: 'Last year', yearsAgo: 1 },
+  { label: 'Last 5 yrs', yearsAgo: 5 },
+  { label: 'Last 10 yrs', yearsAgo: 10 },
+  { label: 'All time', yearsAgo: null },
+]
+
+// Heuristic validator — cheap client-side parse to explain why paperCount is 0.
+function diagnoseQuery(query: string): string | null {
+  if (!query.trim()) return null
+  let opens = 0, closes = 0, quotes = 0
+  for (const ch of query) {
+    if (ch === '(') opens++
+    else if (ch === ')') closes++
+    else if (ch === '"') quotes++
+  }
+  if (opens !== closes) return `Parentheses mismatch: ${opens} "(" vs ${closes} ")"`
+  if (quotes % 2 !== 0) return 'Odd number of quote marks — close your phrases with "'
+  if (/\bAND\s*AND\b|\bOR\s*OR\b|\bAND\s*$|\bOR\s*$/i.test(query)) return 'Dangling AND/OR — finish or remove the operator'
+  return null
 }
 
 const OPERATORS = ['AND', 'OR', 'NOT']
@@ -38,6 +65,8 @@ export default function QueryConditionForm({
   endYear,
   onStartYearChange,
   onEndYearChange,
+  filters,
+  onFiltersChange,
   constructedQuery,
   paperCount,
   onPreview,
@@ -99,6 +128,34 @@ export default function QueryConditionForm({
     setAiResult(null)
     setResearchDescription('')
   }
+
+  const applyDatePreset = (yearsAgo: number | null) => {
+    if (yearsAgo === null) {
+      onStartYearChange('')
+      onEndYearChange('')
+    } else {
+      onStartYearChange(String(CURRENT_YEAR - yearsAgo))
+      onEndYearChange('')
+    }
+  }
+
+  // Detect which preset (if any) the current startYear/endYear matches
+  const activePreset: number | null | undefined = (() => {
+    if (!startYear && !endYear) return null // All time
+    if (endYear) return undefined // custom
+    const n = parseInt(startYear, 10)
+    if (Number.isNaN(n)) return undefined
+    const yearsAgo = CURRENT_YEAR - n
+    return DATE_PRESETS.some((p) => p.yearsAgo === yearsAgo) ? yearsAgo : undefined
+  })()
+
+  const toggleFilter = (key: keyof QueryFilters) => {
+    onFiltersChange({ ...filters, [key]: !filters[key] })
+  }
+
+  const queryDiagnostic = diagnoseQuery(constructedQuery)
+  const showZeroResultHint =
+    constructedQuery.trim().length > 0 && paperCount === 0
 
   return (
     <div className="space-y-5">
@@ -271,12 +328,69 @@ export default function QueryConditionForm({
         </div>
       )}
 
+      {/* Filters */}
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-3">
+          <Filter className="w-4 h-4 text-gray-400" />
+          Filters
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <FilterToggle
+            label="Open access only"
+            hint="Full text available via PMC"
+            checked={filters.openAccessOnly}
+            onChange={() => toggleFilter('openAccessOnly')}
+          />
+          <FilterToggle
+            label="Humans only"
+            hint="Exclude animal / in vitro studies"
+            checked={filters.humansOnly}
+            onChange={() => toggleFilter('humansOnly')}
+          />
+          <FilterToggle
+            label="Exclude reviews"
+            hint="Skip review + meta-analysis papers"
+            checked={filters.excludeReviews}
+            onChange={() => toggleFilter('excludeReviews')}
+          />
+          <FilterToggle
+            label="Exclude case reports"
+            hint="Skip case reports + editorials"
+            checked={filters.excludeCaseReports}
+            onChange={() => toggleFilter('excludeCaseReports')}
+          />
+        </div>
+      </div>
+
       {/* Date range */}
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
         <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
           <Calendar className="w-4 h-4 text-gray-400" />
           Date Range
         </label>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {DATE_PRESETS.map((p) => {
+            const isActive = p.yearsAgo === activePreset
+            return (
+              <button
+                key={p.label}
+                onClick={() => applyDatePreset(p.yearsAgo)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  isActive
+                    ? 'bg-brand-600 text-white border-brand-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600'
+                }`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+          {activePreset === undefined && (
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full border border-slate-200 bg-slate-100 text-slate-500">
+              Custom
+            </span>
+          )}
+        </div>
         <div className="flex gap-4">
           <div className="flex-1">
             <label className="block text-xs text-gray-500 mb-1">Start Year</label>
@@ -311,12 +425,36 @@ export default function QueryConditionForm({
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-slate-400">Query Preview</span>
             {paperCount !== null && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 text-xs font-medium">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                paperCount === 0
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-brand-500/20 text-brand-300'
+              }`}>
                 {paperCount.toLocaleString()} papers found
               </span>
             )}
           </div>
           <p className="text-sm text-slate-200 font-mono break-all">{constructedQuery}</p>
+        </div>
+      )}
+
+      {/* Validation hint — surfaced below the preview so the user knows WHY 0 results */}
+      {queryDiagnostic && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span className="flex-1">{queryDiagnostic}</span>
+        </div>
+      )}
+      {!queryDiagnostic && showZeroResultHint && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 space-y-1">
+            <p className="font-medium">No papers match this query.</p>
+            <p className="text-xs text-amber-700">
+              Common causes: terms too specific, filters too strict (try disabling "Open access only" or "Humans only"),
+              date range too narrow, or a MeSH term that isn't indexed. Try "Test in PubMed" below to diagnose on NCBI.
+            </p>
+          </div>
         </div>
       )}
 
@@ -348,5 +486,42 @@ export default function QueryConditionForm({
         </button>
       </div>
     </div>
+  )
+}
+
+function FilterToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: () => void
+}) {
+  return (
+    <label
+      className={`flex items-start gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+        checked
+          ? 'bg-brand-50 border-brand-300'
+          : 'bg-white border-slate-200 hover:border-slate-300'
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className={`text-sm font-medium ${checked ? 'text-brand-700' : 'text-slate-700'}`}>
+          {label}
+        </div>
+        <div className={`text-xs ${checked ? 'text-brand-600' : 'text-slate-500'}`}>
+          {hint}
+        </div>
+      </div>
+    </label>
   )
 }
