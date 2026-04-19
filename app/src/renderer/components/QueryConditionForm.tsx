@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar, Sparkles, Check, X, Send, Filter, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Copy, ExternalLink, Eye, Code, Calendar, Sparkles, Check, X, Send, Filter, AlertTriangle, RotateCcw } from 'lucide-react'
 import type { QueryFilters } from '../pages/QueryBuilder'
 
 interface Condition {
@@ -77,11 +77,14 @@ export default function QueryConditionForm({
 }: QueryConditionFormProps) {
   const [copied, setCopied] = useState(false)
 
-  // AI query builder state
-  const [researchDescription, setResearchDescription] = useState('')
+  // AI query builder — conversation thread. First turn is build; subsequent turns refine.
+  const [input, setInput] = useState('')
   const [building, setBuilding] = useState(false)
-  const [aiResult, setAiResult] = useState<{ query: string; explanation: string } | null>(null)
+  const [turns, setTurns] = useState<{ user: string; query: string; explanation: string }[]>([])
   const [aiError, setAiError] = useState<string | null>(null)
+
+  const latestTurn = turns.length > 0 ? turns[turns.length - 1] : null
+  const hasConversation = turns.length > 0
 
   const updateCondition = (index: number, field: keyof Condition, value: string) => {
     const updated = conditions.map((c, i) => (i === index ? { ...c, [field]: value } : c))
@@ -107,26 +110,41 @@ export default function QueryConditionForm({
     window.api.shell.openExternal(url)
   }
 
-  const handleBuildQuery = async () => {
-    if (!researchDescription.trim()) return
+  const handleSendPrompt = async () => {
+    const userMessage = input.trim()
+    if (!userMessage || building) return
     setBuilding(true)
-    setAiResult(null)
     setAiError(null)
-    const result = await window.api.pubmed.buildQuery(researchDescription)
+    const result = hasConversation && latestTurn
+      ? await window.api.pubmed.refineQuery({
+          previousQuery: latestTurn.query,
+          refinementRequest: userMessage,
+        })
+      : await window.api.pubmed.buildQuery(userMessage)
     setBuilding(false)
     if (result.error) {
       setAiError(result.error)
-    } else if (result.query) {
-      setAiResult({ query: result.query, explanation: result.explanation || '' })
+      return
+    }
+    if (result.query) {
+      setTurns((prev) => [
+        ...prev,
+        { user: userMessage, query: result.query!, explanation: result.explanation || '' },
+      ])
+      setInput('')
     }
   }
 
   const applyAiQuery = () => {
-    if (!aiResult) return
-    onRawQueryChange(aiResult.query)
+    if (!latestTurn) return
+    onRawQueryChange(latestTurn.query)
     onRawModeChange(true)
-    setAiResult(null)
-    setResearchDescription('')
+  }
+
+  const resetAiConversation = () => {
+    setTurns([])
+    setInput('')
+    setAiError(null)
   }
 
   const applyDatePreset = (yearsAgo: number | null) => {
@@ -159,36 +177,54 @@ export default function QueryConditionForm({
 
   return (
     <div className="space-y-5">
-      {/* AI Query Builder */}
+      {/* AI Query Builder — conversational refinement */}
       <div className="rounded-xl border border-violet-200 bg-gradient-to-b from-violet-50 to-white p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-violet-600" />
-          <h3 className="text-sm font-semibold text-violet-800">AI Query Assistant</h3>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-violet-600" />
+            <h3 className="text-sm font-semibold text-violet-800">AI Query Assistant</h3>
+          </div>
+          {hasConversation && (
+            <button
+              onClick={resetAiConversation}
+              className="inline-flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 transition-colors"
+              title="Clear this conversation and start fresh"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Start over
+            </button>
+          )}
         </div>
         <p className="text-xs text-violet-600">
-          Describe your research topic in plain English and AI will build an optimized PubMed query for you.
+          {hasConversation
+            ? 'Refine the query below — e.g. "focus on last 5 years", "exclude reviews", "add PARP inhibitors".'
+            : 'Describe your research topic in plain English and AI will build an optimized PubMed query for you.'}
         </p>
-        <div className="flex gap-2">
-          <input
-            value={researchDescription}
-            onChange={(e) => setResearchDescription(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !building) handleBuildQuery() }}
-            placeholder="e.g. BRCA1 mutations in breast cancer prognosis"
-            className="flex-1 rounded-lg border border-violet-200 bg-white px-3 py-2.5 text-sm placeholder:text-violet-300 transition-colors duration-150 focus:ring-2 focus:ring-violet-400 focus:border-violet-400"
-          />
-          <button
-            onClick={handleBuildQuery}
-            disabled={!researchDescription.trim() || building}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {building ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-            {building ? 'Building…' : 'Build Query'}
-          </button>
-        </div>
+
+        {/* Conversation thread */}
+        {turns.length > 0 && (
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {turns.map((turn, idx) => {
+              const isLatest = idx === turns.length - 1
+              return (
+                <div key={idx} className="space-y-2">
+                  <div className="flex items-start gap-2 text-xs text-violet-700">
+                    <span className="inline-block w-1 h-1 rounded-full bg-violet-400 mt-2 flex-shrink-0" />
+                    <p className="flex-1 italic">
+                      {idx === 0 ? 'You asked:' : 'You refined:'} <span className="not-italic">“{turn.user}”</span>
+                    </p>
+                  </div>
+                  <div className={`rounded-lg border p-3 ${isLatest ? 'border-violet-300 bg-white' : 'border-violet-100 bg-violet-50/50'}`}>
+                    {turn.explanation && (
+                      <p className="text-xs text-violet-600 mb-2">{turn.explanation}</p>
+                    )}
+                    <pre className="text-xs font-mono text-slate-800 whitespace-pre-wrap break-all">{turn.query}</pre>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {/* AI error */}
         {aiError && (
@@ -201,29 +237,49 @@ export default function QueryConditionForm({
           </div>
         )}
 
-        {/* AI result */}
-        {aiResult && (
-          <div className="space-y-3 pt-1">
-            {aiResult.explanation && (
-              <p className="text-xs text-violet-600">{aiResult.explanation}</p>
+        {/* Input row */}
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendPrompt() } }}
+            placeholder={
+              hasConversation
+                ? 'Refine: focus on humans, last 5 years, exclude reviews…'
+                : 'e.g. BRCA1 mutations in breast cancer prognosis'
+            }
+            disabled={building}
+            className="flex-1 rounded-lg border border-violet-200 bg-white px-3 py-2.5 text-sm placeholder:text-violet-300 transition-colors duration-150 focus:ring-2 focus:ring-violet-400 focus:border-violet-400 disabled:opacity-50"
+          />
+          <button
+            onClick={handleSendPrompt}
+            disabled={!input.trim() || building}
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {building ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
             )}
-            <pre className="text-xs font-mono text-slate-800 bg-white rounded-lg border border-violet-200 p-3 whitespace-pre-wrap break-all">{aiResult.query}</pre>
-            <p className="text-xs text-violet-500 italic">Review the query above before applying — verify it matches your research scope.</p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={applyAiQuery}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors"
-              >
-                <Check className="w-4 h-4" />
-                Use This Query
-              </button>
-              <button
-                onClick={() => setAiResult(null)}
-                className="px-3 py-1.5 text-sm font-medium text-slate-600 rounded-lg hover:bg-violet-100 transition-colors"
-              >
-                Dismiss
-              </button>
-            </div>
+            {building
+              ? hasConversation ? 'Refining…' : 'Building…'
+              : hasConversation ? 'Refine' : 'Build Query'}
+          </button>
+        </div>
+
+        {/* Apply latest query */}
+        {latestTurn && (
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <p className="text-xs text-violet-500 italic">
+              Review the latest query — verify it matches your research scope before applying.
+            </p>
+            <button
+              onClick={applyAiQuery}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 transition-colors flex-shrink-0"
+            >
+              <Check className="w-4 h-4" />
+              Use This Query
+            </button>
           </div>
         )}
       </div>

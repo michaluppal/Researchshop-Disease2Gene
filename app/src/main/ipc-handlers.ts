@@ -337,6 +337,93 @@ Return a JSON object with exactly these fields:
     }
   })
 
+  // ---- PubMed AI Query Refinement (Gemini-assisted) ----
+  ipcMain.handle('pubmed:refine-query', async (_e, payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) return { error: 'Invalid payload' }
+    const p = payload as Record<string, unknown>
+    const previousQuery = typeof p.previousQuery === 'string' ? p.previousQuery : ''
+    const refinementRequest = typeof p.refinementRequest === 'string' ? p.refinementRequest : ''
+    if (!previousQuery.trim()) return { error: 'No previous query to refine' }
+    if (!refinementRequest.trim()) return { error: 'Please describe the refinement' }
+    if (refinementRequest.length > 2000) return { error: 'Refinement too long (max 2000 characters)' }
+
+    const settings = getSettings()
+    const apiKey = settings.geminiApiKey
+    if (!apiKey) return { error: 'No Gemini API key configured. Add your key in Settings.' }
+
+    const prompt = `You are a biomedical PubMed search expert. The user has an existing PubMed query and wants to refine it. Modify the query to satisfy the refinement request while preserving the original research intent.
+
+Current query:
+${previousQuery}
+
+User's refinement request:
+${refinementRequest}
+
+Rules:
+- Use valid PubMed Entrez syntax: quoted phrases, [tiab]/[MeSH Terms]/[Publication Type]/[Gene] field tags, AND/OR/NOT, balanced parentheses
+- Preserve the existing structure where possible — only change what the refinement asks for
+- For date refinements: append \`AND YYYY:YYYY[dp]\`
+- For organism filters: \`AND "humans"[MeSH Terms]\` or similar
+- For publication-type exclusions: \`NOT "review"[Publication Type]\` etc.
+- If the refinement is ambiguous, use your best biomedical judgment
+
+Return JSON:
+{
+  "query": "<the updated complete PubMed query>",
+  "explanation": "<1-2 sentences describing what changed and why>"
+}`
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30_000)
+
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+        }),
+        signal: controller.signal
+      })
+      if (!res.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let geminiMsg: string | undefined
+        try { geminiMsg = ((await res.json()) as any)?.error?.message } catch { /* ignore */ }
+        if (res.status === 429) return { error: `Gemini rate limit reached — try again shortly${geminiMsg ? `: ${geminiMsg}` : ''}` }
+        if (res.status === 400 || res.status === 403) return { error: geminiMsg ? `Gemini error: ${geminiMsg}` : 'Invalid Gemini API key' }
+        return { error: geminiMsg ? `Gemini error: ${geminiMsg}` : `Gemini API error (HTTP ${res.status})` }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await res.json() as any
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+      if (!text) return { error: 'Empty response from Gemini' }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        return { error: 'Gemini returned invalid JSON — try again' }
+      }
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        typeof (parsed as Record<string, unknown>).query !== 'string' ||
+        !(parsed as Record<string, unknown>).query
+      ) {
+        return { error: 'Unexpected response format from Gemini' }
+      }
+      const rp = parsed as Record<string, unknown>
+      addGeminiApiCalls(1)
+      const updatedUsage = getGeminiDailyUsage()
+      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('gemini:usage-changed', updatedUsage) })
+      return { query: rp.query as string, explanation: typeof rp.explanation === 'string' ? rp.explanation : '' }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return { error: 'Request timed out — try again' }
+      return { error: `Query refinement failed: ${String(err)}` }
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
+
   // ---- Auto-updater ----
   ipcMain.handle('updater:download', () => {
     downloadUpdate()
