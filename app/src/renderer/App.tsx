@@ -130,6 +130,14 @@ function SetupScreen({
   error: string | null
 }) {
   const terminalRef = useRef<HTMLDivElement>(null)
+  // Stall detector — if no progress message or log line lands within 30s,
+  // surface a "may be stuck" recovery UI so the user isn't staring at a
+  // spinner forever when Python setup hangs or the main process died.
+  const [stalled, setStalled] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setStalled(true), 30_000)
+    return () => clearTimeout(timer)
+  }, [logs.length, message])
 
   useEffect(() => {
     if (terminalRef.current) {
@@ -206,6 +214,21 @@ function SetupScreen({
 
               {/* Status message */}
               <p className="text-sm text-white/50 font-medium">{message || 'Initializing...'}</p>
+
+              {/* Stall recovery — appears after 30s of silence */}
+              {stalled && (
+                <div className="mt-6 max-w-sm text-center space-y-3">
+                  <p className="text-xs text-amber-300/70">
+                    Setup is taking longer than expected. The Python environment may be stuck.
+                  </p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="text-xs text-white/60 hover:text-white/90 underline transition-colors"
+                  >
+                    Reload window
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -25,12 +25,6 @@ interface ProtocolConfig {
   authors: boolean
 }
 
-interface Condition {
-  operator: string
-  field: string
-  term: string
-}
-
 export interface QueryFilters {
   openAccessOnly: boolean
   humansOnly: boolean
@@ -60,14 +54,10 @@ export default function QueryBuilder() {
   const [activeModules, setActiveModules] = useState<ProtocolConfig | null>(null)
   const [protocolName, setProtocolName] = useState('')
 
-  // Topic search state
-  const [conditions, setConditions] = useState<Condition[]>([
-    { operator: '', field: 'tiab', term: '' },
-  ])
+  // Topic search state — single editable query string + filter toggles + date range
+  const [baseQuery, setBaseQuery] = useState('')
   const [startYear, setStartYear] = useState('')
   const [endYear, setEndYear] = useState('')
-  const [rawMode, setRawMode] = useState(false)
-  const [rawQuery, setRawQuery] = useState('')
   const [paperCount, setPaperCount] = useState<number | null>(null)
   const [filters, setFilters] = useState<QueryFilters>(DEFAULT_FILTERS)
   const [isTopicPreviewOpen, setIsTopicPreviewOpen] = useState(false)
@@ -88,28 +78,10 @@ export default function QueryBuilder() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Construct query: build from conditions (or use raw), apply filter toggles,
-  // then append the date range filter. Applies to both modes so every input is honoured.
+  // Compose the final query: baseQuery (user-edited) + filter toggles + date range.
   const constructQuery = useCallback(() => {
-    let query: string
-    if (rawMode) {
-      query = rawQuery.trim()
-    } else {
-      query = ''
-      conditions.forEach((cond, i) => {
-        if (!cond.term.trim()) return
-        const term = cond.term.includes(' ') ? `"${cond.term}"` : cond.term
-        const field = cond.field ? `[${cond.field}]` : ''
-        const part = `${term}${field}`
-        if (i === 0 || !query) {
-          query = part
-        } else {
-          query += ` ${cond.operator} ${part}`
-        }
-      })
-    }
+    let query = baseQuery.trim()
 
-    // Filter toggles — appended as AND/NOT clauses around the base query
     const andClauses: string[] = []
     const notClauses: string[] = []
     if (filters.openAccessOnly) andClauses.push('"loattrfull text"[sb]')
@@ -133,7 +105,7 @@ export default function QueryBuilder() {
       query = query ? `(${query}) AND ${s}:${e}[dp]` : `${s}:${e}[dp]`
     }
     return query
-  }, [conditions, startYear, endYear, rawMode, rawQuery, filters])
+  }, [baseQuery, startYear, endYear, filters])
 
   // Debounced paper count fetch
   useEffect(() => {
@@ -265,8 +237,8 @@ export default function QueryBuilder() {
             )}
 
             <QueryConditionForm
-              conditions={conditions}
-              onChange={setConditions}
+              baseQuery={baseQuery}
+              onBaseQueryChange={setBaseQuery}
               startYear={startYear}
               endYear={endYear}
               onStartYearChange={setStartYear}
@@ -276,10 +248,6 @@ export default function QueryBuilder() {
               constructedQuery={constructQuery()}
               paperCount={paperCount}
               onPreview={() => setIsTopicPreviewOpen(true)}
-              rawMode={rawMode}
-              rawQuery={rawQuery}
-              onRawModeChange={(val) => { setRawMode(val); if (!val) setRawQuery('') }}
-              onRawQueryChange={setRawQuery}
             />
           </section>
         )}
