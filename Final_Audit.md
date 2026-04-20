@@ -87,6 +87,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | [L2](#p5-l2--_collect_debug_artifact-high-value-missing-from-watchlist) | ✅ DONE | XS | `_collect_debug_artifact` missing from watchlist (highest-value single add) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
 | [M3](#p5-m3--function-events-not-linked-to-stage-markers) | ⬜ TODO | S | Function events not linked to stage markers (time-window alignment lossy) | `pipeline_tracer.capture` |
 | [L3](#p5-l3--ncbi-enrichment-rate-limit-silent) | ⬜ TODO | S | NCBI enrichment rate-limit silently produces empty columns | NCBI enrichment in orchestrator |
+| [F15](#f15--characterise-f10a-citation-drift-source-against-benchmark-data) | ⬜ TODO | XS | Characterise F10a citation-drift source against benchmark data (tokenizer vs paper-text drift vs training memory) | `drop_debug_*.json` + benchmark set |
 
 **Note on severity vs priority:** a MEDIUM-severity finding in a quick-fix tier (e.g. F8b)
 ranks above a HIGH-severity finding in a harder tier (e.g. F4 efficiency), because
@@ -2246,6 +2247,92 @@ surface that as a column.
 **Cross-reference:** F11 solved the analogous problem for the LLM detail extraction.
 The pattern is the same — per-row status column exposing what went wrong with each
 data source.
+
+---
+
+## F15 — Characterise F10a citation-drift source against benchmark data
+
+**Date:** 2026-04-21
+**Source:** User question during F10a shipping — "won't the model pick a
+citation from the original text we provide in prompt?" F10a's implementation
+note cites LLM tokenizer normalisation as the likely root cause of the
+character-level mismatch between LLM citation output and `self.paper_text`,
+but this hasn't been empirically verified.
+**Severity:** LOW. The F10a fix is defensively correct regardless of the
+drift source — bi-directional normalisation closes every path. This finding
+is about validating the premise rather than fixing a bug.
+
+### What we want to know
+
+Three plausible root causes of the citation-drift that F10a addresses:
+
+1. **LLM tokenizer normalisation** (most likely). Gemini's tokenizer
+   collapses soft hyphens, unpacks ligatures, unifies unicode dash variants
+   during encoding — so even when the model quotes verbatim from our
+   prompt, its output reconstructs through a normalised vocabulary. The
+   paper_text we compare against still has the original glyphs.
+2. **Paper-text provenance drift.** Between JATS-XML extraction →
+   context truncation → prompt formatting, the string the LLM sees may
+   have gone through additional normalisation that `self.paper_text`
+   doesn't see by the time citation validation runs.
+3. **Training-data memory.** For highly-cited papers, Gemini may
+   paraphrase-quote from memorised training data (usually a cleaner
+   typeset version) rather than echoing the prompt text.
+
+Which cause is dominant matters for:
+- Deciding whether the normalisation surface needs extension (new cases
+  we don't cover today would surface as examples).
+- Knowing whether pipeline prep changes (e.g. pre-normalising
+  `self.paper_text` in `_validate_and_prepare_paper_text`) would reduce
+  drift at the source, making F10a's runtime normalisation redundant.
+- Documenting the behaviour honestly in the SoftwareX paper.
+
+### Suggested action — a one-off characterisation script
+
+- [ ] Pick 3–5 benchmark runs whose `citation_grounding_mean` is below 0.5
+      despite being structurally valid (PMID 19915526 Miller-syndrome and
+      PMID 17463248 T2D GWAS are candidates — both have known-good
+      citations per `benchmark_results.csv`).
+- [ ] For each, load the corresponding `drop_debug_*.json` to get the
+      LLM's raw citation strings + the `self.paper_text` that was used
+      for validation.
+- [ ] For each citation flagged `citation_valid=False` with ratio
+      in [0.6, 0.85): diff the citation char-by-char against the
+      closest paper_text window. Tabulate the mismatch characters by
+      Unicode category (soft hyphen? ligature? dash? training-text drift?).
+- [ ] Write findings back here as either:
+  - "Tokenizer normalisation accounts for X% of drift — F10a
+    sufficient" → close F15.
+  - "Cause N accounts for M% — F10a extension needed for [cases]" →
+    convert F15 into a fix.
+  - "Paper-text provenance drift — need to pre-normalise in
+    full_text_fetcher" → new F-series.
+
+### Why this is P5 low-priority
+
+The F10a fix works defensively whatever the cause. The motivation for
+doing F15 is:
+- **SoftwareX honesty.** If the paper describes the drift mitigation,
+  we should be able to cite what's actually drifting, not speculate.
+- **Instrumentation discipline.** Verifying premises after shipping is
+  the hygiene that keeps the audit log trustworthy.
+- **Cheap** — XS effort. A ~50-line Python script reading two files.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P5 tier — XS effort. Not urgent.
+
+**Deliverable:** a characterisation script + a short findings doc (could
+live in `docs/` as `f10a_drift_characterisation.md`) summarising the
+Unicode-category breakdown across 3–5 benchmark papers. If findings
+motivate further fixes, split those out as F-series entries at that time.
+
+**Cross-reference:**
+- F10a shipped bi-directional normalisation — `_normalize_citation_drift`
+  in `gene_validator.py:636-669` lists the Unicode categories F10a
+  currently covers.
+- C22 citation sprint (`memory-decisions.md` 2026-02-25) — original
+  encoding-normalisation work this extends.
 
 ---
 
