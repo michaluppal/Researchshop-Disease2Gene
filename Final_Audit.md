@@ -42,7 +42,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 |---|---|---|---|---|
 | [F11](#f11--auto-snippet-fallback-is-indistinguishable-from-llm-extracted-content) | ✅ DONE | S | Auto-snippet fallback indistinguishable from LLM-extracted content | Detail-extraction fallback path |
 | [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | ✅ DONE | S–M | OA invariant not enforced on specific-PMIDs entry path | `SmartInput.tsx` + orchestrator |
-| [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | ⬜ TODO | M | DOI / PMC IDs silently dropped from specific-papers paste-box | `SmartInput.tsx` entry |
+| [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | ✅ DONE | M | DOI / PMC IDs silently dropped from specific-papers paste-box | `SmartInput.tsx` entry |
 
 ### P1 — Correctness improvements with clear fixes
 
@@ -1428,37 +1428,64 @@ Concrete trace with `PMC9035072` and `10.1038/nature12373` pasted:
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P0 tier — M effort.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `b92b7b8`).
 
-**Code locations:**
-- UI parser: `app/src/renderer/components/SmartInput.tsx` — `parseIdentifiers()`
-  recognises 4 types (PMID/DOI/PMC/URL) but `validate()` only resolves PMID-typed
-  entries via `window.api.pubmed.fetchDetails`.
-- Drop site #1: `SmartInput.tsx::useValid` (~line 184) — `papers.filter(p => p.pmid)`.
-- Drop site #2: `QueryBuilder.tsx` (~line 164) — second filter on the merge.
+**Files modified:**
+- `app/src/main/ipc-handlers.ts` — two new IPC handlers:
+  - `pubmed:resolve-doi` → one esearch `[AID]` call per DOI, 100ms sequential
+    delay (respects E-utils 3 req/s), per-DOI try/catch maps failures to `null`,
+    dedupes input
+  - `pubmed:resolve-pmc` → single batched elink call (`dbfrom=pmc&db=pubmed`),
+    matches `linksets[i].ids[0]` back to input (robust to response reordering),
+    filters non-`PMC\d+` input to `null`
+  - Extracted as exported pure functions `resolveDoisToPmids` /
+    `resolvePmcsToPmids` for testability; `ipcMain.handle` wrappers are 1-line
+    delegates
+- `app/src/preload/index.ts` — `window.api.pubmed.resolveDoi` and `.resolvePmc`
+  added (type interface + impl object)
+- `app/src/renderer/components/SmartInput.tsx`:
+  - `validate()` rewritten — parallel resolve-doi + resolve-pmc → merge into
+    single PMID list → one `fetchDetails` call → build `validPapers`
+  - Unresolvable DOI/PMC surfaces in `invalid[]` with readable reason
+    ("DOI not in PubMed: …", "PMC not indexed in PubMed: …")
+  - Dedup on resolved PMID; first-occurrence `source` + `original` preserved
+  - `useValid()` simplified — every paper has `.pmid` post-F3, F2 OA gate is the
+    only remaining filter
+  - `PaperItem.source` field ('pmid' | 'doi' | 'pmc') + origin chips in the table
+    (blue "from DOI" / green "from PMC")
+  - `parseIdentifiers` exported (was file-local) to enable unit tests
 
-**Recommended fix — reverse lookup in `SmartInput.validate()`:**
-- DOI → PMID: NCBI esearch with `term={doi}[AID]`. One call per DOI.
-  - Example: `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=10.1038%2Fnature12373[AID]&retmode=json`
-- PMC → PMID: `elink.fcgi?dbfrom=pmc&db=pubmed&id={PMCID}` or esummary on db=pmc.
+**Test infrastructure added:**
+- `vitest` ^4.1.4 devDependency, `vitest.config.ts` at repo root, `npm test` →
+  `vitest run`
+- 27 automated tests across 3 files covering:
+  - `parseIdentifiers.test.ts` (T_P1–P13): all 4 identifier types, URL + prefix
+    variants, separators (newline / comma / semicolon), unknown input
+  - `resolve-doi.test.ts` (T_D1–D8): sequential-call verification, URL encoding
+    for DOIs with special chars, dedup, per-DOI network-failure isolation,
+    case-preservation
+  - `resolve-pmc.test.ts` (T_C1–C6): batched elink call, response-order
+    robustness via `linksets[i].ids[0]` matching, invalid-input filtering
 
-**IPC additions needed:**
-- New `pubmed:resolve-doi` handler in `app/src/main/ipc-handlers.ts` (wraps the esearch call).
-- New `pubmed:resolve-pmc` handler (wraps the elink call).
-- Preload exposes as `window.api.pubmed.resolveDoi` and `.resolvePmc`.
+**Verification performed:**
+- `npx vitest run` → 27/27 passing
+- `npx tsc --noEmit -p tsconfig.node.json` and `tsconfig.web.json` → only
+  pre-existing errors (unchanged from `main`); no new errors on F3 lines
+- Independent audit agent review: ✅ APPROVED
 
-**Fallback (if backend work is blocked):** strip DOI / PMC / URL from the placeholder
-text and the parser. Better to refuse the input than accept-and-drop. One-line
-placeholder edit + remove the doi/pmc branches in `parseIdentifiers()`.
+**F2 compounds automatically:** resolved PMIDs flow through `fetchDetails`,
+`isOpenAccess` populates from `!!d?.pmc`, paywalled DOIs get the amber "Abstract
+only" badge and respect the `includePaywalled` toggle. No extra wiring needed.
 
-**Validation after fix:**
-- Paste mixed input: `12345678\nDOI:10.1038/nature12373\nPMC9035072`. All three
-  should resolve to PMIDs (or surface a clear "not in PubMed" error for that one).
-- `useValid()` should pass all three PMIDs to the pipeline.
+**Known non-blocking observations from audit (not in this patch):**
+- Race on rapid Back→Validate cycle — stale promise could overwrite fresh state.
+  Mitigated in practice by `validating` disabling the button during in-flight
+  calls. A `useRef` cancellation token would be a follow-up hardening.
+- `QueryBuilder.tsx:164`'s `filter(Boolean)` is now defence-in-depth; removed
+  the F3 drop-site #2 concern.
 
-**Cross-reference:** F2 (OA invariant) and F3 both live in SmartInput's entry path.
-Consider fixing together — the DOI→PMID lookup and the OA-check can share one IPC
-round trip.
+**Cross-reference:** F2 (OA invariant) and F3 now both enforced in SmartInput's
+entry path. P0 tier is 3/3 complete.
 
 ---
 
@@ -1886,17 +1913,26 @@ This block captures state that would be painful to rediscover after context comp
 **`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
 
 Commits on the branch so far (newest first):
-- `af4fe61` **chore: batch-1 quick wins (tracer watchlist, fuzzy pattern, docstring, overfetch cleanup)**
+- `b92b7b8` **feat(pmid-resolve): F3 reverse-lookup DOI / PMC → PMID in SmartInput**
+- `1713fde` docs: mark batch-1 findings DONE in Final_Audit.md
+- `af4fe61` chore: batch-1 quick wins (tracer watchlist, fuzzy pattern, docstring, overfetch cleanup)
 - `11b4219` docs: mark F2 DONE in Final_Audit.md
 - `778fbdd` feat(oa-gate): F2 enforce OA invariant on specific-PMIDs entry path
 - `580a5b7` docs: PMID 41017238 audit + F11/F12 findings + priority restructure
 - `b44f8f7` feat(tracer,extraction): F11 extraction_mode + worker function tracing
 
+### P0 tier status: 3/3 DONE ✅
+
+All trust-critical findings (F11, F2, F3) are shipped and verified. The entry-path
+hardening effort is complete — every paper reaching `pipeline_orchestrator` has
+gone through at minimum: identifier reverse-lookup (F3), OA gate (F2), and
+extraction-mode tagging once in the pipeline (F11).
+
 ### What's on disk but not yet committed
 
 ```
-M Final_Audit.md    (Batch-1 status flips + implementation-notes rewrites
-                     + handoff section update; this commit is next)
+M Final_Audit.md    (F3 status flip + implementation-notes rewrite + handoff
+                     section update; this commit is next)
 ?? python/          (stale leftover from python/→pipeline/ rename in commit
                      16308cf; .DS_Store + .pytest_cache only; safe to ignore)
 ```
@@ -1909,16 +1945,16 @@ M Final_Audit.md    (Batch-1 status flips + implementation-notes rewrites
 3. ~~**F8c**~~ ✅ docstring clarification on `_run_grounding_check`
 4. ~~**F1**~~ ✅ 8-file doc sweep + orphaned `ANALYSIS_OVERFETCH_FACTOR` deleted
 
-**Batch 2 — higher-impact P0/P1 (~2–3 hours):**
+**Batch 2 — higher-impact P1 (~2–3 hours):**
 1. **F12** — per-gene snippet search in `_backfill_sparse_row_evidence`
 2. **F10a** — pre-validate snippets from our own backfill
 3. **F10b** — surface `strict_gate_drops` in metadata CSV
 
-**Batch 3 — entry-path hardening:**
+**Batch 3 — entry-path hardening:** ✅ SHIPPED — complete in P0 tier
 1. ~~**F2**~~ ✅ shipped in commit `778fbdd` (2026-04-20)
-2. **F3** — DOI/PMC reverse lookup in SmartInput. The OA gate (F2) is already in
-   place and will automatically apply to the resolved PMID once F3's reverse
-   lookup populates `p.pmid` on DOI/PMC rows. See F3 implementation notes.
+2. ~~**F3**~~ ✅ shipped in commit `b92b7b8` (2026-04-20). DOI/PMC reverse
+   lookup + 27 automated tests (vitest). F2 OA gate compounds automatically
+   on resolved PMIDs.
 
 ### Key file paths (for quick navigation)
 
