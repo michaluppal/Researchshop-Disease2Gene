@@ -639,6 +639,7 @@ def run_complete_pipeline(
         "gemini_api_calls": 0,
         "tables_extracted": 0,
         "pubtator_pmids_skipped": 0,
+        "papers_excluded_not_oa": 0,  # F2: count of paywalled PMIDs dropped at the backup gate
     }
     paper_debug_artifacts = []
     forensic_screening = []
@@ -749,7 +750,41 @@ def run_complete_pipeline(
 
     mandatory_pmids |= author_pmids  # Union all author-derived PMIDs as mandatory
 
-    # Always include explicitly requested PMIDs
+    # ── F2: OA backup gate for specific-PMIDs / author-search paths ──
+    # The UI's SmartInput enforces this upstream (green "Full text" / amber
+    # "Abstract only" badge + default-off include-paywalled toggle). This gate
+    # is defence-in-depth for CLI users and scripted invocations that bypass the
+    # UI. Query-mode papers already pass through PubMed's `loattrfull text[sb]`
+    # filter — they're unaffected here.
+    papers_excluded_not_oa = 0
+    if mandatory_pmids and not getattr(config, "ALLOW_PAYWALLED_SPECIFIC_PMIDS", False):
+        check_cancellation()
+        # Single-PMID PMC lookup via the fetcher's existing helper (same call it
+        # would make later anyway). Typical specific_pmids list is 1–20 PMIDs,
+        # so the extra NCBI traffic is bounded.
+        from .full_text_fetcher import _get_pmcid_for_pmid  # local import to avoid cycle
+        oa_mandatory = set()
+        paywalled = []
+        for pmid in sorted(mandatory_pmids):
+            check_cancellation()
+            pmcid = _get_pmcid_for_pmid(pmid)
+            if pmcid:
+                oa_mandatory.add(pmid)
+            else:
+                paywalled.append(pmid)
+        if paywalled:
+            papers_excluded_not_oa = len(paywalled)
+            emit_log(
+                "warn",
+                f"OA gate: excluded {len(paywalled)} paywalled PMID(s) from the run",
+                f"PMIDs: {', '.join(paywalled[:10])}"
+                + ("…" if len(paywalled) > 10 else "")
+                + " — set ALLOW_PAYWALLED_SPECIFIC_PMIDS=true to include them anyway",
+            )
+        mandatory_pmids = oa_mandatory
+    pipeline_stats["papers_excluded_not_oa"] = papers_excluded_not_oa
+
+    # Always include explicitly requested PMIDs (post-gate)
     if mandatory_pmids:
         initial_pmids.update(mandatory_pmids)
 

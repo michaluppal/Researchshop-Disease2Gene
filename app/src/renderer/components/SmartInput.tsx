@@ -8,6 +8,8 @@ import {
   ArrowLeft,
   CheckCircle2,
   Search,
+  LockOpen,
+  Lock,
 } from 'lucide-react'
 
 interface PaperItem {
@@ -17,6 +19,10 @@ interface PaperItem {
   pmc?: string
   url: string
   original: string
+  // F2: true when the paper has a PMC ID (full text available), false when
+  // PMID was resolved but no PMC record exists (paywalled — abstract only).
+  // Undefined for DOI/PMC items not yet resolved to PMIDs.
+  isOpenAccess?: boolean
 }
 
 interface SmartInputProps {
@@ -99,6 +105,10 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
   const [papers, setPapers] = useState<PaperItem[]>([])
   const [invalid, setInvalid] = useState<string[]>([])
   const [validating, setValidating] = useState(false)
+  // F2: toggle governs whether paywalled (non-PMC) papers are passed to the
+  // pipeline. Default off — matches the project's OA-only architectural
+  // invariant. Users can opt in explicitly if they want abstract-only analysis.
+  const [includePaywalled, setIncludePaywalled] = useState(false)
 
   const detectedCount = text.trim()
     ? text
@@ -136,6 +146,10 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
           pmc: d?.pmc,
           url: d?.url || `https://pubmed.ncbi.nlm.nih.gov/${item.value}/`,
           original: item.original,
+          // F2: OA status inferred from PMC presence. PubMed-search upstream
+          // applies `loattrfull text[sb]` to enforce OA; the paste box has no
+          // such filter, so we gate here.
+          isOpenAccess: !!d?.pmc,
         })
       }
 
@@ -181,9 +195,26 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
     setMode('edit')
   }
 
+  // F2: counts used by the toggle + info banner
+  const pmidPapers = papers.filter((p) => p.pmid)
+  const paywalledPapers = pmidPapers.filter((p) => p.isOpenAccess === false)
+  const oaPapers = pmidPapers.filter((p) => p.isOpenAccess === true)
+  const effectiveSelectionCount = includePaywalled
+    ? pmidPapers.length
+    : oaPapers.length
+
   const useValid = () => {
-    const pmids = papers.filter((p) => p.pmid).map((p) => p.pmid!)
-    onPapersChange(pmids, papers)
+    // F2: filter out paywalled PMIDs unless the user explicitly opts in.
+    // Note: DOI/PMC items don't have a PMID yet so they were already being
+    // filtered by the `p.pmid` check — that behaviour is unchanged (tracked
+    // separately as F3). The OA filter applies only to resolved PMID rows.
+    const keptPapers = papers.filter((p) => {
+      if (!p.pmid) return false  // DOI/PMC items (F3)
+      if (p.isOpenAccess === false && !includePaywalled) return false  // F2 gate
+      return true
+    })
+    const pmids = keptPapers.map((p) => p.pmid!)
+    onPapersChange(pmids, keptPapers)
   }
 
   return (
@@ -238,6 +269,34 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
         </>
       ) : (
         <>
+          {/* F2: OA gate info banner — only when paywalled papers detected */}
+          {paywalledPapers.length > 0 && (
+            <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 animate-fade-in-slide">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800">
+                    {paywalledPapers.length} paper{paywalledPapers.length === 1 ? ' is' : 's are'} paywalled (abstract only)
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    {includePaywalled
+                      ? 'These will be included but extraction quality will degrade — only the abstract is available.'
+                      : 'These will be excluded from the pipeline. Toggle below to include them anyway.'}
+                  </p>
+                  <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includePaywalled}
+                      onChange={(e) => setIncludePaywalled(e.target.checked)}
+                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>Include paywalled papers (abstract-only extraction)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Validated papers table */}
           {papers.length > 0 && (
             <div className="border border-slate-200 rounded-lg shadow-lg overflow-hidden animate-fade-in-slide">
@@ -246,19 +305,43 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
                   <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                     <tr>
                       <th className="text-left px-4 py-2 text-xs font-medium text-slate-500">Paper</th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-slate-500 w-36">Access</th>
                       <th className="text-left px-4 py-2 text-xs font-medium text-slate-500 w-28">ID</th>
                       <th className="w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {papers.map((paper, i) => (
-                      <tr key={i} className="hover:bg-brand-50 transition-colors group">
+                    {papers.map((paper, i) => {
+                      // F2: dim rows that will be excluded from useValid()
+                      const isExcluded = paper.pmid
+                        ? paper.isOpenAccess === false && !includePaywalled
+                        : false  // non-PMID items aren't affected by OA toggle
+                      return (
+                      <tr
+                        key={i}
+                        className={`hover:bg-brand-50 transition-colors group ${isExcluded ? 'opacity-50' : ''}`}
+                      >
                         <td className="px-4 py-2.5">
                           <p className="font-medium text-slate-900 group-hover:text-brand-600 line-clamp-1 transition-colors">
                             {paper.title || paper.original}
                           </p>
                           {paper.doi && (
                             <span className="text-xs text-slate-400">DOI: {paper.doi}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {paper.isOpenAccess === true && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-200">
+                              <LockOpen className="w-3 h-3" /> Full text
+                            </span>
+                          )}
+                          {paper.isOpenAccess === false && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200">
+                              <Lock className="w-3 h-3" /> Abstract only
+                            </span>
+                          )}
+                          {paper.isOpenAccess === undefined && (
+                            <span className="text-xs text-slate-400">—</span>
                           )}
                         </td>
                         <td className="px-4 py-2.5">
@@ -292,7 +375,7 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -333,10 +416,16 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
             {papers.length > 0 && (
               <button
                 onClick={useValid}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
+                disabled={effectiveSelectionCount === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                Use {papers.length} Valid Item{papers.length !== 1 ? 's' : ''}
+                Use {effectiveSelectionCount} Valid Item{effectiveSelectionCount !== 1 ? 's' : ''}
+                {paywalledPapers.length > 0 && !includePaywalled && (
+                  <span className="ml-1 text-xs font-normal opacity-80">
+                    ({paywalledPapers.length} paywalled excluded)
+                  </span>
+                )}
               </button>
             )}
           </div>

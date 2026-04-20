@@ -1,17 +1,32 @@
 # modules/full_text_fetcher.py
 #
-# OA-only full-text fetcher.
+# OA-first full-text fetcher.
 #
-# Since the PubMed search step filters to open-access papers only
-# (ENABLE_OA_FILTER=True), every PMID that reaches this module is guaranteed
-# to have free full text.  The fetch strategy is therefore purely API-based:
+# OA enforcement happens at three points upstream of this module (F2):
 #
-#   1. PMC Entrez efetch  — structured JATS XML from NCBI (preferred)
+#   1. Query-mode runs — PubMed search applies the `loattrfull text[sb]`
+#      subset filter (`ENABLE_OA_FILTER=True`, default). Results are pre-filtered
+#      to papers with freely available full text.
+#   2. Paste-box runs (SmartInput.tsx in the renderer) — surfaces a green
+#      "Full text" / amber "Abstract only" badge per pasted PMID and, by default,
+#      excludes paywalled PMIDs via an "Include paywalled papers" toggle
+#      (off by default).
+#   3. CLI / scripted invocations — `pipeline_orchestrator.run_complete_pipeline`
+#      applies the same gate for `specific_pmids` + author-search PMIDs unless
+#      `ALLOW_PAYWALLED_SPECIFIC_PMIDS=True`. Backstop for users who bypass the UI.
+#
+# Fetch strategy (OA APIs only — no scraping, no browser automation):
+#
+#   1. PMC Entrez efetch      — structured JATS XML from NCBI (preferred)
 #   2. Europe PMC fullTextXML — alternative OA XML endpoint
 #
 # Playwright browser automation, Trafilatura web scraping, paywall detection,
-# and publisher-specific DOM selectors have all been removed.  They were
-# unreachable dead code once the OA filter was enabled upstream.
+# and publisher-specific DOM selectors were removed in F5 of docs/AUDIT.md.
+# If any of the layers above is disabled AND a paywalled PMID reaches this
+# module, `_fetch_pmc_efetch` returns `extraction_method="no_oa_full_text"`
+# and the paper continues through the pipeline with abstract-only content.
+# Graceful degradation is intentional — it's not the blanket OA guarantee
+# this comment previously claimed.
 
 import csv
 import dataclasses
