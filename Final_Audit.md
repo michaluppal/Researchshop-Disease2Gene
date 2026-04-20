@@ -49,8 +49,8 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
 | [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ✅ DONE | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
-| [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
-| [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
+| [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
+| [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
 | [F10c](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Per-tier evidence thresholds not visible to operator | `_apply_evidence_gate` + UI |
 | [F8a](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | M | Truncation × grounding — genes in abstract but not truncated body | `_run_grounding_check` |
 | [F8b](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | XS | Fuzzy pattern blind spot: `IL(6)`, `IL.6` | `_find_evidence_snippet` |
@@ -77,6 +77,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | [F9](#f9--corroboration-gate-cant-distinguish-table-only-genes-from-biomarker-abbreviations) | ⬜ TODO | M–L | Corroboration gate can't distinguish table-only genes from biomarker FPs | JATS parser + corroboration gate |
 | [F5](#f5--pubtator-response-has-more-annotation-types-than-we-consume) | ⬜ TODO | M | PubTator's Chemical/Disease/Species annotations discarded | `pubtator_tool._parse_document` |
 | [F13](#f13--pipelinemodulesgemini_extractorpy-is-misnamed-and-too-large-to-read) | ⬜ TODO | XL | `gemini_extractor.py` is misnamed and too large to read (code-smell: Stage-5 god-class) | `gemini_extractor.py` + module boundaries |
+| [F14](#f14--murine-symbol-confidence-claim-in-f10b-does-not-reproduce-on-head) | ⬜ TODO | XS–M | Murine-symbol confidence claim in F10b doesn't reproduce on HEAD — investigate + document or close | `gene_validator.resolve_gene_symbol` |
 
 ### P5 — Tracer / viewer tooling quality
 
@@ -471,47 +472,115 @@ model is invisible to the user.
 
 ### Implementation notes (session continuity)
 
-**Status:** all three ⬜ TODO. P1 tier.
+**Status:** F10a ✅ DONE, F10b ✅ DONE, F10c ⬜ TODO. P1 tier.
 
-#### F10a — SequenceMatcher threshold
+#### F10a — Drift-tolerant citation matching
 
-**Code location:** `pipeline/modules/gene_validator.py::_citation_exists_in_paper`
-(~line 636). Step 2 of the function uses `difflib.SequenceMatcher` with a hardcoded
-threshold of 0.85. Already runs through `_normalize_unicode_slashes` (C22 sprint)
-which handles slashes, LaTeX Greek, ASCII mu prefix, U+00B5/U+03BC unification.
+**Status:** ✅ DONE — 2026-04-21 (branch `dev/cleanup`, commit `2471d21`).
 
-**Additional normalisations needed (extend `_normalize_unicode_slashes` OR add a
-sibling function that runs on both citation and paper_text):**
-- Soft hyphens + line-break hyphenation: `suscep-\ntibility` → `susceptibility`
-- Em-dash / en-dash variants to ASCII hyphen (em-dash U+2014 is already stripped, but
-  en-dash U+2013 slips through sometimes)
-- Ligatures `fi`, `fl` → `fi`, `fl`
-- Non-breaking hyphen U+2011 → `-`
+**Files modified:**
+- `pipeline/modules/gene_validator.py`:
+  - New sibling function `_normalize_citation_drift` at lines 636-669,
+    called symmetrically on both citation and paper_text at lines 685-686
+    immediately after `_normalize_unicode_slashes`. Ordered replacements:
+    soft hyphen U+00AD removal (first, so broken words re-merge), line-
+    break hyphenation `(\w)-\n(\w) → \1\2` (before downstream `.split()`),
+    non-breaking hyphen U+2011, en-dash U+2013 + em-dash U+2014, and the
+    five f-ligatures U+FB00–FB04.
+  - Hardcoded `0.85` at line 740 replaced with
+    `getattr(config, "CITATION_DENSE_MATCH_MIN_RATIO", 0.85)` — zero
+    behaviour change on default.
+  - Tiered failure messages at lines 740-748:
+    - `< 0.6` → `"No similar text in paper (best ratio: X.XX)"`
+    - `[0.6, threshold)` → `"Near-miss match (ratio X.XX < threshold Y.YY)
+      — likely formatting drift"`
+- `pipeline/modules/config.py`:
+  - New constant `CITATION_DENSE_MATCH_MIN_RATIO=0.85` at lines 146-152.
 
-**Threshold decisions:**
-- Consider lowering to 0.80 and re-characterising on the benchmark set
-  (`pipeline/data/benchmark/`). Risk: more false positives.
-- Expose as config: `CITATION_SIMILARITY_MIN_RATIO = 0.85` in `config.py` — cheap.
+**Root cause recap:** LLM tokenizers normalise certain unicode glyphs
+during encoding and output reconstruction — so even when the LLM is
+quoting verbatim from the paper text we give it in the prompt, the
+output can diverge character-for-character from `self.paper_text`'s
+JATS-derived representation (soft hyphens stripped, ligatures expanded,
+dashes unified). Bi-directional normalisation at the comparison
+boundary is the defensive fix regardless of tokenizer internals.
 
-**Better `_details` messaging:** current "not found in paper" is ambiguous.
-Distinguish: `"no similar text in paper"` (ratio < 0.5), `"near-miss match 0.82 <
-0.85 threshold"` (ratio ∈ [0.5, 0.85)), `"found but gene not in window"` (ratio ≥ 0.85
-but gene context gate failed).
+**Tests added (9 in `pipeline/tests/test_gene_validator.py::TestCitationExistsInPaper`):**
+drift tests for soft-hyphen, line-break-hyphenation, en-dash, em-dash,
+fi-ligature, non-breaking-hyphen; message-tier tests for near-miss vs
+no-match; config-override test via monkeypatch.
+
+**Verification:** 9/9 new + 11/11 existing in the same class passing.
+Independent audit APPROVED WITH NOTES.
+
+**Known limitations (documented, not fixed):**
+- **Per-citation normalisation cost**: paper_text is re-normalised on
+  every citation validation call (O(N) per row). Pre-existing issue that
+  F10a marginally worsens. Cache opportunity: normalise once per paper
+  on self.paper_text, call the cached version in `_citation_exists_in_paper`.
+  Follow-up.
+- **Threshold 0.85 stays as default** — no benchmark re-calibration in
+  this patch. Setting via env var `CITATION_DENSE_MATCH_MIN_RATIO` is
+  available for experimentation.
 
 #### F10b — Surfacing strict-gate drops
 
-**Data already exists:** `self.strict_gate_drops` is populated in
-`_run_post_validation` (`pipeline/modules/gemini_extractor.py`, ~line 1797).
+**Status:** ✅ DONE — 2026-04-21 (branch `dev/cleanup`, commit `41cb6ba`).
 
-**Fix:** include this list in the drop_debug artifact's operator-facing section, AND
-add a summary column to the primary CSV (or a banner in the UI) when any rows were
-dropped: `strict_gate_drops_count: N` at the run level.
+**Files modified:**
+- `pipeline/modules/pipeline_orchestrator.py`:
+  - `pipeline_stats` gains `strict_gate_drops: []` + `strict_gate_drops_count: 0`
+    at lines 660-661.
+  - New pure helper `_aggregate_strict_gate_drops(pipeline_stats,
+    worker_debug, pmid)` at lines 468-493 — tags each drop with pmid to
+    preserve paper origin. Extracted for testability (zero behaviour change
+    vs inline aggregation).
+  - `_finalize_paper_result` calls the helper at line 592. Worker owns
+    per-paper drops, orchestrator accumulates. Clean boundary.
+  - RESULT payload at lines 1918-1923 gains `drop_debug_path` sibling to
+    existing `debug_path` (prevents brittle client-side path derivation).
+- `app/src/main/python-bridge.ts:25` — `isResultPayload` type guard
+  extended with `debug_path` + `drop_debug_path` fields.
+- `app/src/preload/index.ts:28` — `onResult` signature extended.
+- `app/src/renderer/hooks/usePipeline.ts:14-19` — result shape extended.
+- `app/src/renderer/pages/Pipeline.tsx:95-109` — navigates to `/results`
+  with new URL query params `dropDebug` (path) + `dropCount` (integer),
+  matching the existing path/excel/meta/json query-param pattern.
+- `app/src/renderer/pages/Results.tsx`:
+  - Imports `AlertTriangle` from lucide-react.
+  - Reads `dropDebugPath` + `strictGateDrops` from searchParams (lines 415-417).
+  - `strictGateBannerDismissed` local state at line 429 (non-persistent,
+    mirrors existing `researchBannerDismissed` pattern).
+  - Banner at lines 651-678 — renders only when `strictGateDrops > 0 &&
+    !dismissed`; amber scheme; plural-aware copy ("candidate" vs
+    "candidates"); "View details" button calls `shell.openPath(dropDebugPath)`.
 
-**Particular attention to:** mouse-convention symbol flag
-(`potential_murine_symbol` in `validation_source`). These currently resolve at 0.5
-confidence and get dropped by the 0.7 strict gate. Options:
-- Bump confidence for mouse-convention → human HGNC mappings
-- OR carve out a secondary CSV section for "flagged for review" genes
+**Tests added (4 in new `pipeline/tests/test_strict_gate_aggregation.py`):**
+empty-across-papers (count stays 0), single-paper-with-drops (all fields +
+pmid preserved), multiple-papers-preserves-pmid (list order correct, each
+entry tagged with its paper's pmid), mutation-safety (helper mutates
+pipeline_stats in-place without returning a new dict).
+
+**Verification:** 4/4 passing, 79/79 full regression green (excluding
+pre-existing integration-test failures unrelated to F10).
+
+**Scope correction:** the original F10b finding claimed mouse-convention
+symbols return 0.5 confidence and get dropped. Exploration of current
+`gene_validator.py:450-457` contradicted this — a Title-case input that
+resolves cleanly to a valid HGNC gene gets confidence 1.0 and passes the
+gate. The 0.5 story likely reflects an older version of the code. F10b
+as shipped is **pure surfacing** work — does NOT modify `resolve_gene_symbol`
+or any confidence path. A new F14 finding tracks the murine-claim
+investigation separately.
+
+**Known limitations (documented, not fixed):**
+- **PROGRESS payload grows** as drops accumulate — the `strict_gate_drops`
+  list is broadcast on every progress tick. Low concern for typical run
+  sizes (tens of drops). Could be mitigated by sending only
+  `strict_gate_drops_count` via PROGRESS and the full list only on RESULT.
+- **History page reopens** don't show the banner — `jobs.db` doesn't
+  persist `drop_debug_path` or drop counts. Would require a jobs.db
+  schema migration mirroring the 2026-04-07 auxiliary-artifact pattern.
 
 #### F10c — Per-tier evidence thresholds
 
@@ -1401,6 +1470,113 @@ parent didn't notice.
 
 ---
 
+## F14 — Murine-symbol confidence claim in F10b does not reproduce on HEAD
+
+**Date:** 2026-04-21
+**Source:** Explored as a prerequisite to F10b implementation. The original
+F10b finding asserted that Title-case mouse-convention symbols (`Brca1`,
+`Tp53`) return 0.5 confidence from `resolve_gene_symbol` and therefore get
+dropped by the strict 0.7 gate. An independent read of
+`pipeline/modules/gene_validator.py:450-457` contradicts this.
+**Severity:** Possible audit-entry stale claim. Zero correctness impact on
+current pipeline unless the edge case the original finding targeted is real
+and just didn't surface in the explored code path.
+
+### What the F10b finding claimed
+
+From Final_Audit.md F10b entry as originally written (now corrected via the
+F10b implementation notes rewrite):
+
+> "Mouse-convention symbols mapped to human genes. When a paper uses
+> title-case mouse convention (`Brca1`) to refer to the human gene…,
+> `gene_validator.resolve_gene_symbol` flags `potential_murine_symbol` in
+> `validation_source` and returns confidence 0.5. The 0.7 strict gate
+> drops these."
+
+### What the current code actually does
+
+At `gene_validator.py:450-457`, confidence is computed as follows when
+resolving a gene symbol (standalone, no variant supplied):
+
+```python
+if is_valid_gene:
+    confidence = 1.0
+else:
+    confidence = 0.0
+```
+
+With a variant present, the split is `0.7` (gene valid) + `0.3` (variant
+valid). **There is no path that produces exactly 0.5 for a cleanly-resolved
+murine Title-case symbol.** The `| potential_murine_symbol` tag is appended
+to `validation_source` as an advisory flag *without* touching the
+confidence score.
+
+So: `Brca1` → resolves to `BRCA1` via HGNC alias → `is_valid_gene=True` →
+confidence `1.0` → passes strict gate. Which means the F10b premise as
+originally written does not reflect current behaviour.
+
+### Possible explanations
+
+1. **Code was tightened since the finding was written.** A prior version of
+   `_is_valid_gene` may have returned `False` or a partial-confidence
+   signal when the input was Title-case. That path was refactored away.
+   Git blame on `gene_validator.py:450-457` would confirm.
+2. **The finding author conflated fuzzy-match confidence with final
+   confidence.** `_fuzzy_match_gene` returns suggestions with lower
+   implied confidence. Someone reading the code too quickly may have
+   attributed 0.5 to the murine flag when it was actually a fuzzy match
+   on a different code path.
+3. **The edge case is real but narrower than stated.** Perhaps only when
+   the Title-case symbol fails HGNC exact-match AND goes through fuzzy
+   resolution does confidence land in the 0.5–0.6 band. Title-case symbol
+   that doesn't exactly match HGNC (e.g. an author-coined `Brca-X`) could
+   hit this. Not something most papers would produce.
+
+### Why it matters (or doesn't)
+
+- **If explanation 1 or 2:** F14 closes as "not a bug — finding was stale,
+  F10b surfacing does its job of exposing real drops to operators."
+- **If explanation 3:** a narrow edge-case fix in the resolution confidence
+  computation is warranted — probably a bump from the fuzzy-band (0.5) to
+  something that passes the 0.7 gate when the clean canonical exists.
+
+### Suggested action
+
+- [ ] **Reproduce attempt.** Write a pytest case that passes `Brca1`,
+  `Tp53`, `Myh-9`, and a few other Title-case / mouse-convention /
+  old-alias examples through `resolve_gene_symbol` and
+  `validate_gene_variant`. Log each input's confidence, validation_source,
+  and gate outcome.
+- [ ] **If no drops observed:** close F14 as "not reproduced; F10b
+  surfacing confirms no real murine-drop issue on HEAD."
+- [ ] **If drops observed:** characterise the path that produced them
+  (HGNC miss → fuzzy → 0.5? something else?). Decide on one of: bump
+  confidence for murine-convention-to-human-canonical resolutions; carve
+  out a "flagged for review" secondary CSV section; leave as-is and
+  document the trade-off.
+- [ ] **Use the F10b surfacing in anger.** Now that strict_gate_drops
+  lands in the Results banner, run a cross-species paper (mouse-model
+  vs human genetics review) and see what actually drops. Real data
+  beats speculation.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P4 tier — XS effort if no drops reproduce; M effort
+if a real edge case warrants a confidence-computation change.
+
+**Why this lives as its own finding instead of being rolled into F10b:**
+F10b was scoped as pure surfacing work. The original finding's
+remediation suggestion ("bump confidence for mouse-convention") was
+intentionally excluded from F10b's patch because it depended on an
+unconfirmed premise. Splitting the premise-investigation into F14 keeps
+F10b's scope crisp and lets the investigation proceed on evidence from
+the surfacing feature rather than on a possibly-stale description.
+
+**Cross-reference:** F10b Implementation notes (same findings block in
+the F10 entry) for the original scope-correction context.
+
+---
+
 ## F4 — Redundant fetches across the UI/pipeline boundary
 
 **Date:** 2026-04-19
@@ -2082,7 +2258,10 @@ This block captures state that would be painful to rediscover after context comp
 **`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
 
 Commits on the branch so far (newest first):
-- `c12ae9f` **fix(backfill): F12 gene-specific evidence preferred, co-mention tagged**
+- `41cb6ba` **feat(ui): F10b surface strict-gate drops via Results banner**
+- `2471d21` **fix(citation): F10a drift-tolerant matching + tiered messaging**
+- `38ced6f` docs: mark F12 DONE + add F13 codebase-restructure finding
+- `c12ae9f` fix(backfill): F12 gene-specific evidence preferred, co-mention tagged
 - `9c2aecd` docs: mark F3 DONE in Final_Audit.md — P0 tier 3/3 complete
 - `b92b7b8` feat(pmid-resolve): F3 reverse-lookup DOI / PMC → PMID in SmartInput
 - `1713fde` docs: mark batch-1 findings DONE in Final_Audit.md
@@ -2119,8 +2298,14 @@ M Final_Audit.md    (F3 status flip + implementation-notes rewrite + handoff
 **Batch 2 — higher-impact P1 (~2–3 hours):**
 1. ~~**F12**~~ ✅ shipped in commit `c12ae9f` (2026-04-21). Gene-specific
    backfill preferred, co-mention tagged. 13 pytest tests.
-2. **F10a** — pre-validate snippets from our own backfill
-3. **F10b** — surface `strict_gate_drops` in metadata CSV
+2. ~~**F10a**~~ ✅ shipped in commit `2471d21` (2026-04-21). Drift-tolerant
+   citation matching + tiered messaging. 9 pytest tests.
+3. ~~**F10b**~~ ✅ shipped in commit `41cb6ba` (2026-04-21). Strict-gate
+   drops surfaced via Results banner. 4 aggregation pytest tests.
+
+Spawned from Batch 2:
+- **F13** (P4, XL) — `gemini_extractor.py` refactor, surfaced during F12.
+- **F14** (P4, XS–M) — murine-symbol claim investigation, surfaced during F10b.
 
 **Batch 3 — entry-path hardening:** ✅ SHIPPED — complete in P0 tier
 1. ~~**F2**~~ ✅ shipped in commit `778fbdd` (2026-04-20)
