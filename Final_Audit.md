@@ -48,7 +48,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
-| [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ⬜ TODO | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
+| [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ✅ DONE | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
 | [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
 | [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
 | [F10c](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Per-tier evidence thresholds not visible to operator | `_apply_evidence_gate` + UI |
@@ -76,6 +76,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | [F7](#f7--batched-detail-extraction-has-known-artefacts-offer-per-gene--context-caching-as-a-user-option) | ⬜ TODO | L | Offer per-gene + context-caching detail extraction as user option | Stage 5 Gemini detail extraction |
 | [F9](#f9--corroboration-gate-cant-distinguish-table-only-genes-from-biomarker-abbreviations) | ⬜ TODO | M–L | Corroboration gate can't distinguish table-only genes from biomarker FPs | JATS parser + corroboration gate |
 | [F5](#f5--pubtator-response-has-more-annotation-types-than-we-consume) | ⬜ TODO | M | PubTator's Chemical/Disease/Species annotations discarded | `pubtator_tool._parse_document` |
+| [F13](#f13--pipelinemodulesgemini_extractorpy-is-misnamed-and-too-large-to-read) | ⬜ TODO | XL | `gemini_extractor.py` is misnamed and too large to read (code-smell: Stage-5 god-class) | `gemini_extractor.py` + module boundaries |
 
 ### P5 — Tracer / viewer tooling quality
 
@@ -152,39 +153,39 @@ Two possible strategies — pick one:
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P1 tier.
+**Status:** ✅ DONE — 2026-04-21 (branch `dev/cleanup`, commit `c12ae9f`).
 
-**Code location:** `pipeline/modules/gemini_extractor.py::_backfill_sparse_row_evidence`
-(~line 325). The function currently picks ONE target column (defaults to "Key Finding")
-and fills it with `_find_evidence_snippet(self._candidate_terms_for_row(gene, variant))`.
-`_candidate_terms_for_row` includes gene aliases — but on a review paper where multiple
-genes are co-mentioned in one sentence, the first sentence hit is the same for all
-genes.
+**Strategy chosen:** Strategy 1 (per-gene search). The row-merging alternative
+(Strategy 2) was rejected — it breaks the row-count invariant relied on by
+enrichment / NCBI lookup / Excel styling, and masks the independent NER signal
+for each gene.
 
-**Recommended approach:** per-gene exact-match requirement.
-- In `_find_evidence_snippet`, add a `require_exact_gene_in_match: bool = False` flag.
-- When called from `_backfill_sparse_row_evidence`, require the matched snippet to
-  contain the gene symbol (or one of its aliases) as a whole word — not just that any
-  candidate_term matched.
-- If no exact-match sentence exists, leave the cell empty and mark the row with
-  something like `row["backfill_skipped_no_gene_specific_match"] = True`.
+**Files modified:**
+- `pipeline/modules/gemini_extractor.py`:
+  - New method `_find_gene_specific_snippet(primary_terms, peer_entries) → (snippet, is_gene_specific, co_mentioned_symbols)`. Phase 1 walks `re.finditer` over each primary term's word-boundary pattern, builds the final snippet window (sentence-start trimmed + capped), checks peer term sets against that FINAL window. Phase 2 fallback delegates to `_find_evidence_snippet` and reports peer symbols present in the fallback snippet.
+  - `_backfill_sparse_row_evidence` rewritten: precompute `term_set_by_key` keyed by `(gene_upper, variant_upper)`. For each row, peer entries exclude rows with the **same gene** (gene-level filter, not identity-level — same-gene-different-variant rows annotate the same gene and are not co-mention peers). Sets `row["evidence_specificity"]` + `row["co_mentioned_genes"]`.
+- `pipeline/modules/pipeline_orchestrator.py`:
+  - `primary_cols` in `_write_split_output` gains `"evidence_specificity"` (line 308). `co_mentioned_genes` stays in metadata CSV only.
+  - `_compute_row_confidence` appends `" | co-mention with X, Y"` to the Confidence Note in both skeleton-branch (~line 67) and MEDIUM-default (~line 127) paths. MEDIUM path guarded on BOTH `evidence_backfilled` AND `evidence_specificity=="co_mention"` for defence-in-depth.
+  - Tier math unchanged.
+- `pipeline/modules/config.py:139` — new constant `EVIDENCE_BACKFILL_MAX_SCAN_MATCHES=50` bounds worst-case cost on pathological papers.
 
-**Alternative approach — row merging:** when identical snippets end up on multiple
-rows, merge into one aggregated row with `Gene = "ITPKC; CASP3; FCGR2A"`,
-`Variant = ""`. This is unusual for downstream consumers (row count ≠ gene count) but
-honest. Would need a new column `merged_from_co_mention: True`.
+**Tests added (13 total):**
+- `pipeline/tests/test_evidence_backfill.py` — 12 pytest cases covering: gene-specific preferred, pure co-mention, pure gene-specific, single-gene no-peers, peer word-boundary, preserve existing values, peer alias match, truncation hides peer, same-gene-multi-variant (validates gene-level peer exclusion), backfill-disabled, max-scan-matches cap, Confidence Note suffix shape
+- `pipeline/tests/test_pipeline_integration.py` — `test_pmid_41017238_f12_regression` end-to-end regression test replicating the Kawasaki scenario
 
-**Do not do:** truncate/obfuscate the snippet to make the rows look different. The
-duplication isn't cosmetic — it's evidence about the paper's prose structure and should
-be surfaced accurately.
+**Verification performed:**
+- 12/12 `test_evidence_backfill.py` passing
+- 1/1 integration regression passing
+- AST-parse clean on all 3 modified Python files
+- Independent audit agent: APPROVED WITH NOTES. MEDIUM defence-in-depth guard (added `evidence_backfilled` check on MEDIUM-default note-suffix branch) addressed pre-commit.
 
-**Dependency on F7:** if per-gene architecture ships first (F7), F12 becomes moot — each
-gene's LLM call produces gene-specific content by construction and fallback only fires
-per-gene, not across a batch.
+**Known limitations deferred (LOW, non-blocking):**
+1. Phase 1 uses fuzzy pattern for primary but strict pattern for peer detection. A sentence where peer gene appears as "CASP-3" (dash-hyphenated) would not be peer-flagged. HGNC aliases usually cover common variants. Follow-up: align peer pattern with fuzzy primary pattern.
+2. Negated-sentence false positive: "ITPKC was NOT associated..." passes specificity check as gene_specific. Cross-reference F8-family.
+3. Bibliographic-noise false positive: "15. Smith et al., ITPKC..." passes as gene_specific. Cross-reference F9 / F7.
 
-**Testing after fix:** re-run the PMID 41017238 case with Gemini quota exhausted. Three
-rows should no longer share the same Key Finding excerpt — either each gene gets its
-own sentence, or rows with no gene-specific sentence are marked `backfill_skipped`.
+**Cross-reference:** F7 (per-gene detail extraction architecture) would make F12 moot by construction — each gene's LLM call produces gene-specific content. F12 closes the fallback-path gap while the main-path architecture stays batched.
 
 ---
 
@@ -1232,6 +1233,174 @@ we pay for. Pure parsing.
 
 ---
 
+## F13 — `pipeline/modules/gemini_extractor.py` is misnamed and too large to read
+
+**Date:** 2026-04-21
+**Source:** Incidental observation during F12 implementation — the backfill
+function `_backfill_sparse_row_evidence` and the fuzzy-snippet search
+`_find_gene_specific_snippet` are pure-regex helpers that touch zero Gemini
+machinery, yet live on a class called `GeneInfoPipeline` inside a module named
+`gemini_extractor.py`.
+**Severity:** Code-smell. Not a correctness issue today — the pipeline works
+— but a significant obstacle to open-source community inspection,
+onboarding of new contributors, and future refactor safety. SoftwareX reviewers
+browsing the repository will form judgements about engineering discipline
+partly from file structure.
+
+### What we found
+
+The file is **2,648 lines** and the class holds **40 methods**. By byte-size
+it's 1.5× the next biggest module (`pipeline_orchestrator.py` at ~80 KB vs
+~122 KB for `gemini_extractor.py`). Method inventory spans responsibilities
+well beyond "gemini extraction":
+
+| Responsibility | Representative methods | Plausible owning module |
+|---|---|---|
+| **Gemini I/O** (the file's nominal concern) | `extract_gene_names_from_abstract`, `extract_gene_names`, `extract_gene_names_from_figures`, `extract_gene_info`, `_build_gemini_image_part` | `gemini_client.py` / `stage5_llm.py` |
+| **Paper text preprocessing** | `_split_paper_into_named_sections`, `_validate_and_prepare_paper_text`, `_add_context_metadata` | `paper_text.py` / `stage3_prep.py` |
+| **Evidence snippet search** (pure regex, no LLM) | `_find_evidence_snippet`, `_find_gene_specific_snippet`, `_backfill_sparse_row_evidence` | `evidence_backfill.py` |
+| **Gene-symbol normalisation** | `_normalize_gene_symbol`, `_candidate_terms_for_row`, `_get_hgnc_aliases_for_gene`, `_normalize_variant_value` | `symbol_normalizer.py` |
+| **Candidate bookkeeping** | `_ingest_associations`, `_refresh_associations_from_meta`, `_assoc_key`, `_collect_debug_artifact`, `extract_deterministic_candidates` | `candidate_registry.py` |
+| **Figure fetching (network)** | `_resolve_pmc_cdn_url`, `_fetch_figure_image` | `figure_fetcher.py` |
+| **Validation gate orchestration** | `_apply_evidence_gate`, `_apply_gene_validation_heuristics`, `_run_validation_and_normalize`, `_run_post_validation`, `_run_grounding_check` | `stage5_gates.py` |
+| **Citation + provenance metadata writer** | `_add_candidate_provenance_metadata`, `_add_validation_metadata`, `_add_citation_validation_metadata` | `row_metadata.py` |
+| **Stage sequencer** (`run_pipeline` + `_run_*` orchestration) | `run_pipeline`, `_run_candidate_discovery`, `_run_detail_extraction` | `stage5_pipeline.py` (the legitimate `GeneInfoPipeline`) |
+
+### Why it matters
+
+1. **Misnaming discourages the right mental model.** A new contributor opening
+   `gemini_extractor.py` expects a thin wrapper around the Gemini API. Instead
+   they find a 2,648-line god-class owning everything from PMC image fetching
+   to HGNC alias normalisation to citation-quality tagging. The filename
+   actively misleads.
+2. **Inspection cost for SoftwareX reviewers.** The SoftwareX submission
+   explicitly invites reproducibility review. A reviewer who opens this file
+   and skims the methods list will underestimate the overall engineering
+   quality of the project — because this one file is genuinely hard to read.
+   The rest of the repo is better structured; this file is an outlier.
+3. **Refactor paralysis.** Every time a P1/P2 finding touches Stage 5, the
+   change lands in the same file. F11 added `extraction_mode`. F12 added
+   `_find_gene_specific_snippet` + `evidence_specificity`. F10a/b/c (still
+   TODO) will add more. The file grows with every batch. Without
+   decomposition now, each subsequent fix has a higher diff-review cost.
+4. **Test isolation suffers.** To unit-test `_find_gene_specific_snippet`
+   we instantiate a full `GeneInfoPipeline` with a dummy Gemini key — even
+   though the function uses zero Gemini surface. Splitting the pure helpers
+   into their own modules would let them be tested in isolation with no
+   class-context fiction.
+5. **Hidden coupling.** `_backfill_sparse_row_evidence` depends on
+   `self.paper_text`, `self.candidate_meta`, `self._candidate_terms_for_row`,
+   `self._get_hgnc_aliases_for_gene`, `self._find_evidence_snippet`. Moving
+   it out requires surfacing these as explicit function arguments or
+   introducing a `Stage5Context` object. That's exactly the kind of
+   disciplining work that pays back in readability.
+
+### Why this drifted
+
+Historical growth. The class started as a Gemini wrapper (hence the name) and
+became the Stage-5 coordinator because everything between candidate discovery
+and final row output naturally collects around the LLM call: grounding check
+before, validation after, citation matching after, keyword backfill when
+Gemini fails. Each individual addition was locally sensible. The
+accumulated outcome is the current smell.
+
+### Suggested action
+
+This is deliberately scoped as **XL effort** — not a commit, a dedicated
+refactor sprint. Order of operations matters:
+
+- [ ] **Phase 1 — extract pure helpers** (lowest risk, highest legibility win).
+  Move `_find_evidence_snippet`, `_find_gene_specific_snippet`,
+  `_backfill_sparse_row_evidence`, `_candidate_terms_for_row`,
+  `_get_hgnc_aliases_for_gene`, `_normalize_variant_value`,
+  `_normalize_empty_placeholder`, `_assoc_key`, `_row_has_user_evidence`,
+  `_count_user_evidence_cells` into a new `pipeline/modules/evidence.py`.
+  These don't mutate instance state — they're pure functions that happen to
+  live on the class. Add a thin compatibility shim on `GeneInfoPipeline` for
+  backward compat during the transition.
+
+- [ ] **Phase 2 — extract Gemini I/O into `gemini_client.py`.** The method
+  body of `extract_gene_info` (the batched Stage-3 call), the streaming
+  response parser, the `thinking_budget=0` guards, the retry logic. Names
+  the module honestly. Callers pass explicit `paper_text`, `candidate_list`,
+  `column_descriptions`. `GeneInfoPipeline` still exists but becomes a
+  thin orchestrator.
+
+- [ ] **Phase 3 — extract metadata writers into `row_metadata.py`.**
+  `_add_candidate_provenance_metadata`, `_add_validation_metadata`,
+  `_add_citation_validation_metadata`. These take a DataFrame + candidate
+  dict, produce a DataFrame. Pure functions.
+
+- [ ] **Phase 4 — rename the Stage-5 coordinator.** `GeneInfoPipeline`
+  becomes `Stage5Coordinator` (or keep the class name if backward compat
+  matters but move it to `stage5_coordinator.py`). `gemini_extractor.py`
+  either ceases to exist or becomes a 10-line deprecation-warning shim
+  importing from the new modules.
+
+- [ ] **Phase 5 — same exercise for `pipeline_orchestrator.py`** if the
+  pattern is repeating (it probably is — `_compute_row_confidence`,
+  `_finalize_paper_result`, `_write_split_output` all live on the
+  orchestrator but aren't strictly orchestration).
+
+### Pre-existing work that makes this safer
+
+- **F11 shipped the `extraction_mode` column** and F12 shipped
+  `evidence_specificity`. The dataflow is now explicit in the row dict.
+  Any refactor has a clean contract at the row-level boundary.
+- **Pytest fixtures exist** (`pipeline/tests/test_evidence_backfill.py`
+  alone is 12 tests that already instantiate `GeneInfoPipeline` via a
+  minimal-seam pattern). The refactor can migrate these tests one by one
+  to the new modules.
+- **The tracer watchlist** (P5-L1 / P5-L2) already catalogues the 40+
+  function call sites. Refactoring rename work has an explicit checklist.
+
+### Cross-reference
+
+- **F7** (per-gene detail extraction as user option) will also touch Stage 5
+  — if F13 phase 1 ships first, F7 is a much smaller diff because the
+  per-gene variant can live in `gemini_client.py` alongside the batched
+  variant without cluttering the coordinator.
+- **Memory-sessions.md** notes a readability refactor (df674fe, 2026-04-07)
+  already extracted `run_pipeline` from a 296-line method to a 25-line
+  orchestrator with 5 named private methods. That refactor pattern is
+  exactly the playbook — apply it at module granularity next.
+
+### Why now
+
+SoftwareX submission is the forcing function. The paper will be read by
+reviewers who may skim the actual source to form judgement. A 2,648-line
+file named `gemini_extractor.py` that holds everything but the kitchen sink
+is a legibility liability the other findings (functional bugs) are not.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P4 tier — XL effort. Multi-session refactor sprint,
+not a single commit. Should be explicitly scoped as a ticket separate
+from any feature batch.
+
+**Do NOT bundle with a feature change.** The refactor must land on its
+own commits so `git blame` stays legible and so `git bisect` can still
+find the introducing commit if behaviour ever drifts. Phase 1 alone is
+probably ~500 lines moved + ~150 lines of import / shim / re-test work.
+
+**Keep existing tests green at every phase boundary.** No "big bang"
+migration. Phase 1 ships → pytest full-suite runs clean → Phase 2 ships
+→ pytest full-suite runs clean → etc. The 13 F12 tests + the 66 existing
+pytest cases are the safety net.
+
+**Cross-reference rename target:** Decide whether `GeneInfoPipeline`
+gets renamed to `Stage5Coordinator` or kept. Keeping preserves
+backward-compat for any scripts that `from gemini_extractor import
+GeneInfoPipeline`; renaming is more honest. Suggest a one-release
+deprecation window with both names exported.
+
+**Not a solo task.** This is the kind of work where a Codex-style second
+implementation pass provides real value — ask the rescue agent for an
+independent refactor proposal after Phase 1 lands to catch coupling the
+parent didn't notice.
+
+---
+
 ## F4 — Redundant fetches across the UI/pipeline boundary
 
 **Date:** 2026-04-19
@@ -1913,7 +2082,9 @@ This block captures state that would be painful to rediscover after context comp
 **`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
 
 Commits on the branch so far (newest first):
-- `b92b7b8` **feat(pmid-resolve): F3 reverse-lookup DOI / PMC → PMID in SmartInput**
+- `c12ae9f` **fix(backfill): F12 gene-specific evidence preferred, co-mention tagged**
+- `9c2aecd` docs: mark F3 DONE in Final_Audit.md — P0 tier 3/3 complete
+- `b92b7b8` feat(pmid-resolve): F3 reverse-lookup DOI / PMC → PMID in SmartInput
 - `1713fde` docs: mark batch-1 findings DONE in Final_Audit.md
 - `af4fe61` chore: batch-1 quick wins (tracer watchlist, fuzzy pattern, docstring, overfetch cleanup)
 - `11b4219` docs: mark F2 DONE in Final_Audit.md
@@ -1946,7 +2117,8 @@ M Final_Audit.md    (F3 status flip + implementation-notes rewrite + handoff
 4. ~~**F1**~~ ✅ 8-file doc sweep + orphaned `ANALYSIS_OVERFETCH_FACTOR` deleted
 
 **Batch 2 — higher-impact P1 (~2–3 hours):**
-1. **F12** — per-gene snippet search in `_backfill_sparse_row_evidence`
+1. ~~**F12**~~ ✅ shipped in commit `c12ae9f` (2026-04-21). Gene-specific
+   backfill preferred, co-mention tagged. 13 pytest tests.
 2. **F10a** — pre-validate snippets from our own backfill
 3. **F10b** — surface `strict_gate_drops` in metadata CSV
 
