@@ -41,8 +41,8 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
 | [F11](#f11--auto-snippet-fallback-is-indistinguishable-from-llm-extracted-content) | ✅ DONE | S | Auto-snippet fallback indistinguishable from LLM-extracted content | Detail-extraction fallback path |
+| [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | ✅ DONE | S–M | OA invariant not enforced on specific-PMIDs entry path | `SmartInput.tsx` + orchestrator |
 | [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | ⬜ TODO | M | DOI / PMC IDs silently dropped from specific-papers paste-box | `SmartInput.tsx` entry |
-| [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | ⬜ TODO | S–M | OA invariant not enforced on specific-PMIDs entry path | `SmartInput.tsx` + orchestrator |
 
 ### P1 — Correctness improvements with clear fixes
 
@@ -1523,39 +1523,54 @@ accepted into the run with no warning. When it reaches `full_text_fetcher`:
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P0 tier — S–M effort. Ship with F3 as a single SmartInput pass.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `778fbdd`).
 
-**Preferred approach — UI-level gate in `SmartInput.tsx`:**
-After `fetchDetails()` resolves each pasted PMID, check each entry's `pmc` field.
-Mirror the topic-search modal's logic: absence of `pmc` → "Abstract only" badge.
-For the paste box, escalate: show an error chip next to the PMID saying
-*"Paywalled — not open access. Removed from selection."*
+**Files modified:**
+- `app/src/renderer/components/SmartInput.tsx`
+  - Added `isOpenAccess?: boolean` to `PaperItem` (populated from `!!d?.pmc` in `validate()`).
+  - New `includePaywalled` state (default `false`).
+  - `useValid()` filters `papers` with `isOpenAccess === false && !includePaywalled` rejected.
+  - Validated-papers table gained a new "Access" column showing green "Full text" pill / amber "Abstract only" pill (reused the visual language from `TopicResultsModal.tsx:537`).
+  - Rejected rows render at 50 % opacity so the user sees what was dropped.
+  - New info banner above the table when `paywalledPapers.length > 0`, with the `includePaywalled` checkbox inside it and a short justification.
+  - "Use N Valid Items" button uses `effectiveSelectionCount` and appends *"(N paywalled excluded)"* when the toggle is off.
+- `pipeline/modules/config.py`
+  - New flag `ALLOW_PAYWALLED_SPECIFIC_PMIDS` (default `False`, env-overridable via `ALLOW_PAYWALLED_SPECIFIC_PMIDS=true`).
+- `pipeline/modules/pipeline_orchestrator.py::run_complete_pipeline`
+  - Gate runs after `mandatory_pmids = set(specific_pmids) | author_pmids`, before `initial_pmids.update(mandatory_pmids)`.
+  - Per-PMID lookup via `full_text_fetcher._get_pmcid_for_pmid` (imported locally to avoid module cycle).
+  - PMIDs with no PMCID are filtered from `mandatory_pmids`. Log surfaces the count and the first 10 excluded IDs.
+  - `pipeline_stats["papers_excluded_not_oa"]` counter initialised in the stats dict at the top of the function and populated by the gate.
+  - Bypass: when `ALLOW_PAYWALLED_SPECIFIC_PMIDS=True`, the gate is skipped entirely.
+- `pipeline/modules/full_text_fetcher.py:1–14`
+  - Rewrote the opening comment. The old "every PMID that reaches this module is guaranteed" claim is gone. New comment describes the three enforcement points (query filter / SmartInput / orchestrator backstop) and explicitly notes that `_fetch_pmc_efetch` returns `extraction_method="no_oa_full_text"` when any layer above is disabled.
 
-**Implementation sketch:**
-```typescript
-// inside validate(), after fetchDetails resolves:
-const oaItems = validPapers.filter(p => p.pmc || !p.pmid);  // keep non-PMID rows
-const paywalledItems = validPapers.filter(p => p.pmid && !p.pmc);
-setInvalid([...unknowns.map(u => u.original),
-            ...paywalledItems.map(p => `PMID ${p.pmid} — not open access`)]);
-setPapers(oaItems);
-```
+**Verification performed:**
+- TypeScript: `SmartInput.tsx` — 0 errors attributable to these changes. The 4 pre-existing errors (App.tsx preload import, TopicResultsModal `issn` typing, sjr-lookup.json project inclusion) are unchanged.
+- Python: all three modified modules AST-parse cleanly.
+- Config wiring: verified `ALLOW_PAYWALLED_SPECIFIC_PMIDS` flips on `"true"`/`"false"` env values using the same lower-cased coercion as `ENABLE_OA_FILTER`.
+- Local import of `_get_pmcid_for_pmid` confirmed to avoid module-cycle issues (full_text_fetcher doesn't import pipeline_orchestrator; orchestrator already imports full_text_fetcher at module top).
 
-**Backup gate at pipeline level** (defence in depth):
-In `pipeline_orchestrator.py::run_complete_pipeline`, after `fetch_paper_details`,
-filter `specific_pmids` to those with a `pmc` field populated. Log dropped PMIDs with
-a clear "excluded — not open access" reason and surface the count in pipeline_stats.
+**Actual end-user behaviour after the fix:**
+- Paste PMID `12345678` (say it's paywalled) + PMID `34876594` (open-access):
+  - Both papers appear in the validated table.
+  - 12345678 is dimmed with an amber "Abstract only" pill; 34876594 is at full opacity with a green "Full text" pill.
+  - An amber banner above the table says "1 paper is paywalled (abstract only)".
+  - The button reads "Use 1 Valid Item (1 paywalled excluded)".
+  - Checking the toggle flips both: banner says "will be included", button reads "Use 2 Valid Items", the dimmed row brightens.
+- CLI-only run via `python run_pipeline.py --pmids '["12345678","34876594"]' …`:
+  - Orchestrator logs `"OA gate: excluded 1 paywalled PMID(s) from the run"` with the override-flag reminder, filters 12345678 out, `pipeline_stats["papers_excluded_not_oa"] = 1`.
+  - With `ALLOW_PAYWALLED_SPECIFIC_PMIDS=true`, both PMIDs proceed; 12345678 falls through the `no_oa_full_text` graceful-failure path.
 
-**Also fix the misleading comment:** `pipeline/modules/full_text_fetcher.py:1–14`
-currently states the OA guarantee as if enforced. Revise to note the one bypass path
-and reference F2.
+**What's not in this patch (scoped separately):**
+- **F3 DOI/PMC reverse lookup.** The `useValid()` filter also drops DOI-typed and PMC-typed rows (they have no `p.pmid`), because those aren't resolved to PMIDs. That's F3's territory — once it ships, the resolved PMID flows through the same F2 gate automatically.
+- **Results-page banner** summarising OA vs paywalled totals in the final output. F11 established the per-row column pattern; the summary widget is a renderer change.
+- **Paper-level UI for "include anyway per-row"** — today the toggle is global. If users want to include one specific paywalled paper but not another, they'd need per-row opt-in. Not asked for; add only if requested.
 
-**Cross-reference:** part of the same entry-path hardening as F3. Plan a single
-"SmartInput entry hardening" task that does both.
-
-**Don't ship without:** a clear user-visible indication when a pasted PMID is
-rejected for OA reasons. Silently dropping would be worse than the current silent
-downgrade.
+**Gotchas for next time:**
+- Don't remove the local import of `_get_pmcid_for_pmid`. Moving it to the module top creates a cycle because pipeline_tracer gets imported as part of full_text_fetcher's module-load chain and the tracer is already imported at orchestrator top.
+- The gate calls `_get_pmcid_for_pmid` ONCE per mandatory PMID. On a 50-PMID paste, that's 50 NCBI calls up front. The existing per-PMID rate limit inside the helper handles this; if traffic ever becomes a concern, a batched `elink` call for multiple PMIDs would be the fix.
+- `DOI`-typed and `PMC`-typed entries with no resolved PMID currently get 0 OA badges (they never get their `isOpenAccess` populated). When F3 resolves them, the reverse lookup should set `isOpenAccess` too.
 
 ---
 
@@ -1835,18 +1850,20 @@ This block captures state that would be painful to rediscover after context comp
 
 ### Active branch
 
-**`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Uncommitted changes as
-of F11 ship include modifications to `pipeline/modules/gemini_extractor.py` and
-`pipeline/modules/pipeline_orchestrator.py`.
+**`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
+
+Commits on the branch so far (newest first):
+- `778fbdd` **feat(oa-gate): F2 enforce OA invariant on specific-PMIDs entry path**
+- `580a5b7` docs: PMID 41017238 audit + F11/F12 findings + priority restructure
+- `b44f8f7` feat(tracer,extraction): F11 extraction_mode + worker function tracing
 
 ### What's on disk but not yet committed
 
 ```
-M Final_Audit.md                             (this doc + F11/F12 + priority restructure)
-M pipeline/modules/gemini_extractor.py       (F11 extraction_mode tagging)
-M pipeline/modules/pipeline_orchestrator.py  (F11 confidence + CSV col; earlier worker tracer install + Pool.join fix)
-?? docs/audit_pmid_41017238.md               (audit report)
-?? python/                                   (stale leftover from python/→pipeline/ rename in commit 16308cf; .DS_Store + .pytest_cache only; safe to ignore)
+M Final_Audit.md    (F2 status flipped DONE + implementation notes rewritten
+                     to match shipped state; needs commit after F2 session)
+?? python/          (stale leftover from python/→pipeline/ rename in commit
+                     16308cf; .DS_Store + .pytest_cache only; safe to ignore)
 ```
 
 ### Recommended next session batch
@@ -1864,8 +1881,10 @@ M pipeline/modules/pipeline_orchestrator.py  (F11 confidence + CSV col; earlier 
 3. **F10b** — surface `strict_gate_drops` in metadata CSV
 
 **Batch 3 — entry-path hardening:**
-1. **F2** + **F3** together — single SmartInput pass that adds DOI/PMC resolution
-   and OA gate
+1. ~~**F2**~~ ✅ shipped in commit `778fbdd` (2026-04-20)
+2. **F3** — DOI/PMC reverse lookup in SmartInput. The OA gate (F2) is already in
+   place and will automatically apply to the resolved PMID once F3's reverse
+   lookup populates `p.pmid` on DOI/PMC rows. See F3 implementation notes.
 
 ### Key file paths (for quick navigation)
 
