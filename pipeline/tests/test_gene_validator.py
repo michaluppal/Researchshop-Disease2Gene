@@ -9,6 +9,7 @@ Citation existence checks are purely string-matching (difflib + regex) — no ne
 
 import pytest
 
+from modules import config
 from modules.gene_validator import GeneValidator, _citation_exists_in_paper
 
 
@@ -106,6 +107,170 @@ class TestCitationExistsInPaper:
         # depending on proximity in the sample text).
         assert isinstance(exists, bool)
         assert 0.0 <= confidence <= 1.0
+
+    # ------------------------------------------------------------------
+    # F10a — Citation drift normalisation (soft-hyphen, line-break
+    # hyphenation, Unicode dashes, ligatures) + tiered failure messages
+    # + config-driven threshold.
+    # ------------------------------------------------------------------
+
+    def test_drift_soft_hyphen_matches(self):
+        """Soft hyphens (U+00AD) inside a paper word should be stripped before matching."""
+        paper = (
+            "Introduction: BRCA1 mutations increase disease suscep\u00adtibility in patients. "
+            "We analysed a cohort of 200 patients with hereditary breast cancer."
+        )
+        citation = "increase disease susceptibility"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"Soft-hyphen normalisation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_drift_line_break_hyphenation_matches(self):
+        """Line-break hyphenation (word-\\nword) should re-merge into one word before matching."""
+        paper = (
+            "BRCA1 mutations increase disease suscep-\ntibility to severe disease in patients. "
+            "The cohort included 200 individuals with hereditary cancer."
+        )
+        citation = "increase disease susceptibility to severe disease"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"Line-break hyphenation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_drift_en_dash_matches(self):
+        """En-dash (U+2013) should normalise to ASCII hyphen on both sides before matching."""
+        paper = (
+            "We observed that BRCA1 carriers showed p-value between 1.5\u20139.0 for survival. "
+            "These findings were consistent across the whole cohort of 200 patients."
+        )
+        citation = "BRCA1 carriers showed p-value between 1.5-9.0 for survival"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"En-dash normalisation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_drift_em_dash_matches(self):
+        """Em-dash (U+2014) should normalise to ASCII hyphen on both sides before matching."""
+        paper = (
+            "BRCA1 carriers had increased expression\u2014approximately 3-fold\u2014in tumor tissue. "
+            "This effect was consistent across the discovery cohort."
+        )
+        citation = "BRCA1 carriers had increased expression-approximately 3-fold-in tumor tissue"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"Em-dash normalisation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_drift_ligature_fi_matches(self):
+        """U+FB01 ﬁ ligature should expand to 'fi' on both sides before matching."""
+        paper = (
+            "BRCA1 expression analysis revealed a statistically signi\ufb01cant decrease in tumour tissue. "
+            "The effect was reproducible across three independent cohorts."
+        )
+        citation = "statistically significant decrease in tumour tissue"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"fi-ligature normalisation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_drift_non_breaking_hyphen_matches(self):
+        """Non-breaking hyphen (U+2011) should normalise to ASCII hyphen before matching."""
+        paper = (
+            "We investigated BRCA1\u2011associated breast cancer risk in a cohort of 200 patients. "
+            "Hereditary cases made up 35% of the sample."
+        )
+        citation = "BRCA1-associated breast cancer risk in a cohort"
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is True, f"Non-breaking-hyphen normalisation should match. Reason: {reason}"
+        assert confidence >= 0.85
+
+    def test_near_miss_message_distinguishes_from_no_match(self):
+        """
+        When the best dense-match ratio lands in [0.6, threshold), the failure reason
+        should be the 'Near-miss match' branch, distinct from the 'No similar text' branch.
+        """
+        # Paper and citation share most words, differ on one key token ('increase' vs 'decrease')
+        paper = (
+            "BRCA1 expression analysis showed a significant increase in gene expression in "
+            "tumor tissue compared to normal tissue across the entire cohort."
+        )
+        citation = "significant decrease in gene expression in tumor tissue compared to normal"
+        exists, best_ratio, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is False, (
+            f"Citation differs on a key semantic token; should not pass. Ratio={best_ratio:.2f}"
+        )
+        assert best_ratio >= 0.6, (
+            f"Expected ratio in [0.6, threshold) range, got {best_ratio:.2f}. Reason: {reason}"
+        )
+        assert "Near-miss match" in reason, (
+            f"Expected 'Near-miss match' in reason, got: {reason}"
+        )
+        assert "No similar text" not in reason, (
+            f"Expected 'No similar text' NOT in reason, got: {reason}"
+        )
+
+    def test_no_match_message_below_0_6(self):
+        """When best ratio < 0.6, failure reason should be the 'No similar text' branch."""
+        paper = (
+            "The BRCA1 gene encodes a tumour suppressor protein involved in DNA repair. "
+            "Pathogenic variants predispose carriers to breast and ovarian cancer."
+        )
+        # Completely unrelated content with ≥5 words so it reaches the dense-match path
+        citation = "cardiac hypertrophy atrial fibrillation ventricular arrhythmia echocardiography"
+        exists, best_ratio, reason = _citation_exists_in_paper(
+            citation, paper, gene_symbol="BRCA1"
+        )
+        assert exists is False
+        assert best_ratio < 0.6, f"Expected ratio < 0.6, got {best_ratio:.2f}"
+        assert "No similar text" in reason, (
+            f"Expected 'No similar text' in reason, got: {reason}"
+        )
+
+    def test_threshold_respects_config_override(self, monkeypatch):
+        """
+        The dense-match threshold is config-driven via CITATION_DENSE_MATCH_MIN_RATIO.
+        A near-miss that fails at default 0.85 should pass when the threshold is
+        lowered to 0.75 via monkeypatch.
+        """
+        paper = (
+            "We observed increased expression of TP53 in tumor cells across the cohort. "
+            "This was confirmed by independent RNA-seq measurements."
+        )
+        # One token differs ("elevated" vs "increased"); ratio lands at ~0.78 — above
+        # a 0.75 override but below the 0.85 default.
+        citation = "observed elevated expression of TP53 in tumor cells across the"
+
+        # First, confirm the citation is a near-miss at the default threshold (0.85).
+        exists_default, ratio_default, reason_default = _citation_exists_in_paper(
+            citation, paper, gene_symbol="TP53"
+        )
+        assert exists_default is False, (
+            f"Expected failure at default threshold. Ratio={ratio_default:.2f} reason={reason_default}"
+        )
+        # Second, confirm the same case passes once the threshold is dropped to 0.75.
+        monkeypatch.setattr(config, "CITATION_DENSE_MATCH_MIN_RATIO", 0.75)
+        exists_override, ratio_override, reason_override = _citation_exists_in_paper(
+            citation, paper, gene_symbol="TP53"
+        )
+        assert ratio_default == pytest.approx(ratio_override, abs=1e-9), (
+            "Ratio should be independent of the threshold override"
+        )
+        assert ratio_override >= 0.75, (
+            f"Expected ratio >= 0.75 for the override to flip the result, got {ratio_override:.2f}"
+        )
+        assert exists_override is True, (
+            f"Expected success at threshold=0.75. Ratio={ratio_override:.2f} reason={reason_override}"
+        )
 
 
 # ---------------------------------------------------------------------------

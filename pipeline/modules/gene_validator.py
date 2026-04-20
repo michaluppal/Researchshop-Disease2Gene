@@ -633,6 +633,42 @@ def _normalize_unicode_slashes(text: str) -> str:
     return text
 
 
+def _normalize_citation_drift(text: str) -> str:
+    """
+    Normalise formatting-drift artefacts so SequenceMatcher isn't fooled by
+    typeset variants of the same quote. Applied symmetrically on both citation
+    and paper_text before word-level matching (F10a).
+
+    Order matters:
+    1. Soft hyphen (U+00AD) removal — runs first so broken words re-merge
+       before any other pass touches them.
+    2. Line-break hyphenation: (\\w)-\\n(\\w) → \\1\\2. Must run before any
+       downstream .split() call.
+    3. Non-breaking hyphen (U+2011) → ASCII hyphen.
+    4. En-dash (U+2013) + em-dash (U+2014) → ASCII hyphen.
+    5. Common f-ligatures: U+FB01 ﬁ → "fi", U+FB02 ﬂ → "fl",
+       U+FB00 ﬀ → "ff", U+FB03 ﬃ → "ffi", U+FB04 ﬄ → "ffl".
+    """
+    if not text:
+        return text
+    # 1. Soft hyphen removal (first)
+    text = text.replace("\u00AD", "")
+    # 2. Line-break hyphenation
+    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    # 3. Non-breaking hyphen
+    text = text.replace("\u2011", "-")
+    # 4. En-dash + em-dash unification
+    text = text.replace("\u2013", "-").replace("\u2014", "-")
+    # 5. Ligatures
+    text = (text
+        .replace("\ufb00", "ff")
+        .replace("\ufb01", "fi")
+        .replace("\ufb02", "fl")
+        .replace("\ufb03", "ffi")
+        .replace("\ufb04", "ffl"))
+    return text
+
+
 def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str = "", gene_aliases: List[str] = None, tables: List[Dict[str, Any]] = None) -> Tuple[bool, float, str]:
     """
     Check if citation text exists in the paper securely using dense matching, numerical consistency, and gene context.
@@ -644,9 +680,10 @@ def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str =
     if not citation or not paper_text:
         return False, 0.0, "Empty citation or paper"
 
-    # Normalize Unicode slash variants to ASCII solidus before any matching
-    citation = _normalize_unicode_slashes(citation)
-    paper_text = _normalize_unicode_slashes(paper_text)
+    # Normalize Unicode slash variants and formatting-drift artefacts (F10a) before any matching.
+    # Applied symmetrically on both sides so SequenceMatcher isn't fooled by typeset variants.
+    citation = _normalize_citation_drift(_normalize_unicode_slashes(citation))
+    paper_text = _normalize_citation_drift(_normalize_unicode_slashes(paper_text))
 
     # Normalize texts
     citation_norm = ' '.join(citation.lower().split())
@@ -701,8 +738,16 @@ def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str =
                         best_ratio = ratio
                         best_idx_words = j
 
-            if best_ratio < 0.85:
-                prose_failure = (False, best_ratio, f"No dense match found (best ratio: {best_ratio:.2f})")
+            threshold = getattr(config, "CITATION_DENSE_MATCH_MIN_RATIO", 0.85)
+            if best_ratio < threshold:
+                if best_ratio < 0.6:
+                    msg = f"No similar text in paper (best ratio: {best_ratio:.2f})"
+                else:
+                    msg = (
+                        f"Near-miss match (ratio {best_ratio:.2f} < threshold "
+                        f"{threshold:.2f}) — likely formatting drift"
+                    )
+                prose_failure = (False, best_ratio, msg)
             else:
                 # Find approximate char index of the matched window
                 anchor_snippet = ' '.join(paper_words[max(0, best_idx_words):best_idx_words+min(3, len(cit_words))])

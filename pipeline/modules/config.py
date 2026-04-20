@@ -143,6 +143,13 @@ EVIDENCE_BACKFILL_MAX_SCAN_MATCHES = int(
 # --- Citation Validation Heuristics ---
 ENABLE_CITATION_VALIDATION = True  # Enable/disable citation validation (semantic density matching enabled)
 CITATION_MIN_CONFIDENCE = 0.7  # Minimum confidence for citation validation (0.0-1.0)
+# F10a: SequenceMatcher word-window ratio threshold for citation prose matching.
+# Lower = more drift tolerance (may increase false positives on near-miss text).
+# Higher = stricter (more false negatives on formatting drift).
+# Default 0.85 preserves pre-F10a behaviour.
+CITATION_DENSE_MATCH_MIN_RATIO = float(
+    os.getenv("CITATION_DENSE_MATCH_MIN_RATIO", "0.85")
+)
 CITATION_MIN_LENGTH = 10  # Minimum citation length to be considered valid
 
 # --- Context Window Limits ---
