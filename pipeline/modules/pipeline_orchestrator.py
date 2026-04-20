@@ -38,12 +38,29 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
               single-source gene with a valid citation.
     - LOW:    Abstract-only paper (no full text available) or validation
               confidence below 0.85 (borderline HGNC match).
-    - REVIEW: Citation text not found in paper (mismatch), OR gene extracted
-              only from figures with no prose source. Requires manual check.
+    - REVIEW: Citation text not found in paper (mismatch), gene extracted
+              only from figures with no prose source, OR row was produced by
+              skeleton/auto-snippet fallback because Gemini failed (F11).
+              Requires manual check.
     """
     # Guard: empty gene name is never a valid extraction
     if not str(row.get("Gene/Group", "") or "").strip():
         return "REVIEW", "No genes extracted"
+
+    # F11: Extraction-mode check runs before any other tier logic — a skeleton
+    # row can't be HIGH/MEDIUM/LOW even if the gene's HGNC validation is 1.0,
+    # because the LLM didn't read the paper's context for this gene. The row
+    # exists to preserve the gene identity, not as an actual extraction result.
+    extraction_mode = str(row.get("extraction_mode", "") or "").strip()
+    if extraction_mode == "skeleton":
+        err = str(row.get("detail_extraction_error", "") or "").strip()
+        err_short = (err[:80] + "…") if len(err) > 80 else err
+        evidence_backfilled = bool(row.get("evidence_backfilled", False))
+        if evidence_backfilled:
+            note = "LLM failed; auto-snippet fallback" + (f" ({err_short})" if err_short else "")
+        else:
+            note = "LLM failed; no content" + (f" ({err_short})" if err_short else "")
+        return "REVIEW", note
 
     val_conf = float(row.get("validation_confidence", 0) or 0)
     gene_source = str(row.get("Gene Source", "") or "")
@@ -122,6 +139,18 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
         pmid: Optional PMID — used only by the pipeline tracer to decide whether
               to record detailed per-stage events for this paper.
     """
+    # Install the function-level tracer INSIDE the worker process too.
+    # Without this, the live-stream function trace goes silent for the whole
+    # Gemini phase (abstract pass, full-text passes, figure analysis, gates,
+    # detail extraction, citation validation) because workers are separate
+    # processes that don't inherit the parent's sys.setprofile hook.
+    # install_function_tracer is idempotent and no-op when env vars are unset,
+    # so this is free in untraced runs.
+    try:
+        pipeline_tracer.install_function_tracer()
+    except Exception:
+        pass
+
     try:
         inst = GeneInfoPipeline(
             text,
@@ -271,8 +300,14 @@ def _write_split_output(
     primary_cols = (
         ["Gene", "Variant"]
         + [c for c in user_cols if c in df_clean.columns]
-        + ["Confidence", "Confidence Note", "context_modifications"]  # context_modifications included so
-        # researchers working with the primary CSV can see what sections were truncated per gene row
+        + [
+            "Confidence", "Confidence Note",
+            # F11: extraction_mode (llm / skeleton) and evidence_backfilled
+            # visible in the primary CSV so researchers can see fallback
+            # rows at a glance instead of having to consult the metadata CSV.
+            "extraction_mode", "evidence_backfilled",
+            "context_modifications",  # what sections were truncated per gene row
+        ]
         + ["PMID", "Title", "Year", "Journal", "Authors", "Citations", "DOI"]
     )
     primary_cols_present = [c for c in primary_cols if c in df_clean.columns]
@@ -1294,7 +1329,7 @@ def run_complete_pipeline(
                         del in_flight[pmid]
 
                     worker_pool.terminate()
-                    worker_pool.join(timeout=10)
+                    worker_pool.join()  # mp.Pool.join() takes no timeout kwarg
                     worker_pool = mp.Pool(processes=pool_size)
                     logging.info(f"AI worker pool recreated: {pool_size} processes")
 
@@ -1393,7 +1428,7 @@ def run_complete_pipeline(
                         )
                         try:
                             worker_pool.terminate()
-                            worker_pool.join(timeout=10)
+                            worker_pool.join()  # mp.Pool.join() takes no timeout kwarg
                         except Exception as e:
                             logging.warning(f"Worker pool cleanup after timeout failed: {e}")
                         worker_pool = mp.Pool(processes=pool_size)
@@ -1477,7 +1512,7 @@ def run_complete_pipeline(
         # Always clean up the worker pool (handles normal completion, cancellation, and errors)
         try:
             worker_pool.terminate()
-            worker_pool.join(timeout=10)
+            worker_pool.join()  # mp.Pool.join() takes no timeout kwarg
         except Exception as e:
             logging.warning(f"Worker pool final cleanup failed: {e}")
         logging.info("AI worker pool terminated")

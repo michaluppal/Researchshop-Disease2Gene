@@ -359,6 +359,10 @@ class GeneInfoPipeline:
 
             row[target_col] = snippet
             row[target_citation_col] = "Auto snippet from paper text"
+            # F11: Mark that this row's evidence was produced by keyword search,
+            # not by Gemini reading the gene's context. _compute_row_confidence
+            # reads this flag and downgrades the row's tier accordingly.
+            row["evidence_backfilled"] = True
             backfilled += 1
 
         if backfilled:
@@ -1281,6 +1285,10 @@ Paper text:
                                 row[citation_col] = self._normalize_empty_placeholder(
                                     row.get(citation_col, "")
                                 )
+                        # F11: Tag as LLM-sourced so the output CSV can
+                        # distinguish real LLM content from fallback skeletons
+                        # produced when Gemini fails (quota, timeout, malformed).
+                        row["extraction_mode"] = "llm"
                     self.detail_extraction_status = (
                         "model_response_parsed" if parsed else "model_response_empty_rows"
                     )
@@ -1302,12 +1310,18 @@ Paper text:
                     logging.error("All retry attempts failed for gene info extraction")
                     self.detail_extraction_status = "fallback_after_retries"
                     self.detail_extraction_error = str(e)
-                    # Return minimal fallback with gene/variant only — no fabricated content
+                    # Return minimal fallback with gene/variant only — no fabricated content.
+                    # F11: every fallback row is tagged extraction_mode="skeleton" and carries
+                    # the failure reason, so downstream code (confidence scoring, CSV output)
+                    # can visibly downgrade these rows instead of presenting them like LLM rows.
+                    err_msg = str(e)[:300]  # cap to keep CSV readable
                     fallback_data = []
                     for assoc in self.associations:
                         fallback_item = {
                             "gene_name": assoc["gene"],
                             "variant_name": self._normalize_variant_value(assoc.get("variant", "")),
+                            "extraction_mode": "skeleton",
+                            "detail_extraction_error": err_msg,
                         }
                         for col in column_descriptions:
                             fallback_item[col] = ""
@@ -1704,6 +1718,9 @@ Paper text:
                 "Detailed extraction returned no rows; emitting association-only fallback rows"
             )
             self.detail_extraction_status = "association_only_fallback_no_rows"
+            # F11: same skeleton tag as the extract_gene_info fallback path —
+            # downstream sees "this row has no LLM content".
+            err_msg = str(getattr(self, "detail_extraction_error", "") or "")[:300]
             extracted_info = []
             for assoc in self.associations:
                 gene = (
@@ -1718,7 +1735,12 @@ Paper text:
                 )
                 if not gene:
                     continue
-                row = {"gene_name": gene, "variant_name": variant}
+                row = {
+                    "gene_name": gene,
+                    "variant_name": variant,
+                    "extraction_mode": "skeleton",
+                    "detail_extraction_error": err_msg or "association_only_fallback_no_rows",
+                }
                 for col in column_descriptions:
                     row[col] = ""
                     row[f"{col} Citation"] = ""
