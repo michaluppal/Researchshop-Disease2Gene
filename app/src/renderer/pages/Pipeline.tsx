@@ -98,9 +98,16 @@ export default function Pipeline() {
       if (result.excel_path) params.set('excel', result.excel_path)
       if (result.metadata_path) params.set('meta', result.metadata_path)
       if (result.json_path) params.set('json', result.json_path)
+      // F10b: surface strict-gate drops to the Results banner
+      const dropPath = result.drop_debug_path || result.debug_path
+      if (dropPath) params.set('dropDebug', dropPath)
+      const dropCount = stats.strict_gate_drops_count
+      if (typeof dropCount === 'number' && dropCount > 0) {
+        params.set('dropCount', String(dropCount))
+      }
       navigate(`/results?${params.toString()}`)
     }
-  }, [result, navigate])
+  }, [result, navigate, stats])
 
   useEffect(() => {
     if (userLogRef.current) {

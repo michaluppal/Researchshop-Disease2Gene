@@ -465,6 +465,34 @@ def _prepare_paper_inputs(pmid, content_dict, paper_details, pubtator_results):
     }
 
 
+def _aggregate_strict_gate_drops(
+    pipeline_stats,
+    worker_debug,
+    pmid,
+):
+    """
+    Aggregate per-paper strict-gate drops into the run-level ``pipeline_stats``.
+
+    F10b helper — pure function, no side-effects beyond mutating
+    ``pipeline_stats``. Each drop dict from ``worker_debug["strict_gate_drops"]``
+    is copied, tagged with the given ``pmid``, and appended to the run-level
+    ``strict_gate_drops`` list; the ``strict_gate_drops_count`` counter is
+    refreshed from the list length.
+
+    Extracted from ``_finalize_paper_result`` to enable direct unit testing
+    without building the full worker-payload/pandas mock stack.
+    """
+    paper_drops = worker_debug.get("strict_gate_drops", []) or []
+    for drop in paper_drops:
+        drop_entry = dict(drop)
+        drop_entry["pmid"] = pmid
+        pipeline_stats.setdefault("strict_gate_drops", []).append(drop_entry)
+    pipeline_stats["strict_gate_drops_count"] = len(
+        pipeline_stats.get("strict_gate_drops", [])
+    )
+    return paper_drops
+
+
 def _finalize_paper_result(
     payload,
     pmid,
@@ -558,6 +586,11 @@ def _finalize_paper_result(
     if paper_df.empty and not worker_debug:
         worker_debug = {"status": "empty_result"}
 
+    # F10b: Aggregate strict-gate drops into run-level pipeline_stats so the
+    # Results UI can surface a banner without the operator opening the
+    # drop_debug_*.json forensic file. Each entry is tagged with its PMID.
+    paper_drops = _aggregate_strict_gate_drops(pipeline_stats, worker_debug, pmid)
+
     debug_artifact = {
         "pmid": pmid,
         "status": worker_debug.get("status", "ok"),
@@ -568,7 +601,7 @@ def _finalize_paper_result(
         "detail_extraction_error": worker_debug.get("detail_extraction_error", ""),
         "detail_extraction_rows": worker_debug.get("detail_extraction_rows"),
         "validation_drops": worker_debug.get("validation_drops", []),
-        "strict_gate_drops": worker_debug.get("strict_gate_drops", []),
+        "strict_gate_drops": paper_drops,
         "evidence_gate_drops": worker_debug.get("evidence_gate_drops", []),
         "final_associations": worker_debug.get("final_associations", []),
         "emitted_rows": int(len(paper_df)),
@@ -656,6 +689,8 @@ def run_complete_pipeline(
         "tables_extracted": 0,
         "pubtator_pmids_skipped": 0,
         "papers_excluded_not_oa": 0,  # F2: count of paywalled PMIDs dropped at the backup gate
+        "strict_gate_drops": [],  # F10b: flat list of per-gene strict-gate drops across all papers
+        "strict_gate_drops_count": 0,  # F10b: operator-facing count surfaced to Results UI
     }
     paper_debug_artifacts = []
     forensic_screening = []
@@ -1915,6 +1950,10 @@ def run_complete_pipeline(
         "excel_path": excel_path,
         "json_path": json_path,
         "debug_path": debug_path,
+        # F10b: explicit alias consumed by the Results banner. Mirrors debug_path
+        # so the frontend doesn't have to know that "debug" and "drop_debug" refer
+        # to the same artifact.
+        "drop_debug_path": debug_path,
     }
     if trace_path:
         result["trace_path"] = trace_path

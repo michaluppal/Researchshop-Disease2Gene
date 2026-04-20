@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Download, Loader2, AlertCircle, FileText, ChevronDown, ChevronUp, Settings2, X, Search, ChevronLeft, ChevronRight, FolderOpen, ArrowLeft } from 'lucide-react'
+import { Download, Loader2, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, Settings2, X, Search, ChevronLeft, ChevronRight, FolderOpen, ArrowLeft } from 'lucide-react'
 import Papa from 'papaparse'
 import Tooltip from '../components/Tooltip'
 
@@ -412,6 +412,9 @@ export default function Results() {
   const excelPath = searchParams.get('excel') || ''
   const metaPath  = searchParams.get('meta')  || ''
   const jsonPath  = searchParams.get('json')  || ''
+  // F10b: strict-gate drop surfacing. Both params are optional — banner hides when count <= 0.
+  const dropDebugPath   = searchParams.get('dropDebug') || ''
+  const strictGateDrops = Number(searchParams.get('dropCount') || '0') || 0
 
   const [headers, setHeaders] = useState<string[]>([])
   const [rows, setRows]       = useState<string[][]>([])
@@ -425,6 +428,7 @@ export default function Results() {
   const [selectedMetaCols, setSelectedMetaCols] = useState<Set<string>>(new Set())
   const [showMetaPicker, setShowMetaPicker]     = useState(false)
   const [researchBannerDismissed, setResearchBannerDismissed] = useState(false)
+  const [strictGateBannerDismissed, setStrictGateBannerDismissed] = useState(false)
 
   // Search, sort, pagination state
   const [searchQuery, setSearchQuery] = useState('')
@@ -638,6 +642,35 @@ export default function Results() {
           </span>
           <button
             onClick={() => setResearchBannerDismissed(true)}
+            className="text-amber-600 hover:text-amber-800 flex-shrink-0 ml-2"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* F10b: Strict-gate drops banner — hidden when count is 0 so clean runs stay clean */}
+      {strictGateDrops > 0 && !strictGateBannerDismissed && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg mb-4 text-sm text-amber-800">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">
+            <strong>{strictGateDrops}</strong>{' '}
+            gene candidate{strictGateDrops === 1 ? '' : 's'} dropped by strict validation gate (confidence &lt; 0.7).
+            {dropDebugPath && (
+              <>
+                {' '}
+                <button
+                  onClick={() => window.api.shell.openPath(dropDebugPath)}
+                  className="underline text-amber-900 hover:text-amber-700 font-medium"
+                >
+                  View details
+                </button>
+              </>
+            )}
+          </span>
+          <button
+            onClick={() => setStrictGateBannerDismissed(true)}
             className="text-amber-600 hover:text-amber-800 flex-shrink-0 ml-2"
             aria-label="Dismiss"
           >

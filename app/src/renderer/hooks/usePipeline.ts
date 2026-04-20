@@ -10,8 +10,11 @@ export interface StructuredLog {
 interface PipelineState {
   stage: string
   percent: number
+  // stats contains numeric counters plus, at run-completion, a list of strict-gate drops
+  // (field `strict_gate_drops`). The drops list is ignored by the progress UI — the count
+  // is exposed separately via `strict_gate_drops_count` (number).
   stats: Record<string, number>
-  result: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; error?: string } | null
+  result: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; error?: string } | null
   isRunning: boolean
   error: string | null
   logs: string[]
