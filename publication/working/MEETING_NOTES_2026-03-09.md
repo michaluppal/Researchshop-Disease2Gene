@@ -217,6 +217,7 @@
 | LLM stochasticity (different genes per run) | Reproducibility | Multi-run averaging | Quantify in paper |
 | Clinical-vs-molecular ambiguity (ESR/AST/CRP) | False positives | Prompt clause + corroboration gate | Benchmark with more clinical papers |
 | OA-only (~40% papers paywalled) | Limited recall | 4× overfetch factor | Document as limitation |
+<!-- Superseded: the "4× overfetch factor" was never implemented — the actual mitigation is `PUBMED_RELEVANT_COUNT=200` query-mode candidate widening. See Final_Audit F1. Note preserved as historical record. -->
 | Rare disease F1=0.167 | Benchmark weakness | One paper was paywalled | Add more rare disease papers |
 | Citation stochasticity (0–100% per run) | Metric unreliability | Multi-run averaging | Report as known limitation |
 

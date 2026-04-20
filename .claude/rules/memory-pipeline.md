@@ -289,8 +289,11 @@ Per-paper timeout: 600 seconds (`AI_PER_PAPER_TIMEOUT_SECONDS`).
 W6: this collapses distinct findings from the same paper about the same gene into one row.
 Acceptable tradeoff — prevents duplicate rows — but means some variant detail may be lost.
 
-**Overfetch factor:** Analyzes 4× the requested number of papers to ensure sufficient
-non-paywall, non-rejected papers reach extraction.
+**Candidate widening (query-mode only):** Query-mode runs pull up to
+`PUBMED_RELEVANT_COUNT=200` candidates from PubMed before citation ranking trims to the
+user's requested top-N. User-curated PMID lists are taken 1:1 — no widening. There is no
+"4× overfetch factor" — that claim appeared in older docs but the symbol was orphaned and
+has been removed (see Final_Audit F1).
 
 **Citation ranking:** Final CSV is sorted by citation count descending.
 High-citation papers appear first — appropriate for literature synthesis, but researchers

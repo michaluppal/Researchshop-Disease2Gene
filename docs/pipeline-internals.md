@@ -364,14 +364,18 @@ The annotation is `"loattrfull text[sb]"` which restricts results to papers with
 
 > **⚠️ See [`bug-hunting.md` §2.4](./bug-hunting.md#24-semantic-scholar-per-pmid-rate-limit)** — for 1000+ unresolved PMIDs, the per-call sleep adds 3+ minutes.
 
-### 3.4 Overfetch
+### 3.4 Candidate widening (query-mode only)
 
-`ANALYSIS_OVERFETCH_FACTOR=4` (config.py:158). If the user requests top-10 cited papers, the pipeline fetches and analyzes 40 candidates. This compensates for:
-- Papers that fail OA full-text fetch
-- Papers that get screened out upstream
-- Papers that produce empty extraction results
+`PUBMED_RELEVANT_COUNT=200` is the real candidate-widening mechanism. Query-mode runs pull
+up to 200 candidate PMIDs from PubMed before citation ranking trims the pool to the user's
+requested top-N. User-curated PMID lists are taken 1:1 — no widening is performed.
 
-The overfetch multiplies API cost. With the 500-PMID cap in the UI (`TopicResultsModal.tsx`), the effective max analysis depth is 500/4 = 125 papers per run.
+There is **no** "4× overfetch factor". `ANALYSIS_OVERFETCH_FACTOR` appeared in older docs and
+in `config.py` but was never referenced anywhere in the pipeline (orphaned). The symbol was
+removed in the Final_Audit F1 sweep; the 4× claim is a myth that should not be propagated.
+
+The UI's 500-PMID cap (`TopicResultsModal.tsx`) is independent of this — it limits how many
+search results the modal fetches/renders, not how many get analysed.
 
 ### 3.5 Failure modes
 
@@ -451,7 +455,7 @@ No paywall bypass, no Playwright. About 40–60% of PubMed papers are paywalled 
 2. Reliability (no flaky browser automation)
 3. Explicit user consent (they know what the tool can and cannot fetch)
 
-The overfetch factor (4x) compensates for the loss.
+Query-mode widening (`PUBMED_RELEVANT_COUNT=200`, see §3.4) partially compensates for the loss by giving citation ranking a larger candidate pool to pick top-$N$ from.
 
 ### 5.7 Failure modes
 
@@ -1119,7 +1123,6 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 | `AI_PER_PAPER_TIMEOUT_SECONDS` | `600` | Per-paper worker timeout |
 | `AI_WORKER_POOL_SIZE` | `2` | Pool size, capped at 4 |
 | `PARALLEL_ANALYSIS` | `False` | Enable in-flight parallel mode |
-| `ANALYSIS_OVERFETCH_FACTOR` | `4` | Fetch N× requested top-N |
 
 ### 10.12 Forensic
 

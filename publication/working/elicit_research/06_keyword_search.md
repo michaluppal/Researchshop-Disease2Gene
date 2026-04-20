@@ -43,7 +43,7 @@ RS uses PubMed's Entrez API as its sole search mechanism, with a simpler query c
 - **Domain-specific filters**: RS includes publication type exclusion (removing reviews, editorials, case reports) and OA filtering as built-in query parameters. These are biomedical-specific filters that Elicit treats as generic.
 - **PMID list input**: Researchers who already know their papers can bypass search entirely and provide PMIDs directly. This is common in biomedical workflows where a lab maintains curated paper lists. Elicit requires going through their search interface.
 - **No API cost for search**: RS's PubMed queries are free. Elicit's LLM-assisted query construction consumes tokens.
-- **Overfetch compensation**: While crude, the 4x overfetch factor provides a safety margin against poor query recall that Elicit does not need (because their hybrid search has better recall).
+- **Query-mode widening as recall safety margin**: Pulling up to `PUBMED_RELEVANT_COUNT=200` candidates in query mode before citation-ranking down to the user's top-N gives a safety margin against poor PubMed top-N ordering. Crude compared to Elicit's hybrid search, but free.
 
 ## Where Elicit Does Better
 

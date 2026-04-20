@@ -375,6 +375,7 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_add_citation_validation_metadata",
     "_add_candidate_provenance_metadata",
     "_backfill_sparse_row_evidence",
+    "_collect_debug_artifact",                  # full candidate_meta lifecycle dump (drop_debug)
     "_merge_duplicate_gene_rows",
     "_validate_and_prepare_paper_text",         # context truncation
     "_split_paper_into_named_sections",
@@ -423,6 +424,16 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_accumulate_result",                       # row merge back to global df
     "build_minimal_row",
     "_compute_row_confidence",                  # HIGH/MEDIUM/LOW tier logic
+    "_finalize_paper_result",                   # adds Gene Source / NCBI ID / full name / aliases / chromosome per row
+    "_get_citation_record",                     # PMID → iCite/SemanticScholar record
+    "_write_split_output",                      # returns 4 output paths tuple
+    "_run_pipeline_worker",                     # orchestrator↔worker handoff
+    "get_gene_source",                          # nested closure in _finalize_paper_result
+    "get_ncbi_id",                              # nested closure
+    "get_full_name",                            # nested closure
+    "get_aliases",                              # nested closure
+    "get_chromosome",                           # nested closure
+    "_agg_variants",                            # variant-string joiner used in dedup
     "write_drop_debug_artifact",
 })
 

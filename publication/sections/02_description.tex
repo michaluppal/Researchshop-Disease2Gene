@@ -11,7 +11,7 @@ The frontend communicates with the Python pipeline via an IPC (Inter-Process Com
 The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
 
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
-    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{placeholder_hutchins2016icite} (primary) with Semantic Scholar~\cite{placeholder_semantic_scholar_api} as fallback. An overfetch factor of~4$\times$ ensures sufficient open-access papers reach extraction.
+    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{placeholder_hutchins2016icite} (primary) with Semantic Scholar~\cite{placeholder_semantic_scholar_api} as fallback. Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$; user-curated PMID lists are taken 1:1 with no widening.
 
     \item \textbf{Gene Relevance Scoring (UI-side).} A TypeScript keyword-and-regex scorer runs in the Electron renderer, scoring each paper for gene relevance before the user submits their selection. High/medium papers are auto-selected; low-relevance papers are hidden by default with a ``Show all'' toggle. This replaces traditional pipeline-side abstract screening, giving researchers transparent control.
 

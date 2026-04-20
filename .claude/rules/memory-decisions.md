@@ -161,7 +161,7 @@ Combining gives precision floor + recall ceiling.
 **Decision:** Fetch full text only from PMC Entrez and Europe PMC (open-access). No paywall bypass.
 **Rationale:** Legal clarity, reliability, simplicity. Playwright/publisher-specific scrapers were dead code
 and a maintenance burden (removed in F5 fix).
-**Implication:** ~40–60% of PubMed papers skipped due to paywall; mitigated by overfetch factor (4x).
+**Implication:** ~40–60% of PubMed papers skipped due to paywall; mitigated by PubMed `loattrfull text[sb]` filter + PUBMED_RELEVANT_COUNT=200 query-mode widening.
 
 ### Local HGNC database bundled
 **Decision:** Ship `hgnc_genes.json` (44,933 genes, 6.6 MB) inside the app.

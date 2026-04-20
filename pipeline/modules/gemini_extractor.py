@@ -262,7 +262,7 @@ class GeneInfoPipeline:
             patterns = [rf"(?i)(?<![A-Za-z0-9]){re.escape(needle)}(?![A-Za-z0-9])"]
             alnum = re.sub(r"[^A-Za-z0-9]", "", needle)
             if len(alnum) >= 3:
-                fuzzy = r"[\s\-_\/]*".join(re.escape(ch) for ch in alnum)
+                fuzzy = r"[\s\-_\/\.\(\)]*".join(re.escape(ch) for ch in alnum)
                 patterns.append(rf"(?i)(?<![A-Za-z0-9]){fuzzy}(?![A-Za-z0-9])")
 
             for pattern in patterns:
@@ -1561,6 +1561,11 @@ Paper text:
         fetched text. The check uses: canonical symbol + HGNC aliases + raw_gene_labels
         (the exact string the LLM extracted, e.g. "BNP" for NPPB) to maximise recall
         while rejecting genuine hallucinations.
+
+        Scope note: verifies gene presence only. Variant presence is validated later
+        by the citation validator (Section 15.2) and the evidence gate (Section 15.3)
+        — see F8c in Final_Audit.md for why the function's name is narrower than it
+        appears.
         """
         if not (getattr(config, "ENABLE_GROUNDING_CHECK", True) and self.paper_text):
             return

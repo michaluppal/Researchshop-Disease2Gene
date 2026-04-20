@@ -164,10 +164,6 @@ AI_WORKER_POOL_SIZE = int(os.getenv("AI_WORKER_POOL_SIZE", "2"))
 # Enable for paid keys with higher rate limits to speed up multi-paper runs.
 PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
-# Overfetch factor: how many extra candidate papers to analyze relative to requested top_n_cited
-# to increase the chance of returning the desired number of papers with results
-ANALYSIS_OVERFETCH_FACTOR = int(os.getenv("ANALYSIS_OVERFETCH_FACTOR", "4"))
-
 # --- Forensic Run Analytics ---
 # Persist stage-by-stage artifacts (screening decisions, fetch outcomes, gate drops)
 # in the debug artifact JSON for full pipeline traceability.

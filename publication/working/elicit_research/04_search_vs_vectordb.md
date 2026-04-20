@@ -45,7 +45,7 @@ ResearchShop takes a fundamentally different approach to search, delegating it e
 
 ## Implications for ResearchShop
 
-1. **Search quality is an unexamined assumption**: RS assumes PubMed returns the right papers and compensates with overfetching. Smith's article suggests this is exactly the mistake that leads to poor downstream results. Silent false negatives at the search stage are the hardest failures to detect.
+1. **Search quality is an unexamined assumption**: RS assumes PubMed returns the right papers and compensates with a 200-PMID query-mode candidate pool that citation-ranking then narrows. Smith's article suggests this is exactly the mistake that leads to poor downstream results. Silent false negatives at the search stage are the hardest failures to detect.
 
 2. **Citation ranking is not relevance ranking**: Sorting by citation count is appropriate for "what are the landmark papers" but poor for "what papers contain gene X findings." A relevance-aware re-ranking step -- even a lightweight LLM-based one using abstracts -- would improve the quality of papers entering the extraction pipeline.
 
@@ -53,7 +53,7 @@ ResearchShop takes a fundamentally different approach to search, delegating it e
 
 4. **Evaluation gap**: RS has benchmarks for extraction quality (F1 per paper type) but none for search quality. Adding a search-level evaluation -- "for disease X, do we find the known gene-association papers?" -- would close a blind spot.
 
-5. **The overfetch-then-filter pattern validates Smith's thesis**: The 4x overfetch factor is an implicit admission that search quality is insufficient. Improving search would reduce wasted API calls on papers that get filtered out.
+5. **The widen-then-rank pattern validates Smith's thesis**: Pulling up to 200 query-mode candidates and citation-ranking them down to the user's top-N is an implicit admission that search quality is insufficient — the pool is widened because we don't trust the top-N in PubMed's native ordering. Improving search upstream would reduce wasted API calls on papers that never survive the rank.
 
 ## Implications for Glyph
 
