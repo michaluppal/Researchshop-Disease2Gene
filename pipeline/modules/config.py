@@ -133,6 +133,13 @@ EVIDENCE_MIN_NONEMPTY_CELLS_LLM_TEXT = int(os.getenv("EVIDENCE_MIN_NONEMPTY_CELL
 # Deterministic-lexicon rows are mechanically seeded and need actual content corroboration.
 EVIDENCE_MIN_NONEMPTY_CELLS_DETERMINISTIC = int(os.getenv("EVIDENCE_MIN_NONEMPTY_CELLS_DETERMINISTIC", "1"))
 
+# F12: cap regex matches examined per primary term when searching for a
+# gene-specific snippet. Bounds worst-case cost on pathological papers with
+# many occurrences of the same gene symbol.
+EVIDENCE_BACKFILL_MAX_SCAN_MATCHES = int(
+    os.getenv("EVIDENCE_BACKFILL_MAX_SCAN_MATCHES", "50")
+)
+
 # --- Citation Validation Heuristics ---
 ENABLE_CITATION_VALIDATION = True  # Enable/disable citation validation (semantic density matching enabled)
 CITATION_MIN_CONFIDENCE = 0.7  # Minimum confidence for citation validation (0.0-1.0)

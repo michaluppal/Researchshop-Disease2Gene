@@ -245,6 +245,111 @@ class GeneInfoPipeline:
             deduped.append(term)
         return deduped
 
+    def _find_gene_specific_snippet(
+        self,
+        primary_terms: List[str],
+        peer_entries: List[Tuple[str, Set[str]]],
+    ) -> Tuple[str, bool, List[str]]:
+        """
+        Two-tier snippet search for evidence backfill (F12).
+
+        Returns (snippet, is_gene_specific, co_mentioned_symbols).
+
+        Phase 1 (gene-specific): walk re.finditer over each primary_term's
+        word-boundary-guarded pattern. For each match, build the final snippet
+        window (sentence-start trimmed + capped at EVIDENCE_SNIPPET_MAX_CHARS
+        just like _find_evidence_snippet does). Check each peer term set against
+        that FINAL window with the same (?<![A-Za-z0-9])...(?![A-Za-z0-9])
+        word-boundary guards. Return the first match where no peer hit is found.
+        Cap: examine at most EVIDENCE_BACKFILL_MAX_SCAN_MATCHES matches per
+        primary term.
+
+        Phase 2 (fallback): call self._find_evidence_snippet(primary_terms) to
+        get the first-match snippet. Scan that snippet for peers. Return with
+        is_gene_specific=False and the list of peer canonical symbols present.
+
+        Empty peer_entries -> phase 1 always succeeds on the first match;
+        return (snippet, True, []).
+
+        peer_entries is a list of (canonical_symbol, term_set) tuples where
+        term_set contains the canonical symbol plus any aliases. The explicit
+        tuple avoids set-ordering issues when reporting co-mentioned symbols.
+
+        If no primary match found at all -> return ("", False, []).
+        """
+        text = self.paper_text or ""
+        if not text:
+            return "", False, []
+
+        max_chars = max(int(getattr(config, "EVIDENCE_SNIPPET_MAX_CHARS", 240)), 80)
+        max_scan = max(
+            int(getattr(config, "EVIDENCE_BACKFILL_MAX_SCAN_MATCHES", 50)), 1
+        )
+
+        def _build_snippet(match: re.Match) -> str:
+            raw_start = max(0, match.start() - 80)
+            boundary = re.search(r"(?<=[.!?])\s+", text[raw_start : match.start()])
+            start = raw_start + boundary.end() if boundary else raw_start
+            end = min(len(text), match.end() + 220)
+            snippet = re.sub(r"\s+", " ", text[start:end]).strip()
+            if len(snippet) > max_chars:
+                snippet = snippet[: max_chars - 3].rstrip() + "..."
+            return snippet
+
+        def _peers_present_in(snippet: str) -> List[str]:
+            present: List[str] = []
+            if not snippet:
+                return present
+            for canonical, term_set in peer_entries:
+                hit = False
+                for peer_term in term_set:
+                    peer_needle = str(peer_term or "").strip()
+                    if not peer_needle:
+                        continue
+                    peer_pattern = (
+                        rf"(?i)(?<![A-Za-z0-9]){re.escape(peer_needle)}(?![A-Za-z0-9])"
+                    )
+                    if re.search(peer_pattern, snippet):
+                        hit = True
+                        break
+                if hit:
+                    present.append(canonical)
+            return present
+
+        # Phase 1: gene-specific search.
+        for term in primary_terms:
+            needle = str(term or "").strip()
+            if not needle:
+                continue
+
+            patterns = [rf"(?i)(?<![A-Za-z0-9]){re.escape(needle)}(?![A-Za-z0-9])"]
+            alnum = re.sub(r"[^A-Za-z0-9]", "", needle)
+            if len(alnum) >= 3:
+                fuzzy = r"[\s\-_\/\.\(\)]*".join(re.escape(ch) for ch in alnum)
+                patterns.append(rf"(?i)(?<![A-Za-z0-9]){fuzzy}(?![A-Za-z0-9])")
+
+            for pattern in patterns:
+                scanned = 0
+                for match in re.finditer(pattern, text):
+                    if scanned >= max_scan:
+                        break
+                    scanned += 1
+                    snippet = _build_snippet(match)
+                    if not snippet:
+                        continue
+                    if not peer_entries:
+                        return snippet, True, []
+                    peers_in_window = _peers_present_in(snippet)
+                    if not peers_in_window:
+                        return snippet, True, []
+
+        # Phase 2: fallback to first-match snippet; flag as co-mention.
+        fallback = self._find_evidence_snippet(primary_terms)
+        if not fallback:
+            return "", False, []
+        co_mentioned = _peers_present_in(fallback)
+        return fallback, False, co_mentioned
+
     def _find_evidence_snippet(self, terms: List[str]) -> str:
         """
         Find the first grounded snippet in paper text mentioning any candidate term.
@@ -326,7 +431,11 @@ class GeneInfoPipeline:
         self, extracted_info: List[Dict[str, Any]], column_descriptions: Dict[str, str]
     ):
         """
-        For rows with zero extracted user evidence, backfill a grounded snippet from paper text.
+        For rows with zero extracted user evidence, backfill a grounded snippet.
+
+        F12: prefer gene-specific sentences over co-mentions. Tag each backfilled
+        row with evidence_specificity ('gene_specific' or 'co_mention') and
+        co_mentioned_genes (semicolon-joined peer symbols if co_mention).
         """
         if not getattr(config, "ENABLE_EVIDENCE_BACKFILL", True):
             return
@@ -340,6 +449,25 @@ class GeneInfoPipeline:
         )
         target_citation_col = f"{target_col} Citation"
 
+        # F12: Build peer-term lookup keyed by (gene_upper, variant_upper).
+        # Each row's peer set is all OTHER rows' (canonical_symbol, term_set).
+        # Using the identity key (not just gene) handles same-gene-multi-variant.
+        all_row_keys: List[Tuple[str, str, str]] = []  # (gene_upper, var_upper, gene_original)
+        for row in extracted_info:
+            if not isinstance(row, dict):
+                continue
+            gene = str(row.get("gene_name") or "").strip()
+            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            if not gene:
+                continue
+            all_row_keys.append((gene.upper(), variant.upper(), gene))
+
+        # Precompute each row's term set once (for use as peer_term_set).
+        term_set_by_key: Dict[Tuple[str, str], Tuple[str, Set[str]]] = {}
+        for gene_u, var_u, gene_orig in all_row_keys:
+            terms = self._candidate_terms_for_row(gene_orig, var_u)
+            term_set_by_key[(gene_u, var_u)] = (gene_orig.upper(), set(terms))
+
         backfilled = 0
         for row in extracted_info:
             if not isinstance(row, dict):
@@ -351,9 +479,23 @@ class GeneInfoPipeline:
             variant = self._normalize_variant_value(row.get("variant_name", ""))
             if not gene:
                 continue
+            gene_upper = gene.upper()
 
-            terms = self._candidate_terms_for_row(gene, variant)
-            snippet = self._find_evidence_snippet(terms)
+            # Build peer entries: rows for OTHER genes only.
+            # Same-gene / different-variant rows are NOT peers — they annotate
+            # the same gene, so a sentence mentioning that gene is equally valid
+            # evidence for both rows. Exclude by gene (not by identity_key) to
+            # avoid a row's own gene appearing in its peer set.
+            peer_entries: List[Tuple[str, Set[str]]] = [
+                entry
+                for key, entry in term_set_by_key.items()
+                if key[0] != gene_upper
+            ]
+
+            primary_terms = self._candidate_terms_for_row(gene, variant)
+            snippet, is_specific, co_mentioned = self._find_gene_specific_snippet(
+                primary_terms, peer_entries
+            )
             if not snippet:
                 continue
 
@@ -363,6 +505,12 @@ class GeneInfoPipeline:
             # not by Gemini reading the gene's context. _compute_row_confidence
             # reads this flag and downgrades the row's tier accordingly.
             row["evidence_backfilled"] = True
+            row["evidence_specificity"] = (
+                "gene_specific" if is_specific else "co_mention"
+            )
+            row["co_mentioned_genes"] = (
+                ";".join(co_mentioned) if co_mentioned else ""
+            )
             backfilled += 1
 
         if backfilled:

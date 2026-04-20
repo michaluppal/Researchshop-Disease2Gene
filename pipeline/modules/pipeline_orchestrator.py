@@ -60,6 +60,12 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
             note = "LLM failed; auto-snippet fallback" + (f" ({err_short})" if err_short else "")
         else:
             note = "LLM failed; no content" + (f" ({err_short})" if err_short else "")
+        # F12: surface peer-gene context when the backfill snippet was a co-mention
+        # rather than a gene-specific sentence.
+        if row.get("evidence_specificity") == "co_mention":
+            co_mentioned = str(row.get("co_mentioned_genes") or "").strip()
+            if co_mentioned:
+                note += f" | co-mention with {co_mentioned.replace(';', ', ')}"
         return "REVIEW", note
 
     val_conf = float(row.get("validation_confidence", 0) or 0)
@@ -115,6 +121,16 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
         note = "No citation"
     else:
         note = ""
+    # F12: defensively surface peer-gene context when a backfilled row lands
+    # outside the skeleton branch (e.g. LLM returned content but evidence
+    # gate pulled a co-mention snippet). Guarded on both flags so future
+    # writers of evidence_specificity can't trigger this branch without the
+    # causal chain — the only current writer is _backfill_sparse_row_evidence.
+    if row.get("evidence_backfilled") and row.get("evidence_specificity") == "co_mention":
+        co_mentioned = str(row.get("co_mentioned_genes") or "").strip()
+        if co_mentioned:
+            suffix = f"co-mention with {co_mentioned.replace(';', ', ')}"
+            note = f"{note} | {suffix}" if note else suffix
     return "MEDIUM", note
 
 
@@ -305,7 +321,7 @@ def _write_split_output(
             # F11: extraction_mode (llm / skeleton) and evidence_backfilled
             # visible in the primary CSV so researchers can see fallback
             # rows at a glance instead of having to consult the metadata CSV.
-            "extraction_mode", "evidence_backfilled",
+            "extraction_mode", "evidence_backfilled", "evidence_specificity",
             "context_modifications",  # what sections were truncated per gene row
         ]
         + ["PMID", "Title", "Year", "Journal", "Authors", "Citations", "DOI"]

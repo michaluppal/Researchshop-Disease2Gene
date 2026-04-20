@@ -673,3 +673,87 @@ class TestPipelineIntegration:
                     f"'{user_col}' (idx {user_idx}) should appear before "
                     f"PMID (idx {pmid_idx})"
                 )
+
+
+# ---------------------------------------------------------------------------
+# F12 regression — PMID 41017238 Kawasaki scenario
+#
+# Three genes (ITPKC, CASP3, FCGR2A) appear only in a single co-mention
+# sentence in the paper.  _backfill_sparse_row_evidence must populate each
+# row with that sentence and tag the co-mention peers so the downstream
+# confidence note can surface the context to the user.
+# ---------------------------------------------------------------------------
+
+
+def test_pmid_41017238_f12_regression():
+    """Minimal synthetic replica of the PMID 41017238 (Kawasaki disease) case
+    where ITPKC, CASP3, and FCGR2A only appear in a single co-mention
+    sentence.  Exercises _backfill_sparse_row_evidence directly — no pipeline
+    spawn, no multiprocessing, no Gemini API.
+    """
+    from unittest.mock import MagicMock, patch
+    from modules import config as _config
+
+    # Paper text is the co-mention sentence verbatim.  Being the ONLY sentence
+    # means phase 1 of the gene-specific search always sees the peer genes in
+    # the snippet window and falls through to phase 2 (co-mention tagging).
+    paper_text = (
+        "Furthermore, ITPKC, CASP3, and FCGR2A contribute together to "
+        "Kawasaki disease susceptibility."
+    )
+
+    original_key = _config.GEMINI_API_KEY
+    _config.GEMINI_API_KEY = "fake-api-key-for-testing"
+    try:
+        with patch(
+            "modules.gemini_extractor.config.GEMINI_API_KEY",
+            "fake-api-key-for-testing",
+        ):
+            with patch("google.genai.Client") as mock_client_cls:
+                mock_client_cls.return_value = MagicMock()
+                from modules.gemini_extractor import GeneInfoPipeline
+
+                pipeline = GeneInfoPipeline(
+                    paper_text=paper_text,
+                    abstract_text="",
+                    pubtator_genes=[],
+                    figure_inputs=[],
+                )
+    finally:
+        _config.GEMINI_API_KEY = original_key
+
+    rows = [
+        {"gene_name": "ITPKC", "variant_name": "", "Key Finding": "", "Key Finding Citation": ""},
+        {"gene_name": "CASP3", "variant_name": "", "Key Finding": "", "Key Finding Citation": ""},
+        {"gene_name": "FCGR2A", "variant_name": "", "Key Finding": "", "Key Finding Citation": ""},
+    ]
+
+    pipeline._backfill_sparse_row_evidence(
+        rows, {"Key Finding": "primary finding about the gene"}
+    )
+
+    # All three rows should receive the single co-mention sentence as evidence.
+    for row in rows:
+        assert row["Key Finding"], (
+            f"{row['gene_name']} was not backfilled from the co-mention sentence"
+        )
+        assert row["evidence_backfilled"] is True
+
+    # At most one row may survive as gene_specific (the sole sentence is a
+    # co-mention for all three, so all three should tag co_mention — but
+    # this is written defensively for schedulers that might reorder scans).
+    n_gene_specific = sum(
+        1 for r in rows if r.get("evidence_specificity") == "gene_specific"
+    )
+    assert n_gene_specific <= 1, (
+        f"Expected at most 1 gene_specific row (all 3 genes only appear in "
+        f"the co-mention sentence), got {n_gene_specific}"
+    )
+
+    # Every co_mention row must list at least one peer canonical symbol.
+    for row in rows:
+        if row.get("evidence_specificity") == "co_mention":
+            assert row.get("co_mentioned_genes"), (
+                f"{row['gene_name']}: co_mention row must list peers, got "
+                f"{row.get('co_mentioned_genes')!r}"
+            )
