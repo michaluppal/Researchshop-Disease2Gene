@@ -52,7 +52,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
 | [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
 | [F10c](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Per-tier evidence thresholds not visible to operator | `_apply_evidence_gate` + UI |
-| [F8a](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | M | Truncation × grounding — genes in abstract but not truncated body | `_run_grounding_check` |
+| [F8a](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | M | Truncation × grounding — genes in abstract but not truncated body | `_run_grounding_check` |
 | [F8b](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | XS | Fuzzy pattern blind spot: `IL(6)`, `IL.6` | `_find_evidence_snippet` |
 | [F8c](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | XS | `_run_grounding_check` docstring scope clarification | `_run_grounding_check` |
 | [F6](#f6--greek-letter-transliteration-is-asymmetric-between-body-and-abstract) | ⬜ TODO | S | Greek letter transliteration asymmetric abstract ↔ body | `_prepare_paper_inputs` |
@@ -832,29 +832,71 @@ consequences. Keep both entries; they live at different layers.
 
 #### F8a — Truncation × grounding interaction
 
-**Problem recap:** `_validate_and_prepare_paper_text` truncates by dropping sections in
-order (methods → supp → discussion → conclusion → intro) when paper > 80% of context
-limit. `_run_grounding_check` then runs against the truncated `self.paper_text`.
-Genes found in the abstract but only text-present in a dropped section get silently
-dropped at grounding.
+**Status:** ✅ DONE — 2026-04-21 (branch `dev/cleanup`, commit `7ddc0ce`).
 
-**Code locations:**
-- Truncation: `pipeline/modules/gemini_extractor.py::_validate_and_prepare_paper_text` (~line 2311)
-- Grounding: `pipeline/modules/gemini_extractor.py::_run_grounding_check` (~line 1542)
+**Strategy chosen:** preferred (rescue) approach, not the cheap (log-only)
+alternative. The untruncated text was already preserved as
+`self.original_paper_text` in `__init__` (line 104) — no new attribute
+needed.
 
-**Preferred fix:** before truncation, save a reference to the full text as
-`self._paper_text_untruncated`. Grounding check first tries against truncated text
-(cheap); if a candidate fails, retries against untruncated text. Log any
-"would-have-matched-in-untruncated" drops as a warning so the operator knows
-truncation bit.
+**Files modified:**
+- `pipeline/modules/gemini_extractor.py`:
+  - `__init__` line 123 — new counter `self._truncation_rescue_count: int = 0`
+  - `_find_evidence_snippet` line 353 — non-breaking signature addition
+    `text: Optional[str] = None`; falls through to `self.paper_text or ""`
+    when `text is None`. Zero behaviour change for existing callers
+    (`_run_grounding_check`, `_find_gene_specific_snippet`,
+    `_backfill_sparse_row_evidence` all call without `text=`).
+  - `_run_grounding_check` ~lines 1768-1793 — rescue branch inserted
+    inside existing `else:` of prose grounding. When primary search
+    returns empty AND `self.paper_text != self.original_paper_text`
+    (truncation fired), retries with `text=self.original_paper_text`.
+    On success: sets `candidate_meta[key]["truncation_rescued"] = True`,
+    `candidate_meta[key]["validation_outcome"] = "passed_untruncated_rescue"`,
+    increments counters, logs INFO, appends to grounded, continues.
+  - Context-warning exposure dict line 642 — new key
+    `"truncation_rescue_count": self._truncation_rescue_count`
+  - Tracer capture ~line 1820 — new `outputs` key `"rescued_count"`
 
-**Alternative (cheaper):** just log the warning; don't rescue. Lets operators know
-truncation caused the drop without rehydrating the dropped text into downstream steps.
+**Tests added (7 in `pipeline/tests/test_grounding_rescue.py`):**
+no-truncation-no-rescue, rescue-when-gene-in-truncated-section,
+no-rescue-when-gene-absent-from-both,
+no-rescue-when-gene-in-retained-section,
+figure-branch-unaffected-by-rescue, rescue-increments-counter,
+find_evidence_snippet-param-default-unchanged (regression guard for
+signature change).
 
-**Edge case:** the paper is small enough that truncation never fires (PMID 41017238 was
-11k tokens, under the 80% threshold). Fix only bites on long papers. Testing should
-use a paper that triggers truncation (>80% of 1M-token Flash context = pan-cancer /
-supplement-heavy studies).
+**Verification performed:**
+- 7/7 new tests passing
+- 86/86 full regression (79 pre-existing + 7 new; no regressions;
+  test_pipeline_integration.py excluded per established pattern —
+  those 11 failures are unrelated to F8a)
+- AST-parse clean
+- Independent design review (Plan agent): "APPROVED with three
+  targeted modifications" — all applied before implementation (info
+  log level, run-level counter, tracer rescued_count key)
+
+**Invariant documented inline:** `self.paper_text` is only reassigned
+by `_validate_and_prepare_paper_text` at ~line 2584 on actual
+truncation. If any future code mutates `self.paper_text` without
+truncating, the rescue branch would spuriously fire. Comment inline
+to prevent regression.
+
+**Explicit non-goals (documented in commit):**
+- No DataFrame column. Forensic `candidate_meta` tag + run-level
+  counter sufficient; matches F11/F12 "skeleton philosophy" of per-row
+  flags in forensic JSON not bloating primary CSV.
+- No UI banner. Rescue is a silent-save, not user-actionable.
+- No re-hydration of dropped sections into `self.paper_text` for
+  subsequent stages. Truncation is load-bearing for cost control.
+  Rescued candidates continue through detail extraction on truncated
+  text; if they fail there too, F11's `extraction_mode="skeleton"`
+  catches it naturally.
+
+**Performance envelope:** rescue fires ONLY when truncation occurred
+(~5–10% of runs on large papers). Worst-case ~2s added to grounding
+on a 500-candidate pan-cancer run with 80% primary miss. Zero cost on
+normal papers.
 
 #### F8b — Fuzzy pattern blind spot
 
@@ -2345,8 +2387,11 @@ This block captures state that would be painful to rediscover after context comp
 **`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
 
 Commits on the branch so far (newest first):
-- `41cb6ba` **feat(ui): F10b surface strict-gate drops via Results banner**
-- `2471d21` **fix(citation): F10a drift-tolerant matching + tiered messaging**
+- `7ddc0ce` **fix(grounding): F8a rescue ungrounded genes against untruncated text**
+- `53965cf` docs: add F15 — characterise F10a citation-drift source against benchmarks
+- `12f17ea` docs: mark F10a + F10b DONE; add F14 murine-symbol investigation
+- `41cb6ba` feat(ui): F10b surface strict-gate drops via Results banner
+- `2471d21` fix(citation): F10a drift-tolerant matching + tiered messaging
 - `38ced6f` docs: mark F12 DONE + add F13 codebase-restructure finding
 - `c12ae9f` fix(backfill): F12 gene-specific evidence preferred, co-mention tagged
 - `9c2aecd` docs: mark F3 DONE in Final_Audit.md — P0 tier 3/3 complete
@@ -2382,17 +2427,26 @@ M Final_Audit.md    (F3 status flip + implementation-notes rewrite + handoff
 3. ~~**F8c**~~ ✅ docstring clarification on `_run_grounding_check`
 4. ~~**F1**~~ ✅ 8-file doc sweep + orphaned `ANALYSIS_OVERFETCH_FACTOR` deleted
 
-**Batch 2 — higher-impact P1 (~2–3 hours):**
+**Batch 2 — higher-impact P1:**
 1. ~~**F12**~~ ✅ shipped in commit `c12ae9f` (2026-04-21). Gene-specific
    backfill preferred, co-mention tagged. 13 pytest tests.
 2. ~~**F10a**~~ ✅ shipped in commit `2471d21` (2026-04-21). Drift-tolerant
    citation matching + tiered messaging. 9 pytest tests.
 3. ~~**F10b**~~ ✅ shipped in commit `41cb6ba` (2026-04-21). Strict-gate
    drops surfaced via Results banner. 4 aggregation pytest tests.
+4. ~~**F8a**~~ ✅ shipped in commit `7ddc0ce` (2026-04-21). Grounding
+   rescue against untruncated text when truncation fires. 7 pytest tests.
 
 Spawned from Batch 2:
 - **F13** (P4, XL) — `gemini_extractor.py` refactor, surfaced during F12.
 - **F14** (P4, XS–M) — murine-symbol claim investigation, surfaced during F10b.
+- **F15** (P5, XS) — characterise F10a citation-drift source against
+  benchmark data, surfaced during F10a user review.
+
+**Batch 2 remaining P1 work:**
+- **F10c** — per-tier evidence threshold surfacing (~S effort)
+- **F6** — Greek letter transliteration asymmetric abstract vs body
+  (cross-references F10a encoding-normalisation work)
 
 **Batch 3 — entry-path hardening:** ✅ SHIPPED — complete in P0 tier
 1. ~~**F2**~~ ✅ shipped in commit `778fbdd` (2026-04-20)
