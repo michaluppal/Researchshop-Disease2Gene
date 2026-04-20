@@ -2,30 +2,308 @@
 
 > Findings discovered while tracing the pipeline end-to-end, co-documented with the project owner.
 > Each entry: **what we expected → what we found → why it matters → suggested action.**
-> Newest at the top. Append-only.
+> Each entry also ends with an **Implementation notes** block — session-continuity context
+> so the finding can be picked up and fixed later without rediscovering prior analysis.
 
 ---
 
-## Findings Index
+## Priority tier guide
 
-Quick scan. Each row links to the full entry below.
+Findings are grouped into six priority tiers. **Priority reflects fix urgency** —
+how soon the finding should be addressed — which is a different axis from the
+**severity** column (how badly the bug hurts users or correctness if unfixed).
 
-| # | Finding | Severity | Area |
-|---|---|---|---|
-| [F10](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | Post-validation silent failures — citation false negatives, fuzzy-match drops, opaque evidence thresholds | Trust erosion / UX opacity | Step 4 — post-validation |
-| [F9](#f9--corroboration-gate-cant-distinguish-table-only-genes-from-biomarker-abbreviations) | Corroboration gate can't distinguish table-only genes from biomarker abbreviations | Potential false drops on table-heavy papers | Step 2 — corroboration gate |
-| [F8](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | Grounding check silent failure modes — truncation interaction and fuzzy pattern blind spots | Potential false drops | Step 1.6 — grounding check |
-| [F7](#f7--batched-detail-extraction-has-known-artefacts-offer-per-gene--context-caching-as-a-user-option) | Batched detail extraction has known artefacts — offer per-gene + context caching as a user option | Architectural / quality evolution | Stage 5 — Gemini detail extraction |
-| [F6](#f6--greek-letter-transliteration-is-asymmetric-between-body-and-abstract) | Greek letter transliteration is asymmetric between body and abstract | Potential silent drops | Full-text fetch / grounding check |
-| [F5](#f5--pubtator-response-has-more-annotation-types-than-we-consume) | PubTator response has more annotation types than we consume | Untapped resource | Stage 4 — PubTator NER |
-| [F4](#f4--redundant-fetches-across-the-uipipeline-boundary) | Redundant fetches across the UI/pipeline boundary | Efficiency | UI ↔ pipeline handoff |
-| [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | DOI and PMC ID inputs are silently dropped from user-defined lists | Silent data loss / UX bug | `SmartInput.tsx` entry |
-| [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | "All papers are OA" is not actually enforced on all entry paths | Architectural invariant violation | Specific-PMIDs entry |
-| [F1](#f1--the-4-overfetch-factor-does-not-exist-in-code) | The "4× overfetch factor" does not exist in code | Documentation inaccuracy | Config + paper draft |
+| Tier | Meaning | Typical effort |
+|---|---|---|
+| **P0** | Trust-critical — user sees wrong or missing data today. Fix before next user-visible milestone. | S–M |
+| **P1** | Correctness improvement with a clear, scoped fix. Ship as a batch. | XS–S |
+| **P2** | Documentation / external accuracy. Matters for the SoftwareX paper reviewers. | XS–S |
+| **P3** | Efficiency. Not wrong, just wasteful. | M |
+| **P4** | Architectural evolution / bigger project. Needs design discussion. | L |
+| **P5** | Tracer/viewer tooling quality. Low-impact, high-yield quick wins. | XS |
 
-**Legend:** *Severity is how the finding could hurt users or correctness, not how urgent
-it is to fix.* A "documentation inaccuracy" can be higher-priority than an "efficiency"
-finding if the publication deadline is imminent.
+**Effort scale:** XS = ≤ 30 min, S = a few hours, M = a day, L = multi-day / multi-file.
+
+**Status values:**
+- ⬜ TODO — not started
+- 🛠 IN PROGRESS — code in flight, tests pending
+- ✅ DONE — shipped and verified
+
+---
+
+## Findings Index (by priority)
+
+Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
+[`docs/audit_pmid_41017238.md`](docs/audit_pmid_41017238.md) for the full run review.
+
+### P0 — Trust-critical
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [F11](#f11--auto-snippet-fallback-is-indistinguishable-from-llm-extracted-content) | ✅ DONE | S | Auto-snippet fallback indistinguishable from LLM-extracted content | Detail-extraction fallback path |
+| [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | ⬜ TODO | M | DOI / PMC IDs silently dropped from specific-papers paste-box | `SmartInput.tsx` entry |
+| [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | ⬜ TODO | S–M | OA invariant not enforced on specific-PMIDs entry path | `SmartInput.tsx` + orchestrator |
+
+### P1 — Correctness improvements with clear fixes
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ⬜ TODO | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
+| [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
+| [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
+| [F10c](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Per-tier evidence thresholds not visible to operator | `_apply_evidence_gate` + UI |
+| [F8a](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | M | Truncation × grounding — genes in abstract but not truncated body | `_run_grounding_check` |
+| [F8b](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | XS | Fuzzy pattern blind spot: `IL(6)`, `IL.6` | `_find_evidence_snippet` |
+| [F8c](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | XS | `_run_grounding_check` docstring scope clarification | `_run_grounding_check` |
+| [F6](#f6--greek-letter-transliteration-is-asymmetric-between-body-and-abstract) | ⬜ TODO | S | Greek letter transliteration asymmetric abstract ↔ body | `_prepare_paper_inputs` |
+
+### P2 — Documentation accuracy
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [F1](#f1--the-4-overfetch-factor-does-not-exist-in-code) | ⬜ TODO | S | "4× overfetch factor" claim in 6+ docs — doesn't exist in code | Docs + paper draft + `config.py` |
+
+### P3 — Efficiency
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [F4](#f4--redundant-fetches-across-the-uipipeline-boundary) | ⬜ TODO | M–L | Redundant fetches across UI/pipeline boundary | `python-bridge.ts` IPC contract |
+
+### P4 — Architectural evolution
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [F7](#f7--batched-detail-extraction-has-known-artefacts-offer-per-gene--context-caching-as-a-user-option) | ⬜ TODO | L | Offer per-gene + context-caching detail extraction as user option | Stage 5 Gemini detail extraction |
+| [F9](#f9--corroboration-gate-cant-distinguish-table-only-genes-from-biomarker-abbreviations) | ⬜ TODO | M–L | Corroboration gate can't distinguish table-only genes from biomarker FPs | JATS parser + corroboration gate |
+| [F5](#f5--pubtator-response-has-more-annotation-types-than-we-consume) | ⬜ TODO | M | PubTator's Chemical/Disease/Species annotations discarded | `pubtator_tool._parse_document` |
+
+### P5 — Tracer / viewer tooling quality
+
+| # | Status | Effort | Finding | Area |
+|---|---|---|---|---|
+| [L1](#p5-l1--orchestrator-helpers-observed-name-only-on-watchlist) | ⬜ TODO | XS | 7 orchestrator helpers observed name-only in viewer (watchlist additions) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
+| [L2](#p5-l2--_collect_debug_artifact-high-value-missing-from-watchlist) | ⬜ TODO | XS | `_collect_debug_artifact` missing from watchlist (highest-value single add) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
+| [M3](#p5-m3--function-events-not-linked-to-stage-markers) | ⬜ TODO | S | Function events not linked to stage markers (time-window alignment lossy) | `pipeline_tracer.capture` |
+| [L3](#p5-l3--ncbi-enrichment-rate-limit-silent) | ⬜ TODO | S | NCBI enrichment rate-limit silently produces empty columns | NCBI enrichment in orchestrator |
+
+**Note on severity vs priority:** a MEDIUM-severity finding in a quick-fix tier (e.g. F8b)
+ranks above a HIGH-severity finding in a harder tier (e.g. F4 efficiency), because
+batching quick wins preserves momentum and builds confidence. Severity remains documented
+in each entry's body.
+
+---
+
+## F12 — Per-row `Key Finding` can be literally identical across multiple genes
+
+**Date:** 2026-04-20
+**Source:** Audit of PMID 41017238 run (`docs/audit_pmid_41017238.md`).
+**Severity:** MEDIUM. Semantic misrepresentation in the CSV — 3 rows of apparently
+gene-specific evidence are actually one sentence repeated three times.
+
+### What we expected
+
+Each row in the output CSV represents one `(gene, variant)` pair with evidence specific
+to that gene.
+
+### What we found
+
+On the PMID 41017238 run, all three output rows (ITPKC, CASP3, FCGR2A) have the
+*identical* `Key Finding` excerpt:
+
+> "Furthermore, genetic polymorphisms associated with KD, such as ITPKC, CASP3, and
+> FCGR2A, contribute to immune activation by promoting inflammasome activation,
+> pyroptosis and antibody dependent enhancement (ADE), thereby intensifying…"
+
+This came from `_backfill_sparse_row_evidence` (evidence backfill) which runs when the
+LLM detail-extraction step fails or produces empty rows. The backfill does keyword
+search across the paper for each row, looking for a sentence that mentions the gene.
+Because the paper has exactly one summary sentence that names all three genes together,
+all three rows get the same snippet.
+
+The CSV then presents this as three rows of gene-specific evidence when it's really one
+co-mention sentence × three genes.
+
+### Why it matters
+
+- **Misleading**: A downstream consumer looking at the CSV sees "3 rows, 3 genes, 3
+  citations" and treats this as three independent findings. It's one finding.
+- **Inflates perceived evidence**: In automated analyses, a paper with 1 co-mention
+  sentence for 3 genes scores the same as a paper with 3 separate gene-specific
+  sentences.
+- **Not unique to quota failure**: could happen any time the LLM returns an empty array
+  and keyword fallback fires; review papers that list many genes in one sentence are
+  structurally prone to this.
+
+### Suggested action
+
+Two possible strategies — pick one:
+
+- [ ] **Per-gene snippet search.** When backfilling a row for gene X, require the
+      candidate sentence to contain gene X specifically (or X's HGNC alias), not just
+      any gene from the candidate list. If no sentence mentions X alone, leave the cell
+      empty and mark the row with a `no_specific_evidence` flag.
+- [ ] **Deduplicate after backfill.** When backfill produces identical snippets across
+      multiple rows, merge them into one row with aggregated variant names
+      (`Gene = "ITPKC; CASP3; FCGR2A"`) and mark with `merged_from_co_mention`. This is
+      unusual — the output would have N−2 rows instead of N — but it's honest.
+- [ ] Related to F7's per-gene architecture; if detail extraction goes per-gene, this
+      specific failure can't happen because each gene's call produces gene-specific
+      content.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P1 tier.
+
+**Code location:** `pipeline/modules/gemini_extractor.py::_backfill_sparse_row_evidence`
+(~line 325). The function currently picks ONE target column (defaults to "Key Finding")
+and fills it with `_find_evidence_snippet(self._candidate_terms_for_row(gene, variant))`.
+`_candidate_terms_for_row` includes gene aliases — but on a review paper where multiple
+genes are co-mentioned in one sentence, the first sentence hit is the same for all
+genes.
+
+**Recommended approach:** per-gene exact-match requirement.
+- In `_find_evidence_snippet`, add a `require_exact_gene_in_match: bool = False` flag.
+- When called from `_backfill_sparse_row_evidence`, require the matched snippet to
+  contain the gene symbol (or one of its aliases) as a whole word — not just that any
+  candidate_term matched.
+- If no exact-match sentence exists, leave the cell empty and mark the row with
+  something like `row["backfill_skipped_no_gene_specific_match"] = True`.
+
+**Alternative approach — row merging:** when identical snippets end up on multiple
+rows, merge into one aggregated row with `Gene = "ITPKC; CASP3; FCGR2A"`,
+`Variant = ""`. This is unusual for downstream consumers (row count ≠ gene count) but
+honest. Would need a new column `merged_from_co_mention: True`.
+
+**Do not do:** truncate/obfuscate the snippet to make the rows look different. The
+duplication isn't cosmetic — it's evidence about the paper's prose structure and should
+be surfaced accurately.
+
+**Dependency on F7:** if per-gene architecture ships first (F7), F12 becomes moot — each
+gene's LLM call produces gene-specific content by construction and fallback only fires
+per-gene, not across a batch.
+
+**Testing after fix:** re-run the PMID 41017238 case with Gemini quota exhausted. Three
+rows should no longer share the same Key Finding excerpt — either each gene gets its
+own sentence, or rows with no gene-specific sentence are marked `backfill_skipped`.
+
+---
+
+## F11 — Auto-snippet fallback is indistinguishable from LLM-extracted content
+
+**Date:** 2026-04-20
+**Source:** Audit of PMID 41017238 run (`docs/audit_pmid_41017238.md`).
+**Severity:** HIGH. Trust erosion — users can't tell whether a row was LLM-analysed or
+assembled from keyword search on the paper text.
+
+### What we expected
+
+Rows in the output CSV are produced by Gemini's detail extraction (Section 14 of
+`docs/pipeline-understanding.md`) — the LLM reads the paper, understands the gene's
+context, and produces content for each user column (e.g., `Key Finding`,
+`Disease Association`).
+
+When the LLM fails, the pipeline has a graceful fallback: `_run_detail_extraction`
+emits skeleton rows, and `_backfill_sparse_row_evidence` populates `Key Finding` via
+keyword search over the paper. This is documented in `docs/pipeline-understanding.md`
+§14.3–14.4.
+
+### What we found
+
+The fallback is completely invisible in the output. A row produced by Gemini looks
+identical to a row produced by keyword fallback:
+
+- `gene_name`, `variant_name`: HGNC-validated regardless
+- `validation_confidence`: 1.0 regardless (it's the gene-identity confidence, not
+  content-extraction confidence)
+- `Confidence` tier: computed the same way regardless
+- `Key Finding`: non-empty string regardless (LLM synthesis OR keyword snippet)
+- `Disease Association`: empty in the fallback case (LLM would have filled it)
+
+**The only hint** that fallback ran is:
+- `Disease Association` being empty (but it's already empty for genes the LLM couldn't
+  find context for — not distinguishable from fallback)
+- `Confidence Note` containing "Citation text not found in paper" — but that's
+  F10a's SequenceMatcher rejection, which fires even on legitimate LLM citations
+  with encoding drift
+
+There's **no row-level marker** that says "this row's Key Finding came from keyword
+fallback, not LLM understanding."
+
+### Why it matters
+
+1. **Researcher trust**: a user scanning the CSV sees three genes with
+   `Confidence = HIGH` and a `Key Finding` string and reasonably assumes the LLM
+   understood each gene's role. On this run, it didn't — Gemini 429'd on every call.
+2. **Downstream analysis contamination**: if the CSV is fed into meta-analysis or
+   benchmarking, rows with fallback evidence are treated as equivalent to LLM-extracted
+   rows. The pipeline's F1/precision numbers get inflated by fallback content.
+3. **Silent quality degradation**: the operator running the pipeline has no
+   top-level signal that "Gemini quota ran out, switched to fallback mode, results are
+   degraded."
+4. **`detail_extraction_status` is recorded but never surfaced**: the per-paper debug
+   artifact contains `"detail_extraction_status": "association_only_fallback_no_rows"`,
+   but this doesn't propagate to any output column or UI banner.
+
+### Suggested action
+
+- [ ] **Per-row `extraction_mode` column.** Values: `"llm"`, `"keyword_fallback"`,
+      `"skeleton"` (skeleton = no content at all). Always written; never empty. Operator
+      can filter `extraction_mode = "keyword_fallback"` to find degraded rows.
+- [ ] **Per-row `llm_status` column.** Values: `"success"`, `"rate_limited"`, `"timeout"`,
+      `"malformed_response"`, `"quota_exhausted"`. When Gemini fails, the specific
+      error is already in the subprocess's log — lift it into the row.
+- [ ] **UI-level banner.** When the run finishes and `detail_extraction_status` is
+      anything other than "completed", show a warning banner on the Results page:
+      *"Detail extraction fell back to keyword matching for N/M rows due to LLM
+      errors. Content may be lower quality than expected."*
+- [ ] **Downgrade confidence for fallback rows.** Today `Confidence` ignores extraction
+      mode. A row produced by keyword fallback should at most be `LOW`/`REVIEW` even if
+      its HGNC validation is 1.0.
+
+### Cross-references
+
+- This was the root cause of the apparent M2/F10a "citation not found" on the
+  PMID 41017238 run: the auto-snippet is from the paper, but SequenceMatcher ≥ 0.85
+  fails to match it back; the resulting `Confidence Note = "Citation text not found"`
+  was misleading — it implied the *gene* had no backing when actually the citation
+  *validator* just couldn't re-find the text. After this fix those rows show
+  `"LLM failed; auto-snippet fallback (…)"` instead.
+- F7 (per-gene detail extraction) would reduce the likelihood of fallback firing
+  because per-gene calls are independent — one gene hitting a rate-limit wouldn't take
+  down the others.
+
+### Implementation notes (session continuity)
+
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, not yet committed at time of writing).
+
+**Files modified:**
+- `pipeline/modules/gemini_extractor.py` — 4 sites:
+  1. `extract_gene_info` success path — tag each Gemini row with `"extraction_mode": "llm"`
+  2. `extract_gene_info` retry-exhausted fallback — tag `"skeleton"` + `"detail_extraction_error": str(e)[:300]`
+  3. `_run_detail_extraction` secondary skeleton fallback — same tagging
+  4. `_backfill_sparse_row_evidence` — set `row["evidence_backfilled"] = True` when a cell is populated
+- `pipeline/modules/pipeline_orchestrator.py` — 2 sites:
+  1. `_compute_row_confidence` — new early branch: if `extraction_mode == "skeleton"`, force `REVIEW` tier with error cause in the note. Distinguishes "auto-snippet fallback" (backfill ran) from "no content" (nothing populated). Runs *before* other tier logic. Defaults to legacy behaviour when field absent (backward-compatible).
+  2. `_write_split_output::primary_cols` — added `"extraction_mode"` and `"evidence_backfilled"` between `Confidence Note` and `context_modifications`. Primary CSV now self-describes.
+
+**Verification performed:**
+- Both .py files AST-parse cleanly.
+- Unit-level smoke test of `_compute_row_confidence` covering: healthy LLM row (HIGH unchanged), skeleton no-backfill (REVIEW + "no content" note), skeleton + backfill (REVIEW + "auto-snippet fallback" note), legacy no-field row (HIGH unchanged), empty gene guard (REVIEW — fires first).
+- End-to-end test: 2-row DataFrame (1 LLM, 1 skeleton+backfill) through `_write_split_output` — primary CSV contains the new columns, values correct, tiers correctly split into HIGH vs REVIEW.
+
+**What's not in this patch (scoped separately):**
+- UI-level banner in `Results.tsx` that warns when a run finished with any `extraction_mode="skeleton"` rows. Electron-side change; would read the CSV's new column and render a top-of-page notice.
+- A `llm_status` column with richer error taxonomy (`rate_limited` / `timeout` / `malformed_response` / `quota_exhausted`). The current fix stores the raw error string in `detail_extraction_error` — sufficient for humans, less structured for automated filtering.
+- Prompt caching / per-gene architecture (F7) that would reduce how often fallback fires in the first place.
+
+**Backward compatibility notes:**
+- Rows from pre-fix runs have no `extraction_mode` field → `_compute_row_confidence` defaults to `"llm"` semantics → HIGH/MEDIUM/LOW as before.
+- `primary_cols_present = [c for c in primary_cols if c in df_clean.columns]` filters missing columns, so old runs without these fields produce a narrower CSV (no regression).
+- The metadata CSV gets everything regardless — new columns appear there too automatically.
+
+**Gotchas for next time:**
+- The error string from Gemini's 429 response is long (~3 KB with the full `details[]` array). We cap to 300 chars at capture time so it fits in a CSV cell. Don't remove the cap.
+- `extraction_mode` is a row-level tag. Future F7 per-gene mode will have each row independently succeed/fail — keep this field per-row, not per-run.
 
 ---
 
@@ -182,9 +460,68 @@ model is invisible to the user.
   failures at different layers. Fixing them together (a unified, symmetric
   normalisation pipeline that runs on both sides of every comparison) would close
   multiple paths at once.
+- **F10a** is also the failure mode that made F11's auto-snippet rows show
+  `"Citation text not found in paper"` — F11 now overrides that misleading note for
+  skeleton rows, but the underlying F10a threshold issue remains for legitimate LLM
+  rows with formatting drift.
 - **F10c** overlaps with **F9** (table-only genes): both would benefit from making
   per-tier logic user-visible so researchers can opt into different trust models
   per use case.
+
+### Implementation notes (session continuity)
+
+**Status:** all three ⬜ TODO. P1 tier.
+
+#### F10a — SequenceMatcher threshold
+
+**Code location:** `pipeline/modules/gene_validator.py::_citation_exists_in_paper`
+(~line 636). Step 2 of the function uses `difflib.SequenceMatcher` with a hardcoded
+threshold of 0.85. Already runs through `_normalize_unicode_slashes` (C22 sprint)
+which handles slashes, LaTeX Greek, ASCII mu prefix, U+00B5/U+03BC unification.
+
+**Additional normalisations needed (extend `_normalize_unicode_slashes` OR add a
+sibling function that runs on both citation and paper_text):**
+- Soft hyphens + line-break hyphenation: `suscep-\ntibility` → `susceptibility`
+- Em-dash / en-dash variants to ASCII hyphen (em-dash U+2014 is already stripped, but
+  en-dash U+2013 slips through sometimes)
+- Ligatures `fi`, `fl` → `fi`, `fl`
+- Non-breaking hyphen U+2011 → `-`
+
+**Threshold decisions:**
+- Consider lowering to 0.80 and re-characterising on the benchmark set
+  (`pipeline/data/benchmark/`). Risk: more false positives.
+- Expose as config: `CITATION_SIMILARITY_MIN_RATIO = 0.85` in `config.py` — cheap.
+
+**Better `_details` messaging:** current "not found in paper" is ambiguous.
+Distinguish: `"no similar text in paper"` (ratio < 0.5), `"near-miss match 0.82 <
+0.85 threshold"` (ratio ∈ [0.5, 0.85)), `"found but gene not in window"` (ratio ≥ 0.85
+but gene context gate failed).
+
+#### F10b — Surfacing strict-gate drops
+
+**Data already exists:** `self.strict_gate_drops` is populated in
+`_run_post_validation` (`pipeline/modules/gemini_extractor.py`, ~line 1797).
+
+**Fix:** include this list in the drop_debug artifact's operator-facing section, AND
+add a summary column to the primary CSV (or a banner in the UI) when any rows were
+dropped: `strict_gate_drops_count: N` at the run level.
+
+**Particular attention to:** mouse-convention symbol flag
+(`potential_murine_symbol` in `validation_source`). These currently resolve at 0.5
+confidence and get dropped by the 0.7 strict gate. Options:
+- Bump confidence for mouse-convention → human HGNC mappings
+- OR carve out a secondary CSV section for "flagged for review" genes
+
+#### F10c — Per-tier evidence thresholds
+
+**Location:** `_apply_evidence_gate` in `gemini_extractor.py`. Three env vars:
+`EVIDENCE_MIN_NONEMPTY_CELLS_LLM_TEXT = 0`, `EVIDENCE_MIN_NONEMPTY_CELLS_DETERMINISTIC = 1`,
+`EVIDENCE_MIN_NONEMPTY_CELLS = 1`.
+
+**Fix options (do all three are cheap):**
+1. Add these values to the per-run stats/metadata so they appear in output artefacts.
+2. Document in the user-facing README/Help tooltip on the Results page.
+3. Expose as settings (already covered by F7's precision/recall dial concept).
 
 ---
 
@@ -274,6 +611,36 @@ F9 is a sibling to **F5** (PubTator unused annotations). If PubTator's `Disease`
 `Chemical` annotations were consumed (F5's suggestion), a candidate appearing in a
 table adjacent to a PubTator-tagged disease mention could be given a soft corroboration
 boost. Solving F5 would weaken F9's sharp edge.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P4 tier — M–L effort.
+
+**Manifestation confirmed by PMID 41017238 audit:** 26 of 29 candidates dropped —
+including plausibly Kawasaki-relevant NLRP3, TLR4, TLR2, TNF, MYD88, CD14, HMGB1.
+The gate is doing its designed job (preventing biomarker FPs) but on a review paper
+with broad inflammation content the cost is high.
+
+**Short-term palliative (can ship without structural changes):** when the LLM text-pass
+specifically failed (not just "empty"), temporarily loosen the corroboration gate to
+allow deterministic-only candidates through with a clear tag — e.g.
+`extraction_mode_upstream = "deterministic_only_under_llm_failure"`. This prevents
+the "Gemini 429 + corroboration gate = lose all deterministic candidates" cascade from
+burning the whole run's recall.
+
+**Structural fix:** preserve table-vs-prose provenance in JATS parser. Annotate each
+text span with its source element (`<body>`, `<table-wrap>`, `<caption>`). Then
+deterministic scan output can include `found_in: ["body"|"table"|"caption"]`.
+Corroboration gate becomes aware of context — a gene only in tables adjacent to a
+PubTator-tagged disease (F5 integration) can be given corroboration credit.
+
+**Files:** `pipeline/modules/full_text_fetcher.py::_extract_text_and_figures_from_pmc_xml`
+(JATS parser), `pipeline/modules/gemini_extractor.py::extract_deterministic_candidates`
+(scanner), and the corroboration block inside `_apply_gene_validation_heuristics`.
+
+**Before shipping:** add dropped-snippet context to `drop_debug` so the operator can
+inspect *why* a specific gene was dropped — paragraph around the token, plus the
+sources set. Data is already mostly there in `candidate_meta`.
 
 ---
 
@@ -387,6 +754,53 @@ F8 overlaps with **F6** (Greek letter asymmetry) on one surface: the grounding c
 where F6's asymmetry materialises into silent drops. F6 is the root cause (abstract
 preserves Greek, body transliterates); F8a/b are the grounding-check-specific
 consequences. Keep both entries; they live at different layers.
+
+### Implementation notes (session continuity)
+
+**Status:** all three ⬜ TODO. P1 tier.
+
+#### F8a — Truncation × grounding interaction
+
+**Problem recap:** `_validate_and_prepare_paper_text` truncates by dropping sections in
+order (methods → supp → discussion → conclusion → intro) when paper > 80% of context
+limit. `_run_grounding_check` then runs against the truncated `self.paper_text`.
+Genes found in the abstract but only text-present in a dropped section get silently
+dropped at grounding.
+
+**Code locations:**
+- Truncation: `pipeline/modules/gemini_extractor.py::_validate_and_prepare_paper_text` (~line 2311)
+- Grounding: `pipeline/modules/gemini_extractor.py::_run_grounding_check` (~line 1542)
+
+**Preferred fix:** before truncation, save a reference to the full text as
+`self._paper_text_untruncated`. Grounding check first tries against truncated text
+(cheap); if a candidate fails, retries against untruncated text. Log any
+"would-have-matched-in-untruncated" drops as a warning so the operator knows
+truncation bit.
+
+**Alternative (cheaper):** just log the warning; don't rescue. Lets operators know
+truncation caused the drop without rehydrating the dropped text into downstream steps.
+
+**Edge case:** the paper is small enough that truncation never fires (PMID 41017238 was
+11k tokens, under the 80% threshold). Fix only bites on long papers. Testing should
+use a paper that triggers truncation (>80% of 1M-token Flash context = pan-cancer /
+supplement-heavy studies).
+
+#### F8b — Fuzzy pattern blind spot
+
+**Trivial fix.** In `pipeline/modules/gemini_extractor.py::_find_evidence_snippet`
+(~line 263), the fuzzy pattern uses `[\s\-_\/]*` as the separator class. Extend to
+`[\s\-_\/\.\(\)]*` to cover `IL(6)`, `IL.6`, `IL(6)`. Word-boundary guards keep
+false-positive risk at zero.
+
+**Test after fix:** grep trace for any candidate that failed the strict pattern but
+matched the new fuzzy pattern. Low risk of false positives because the lookahead/
+lookbehind `(?<![A-Za-z0-9])` and `(?![A-Za-z0-9])` bracket the match.
+
+#### F8c — Docstring clarification
+
+**Trivial.** Add one-line note to `_run_grounding_check` docstring:
+*"Verifies gene presence only. Variant presence is validated downstream by the
+citation validator and evidence gate."* No code change.
 
 ---
 
@@ -536,6 +950,53 @@ check, corroboration gate, evidence gate, validation, CSV output. Those all cons
 - [ ] Add a user warning in the UI when the selected mode + API key combination is
       likely to hit rate limits (e.g., precision mode + free-tier Gemini + >5 papers).
 
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P4 tier — L effort. Largest single item in the audit list.
+
+**Why this is both architectural and pragmatic:** the pipeline's current reliance on
+ONE big batched Gemini call per paper is the root cause of multiple observed
+pathologies — F10a (citation cross-contamination drove its creation via the C22
+sprint), F11 (quota failure → all rows lose context together), F12 (co-mention
+snippet duplicated across rows), several of the 9 CRITICAL INSTRUCTIONS in the Stage 3
+prompt exist solely to mitigate batching artefacts.
+
+**Two-phase plan** (ship incrementally):
+
+**Phase 1 — Precision mode** (per-gene, no caching).
+- New setting in `Settings.tsx` Performance section, mirroring the existing
+  `parallelAnalysis` wiring (see `memory-sessions.md` 2026-04-07 for the pattern).
+- Settings plumbing: `settings-store.ts` → `preload/index.ts` → `useSettings.ts` →
+  `python-bridge.ts` (as env var) → `config.py` (as flag).
+- In `gemini_extractor.py::extract_gene_info`, branch on the mode. Economy = current
+  batched call (unchanged). Precision = loop over `self.associations`, one Gemini
+  call per gene, each with full paper text + JUST that one gene's `{gene, variant}` in
+  the Associations JSON.
+
+**Phase 2 — Hybrid mode** (per-gene + Gemini context caching).
+- On first gene of a paper, call `genai.CachedContent.create()` with the paper text +
+  CRITICAL INSTRUCTIONS. TTL scoped tight (Gemini's minimum is 5 min — accept the
+  waste on fast runs).
+- Subsequent per-gene calls reference the `cached_content` ID. Dramatically reduces
+  token cost — only the gene-specific portion is paid per call.
+- See [Gemini context caching docs](https://ai.google.dev/gemini-api/docs/caching) —
+  the API has been stable for this for a while.
+
+**Trim redundant CRITICAL INSTRUCTIONS in precision/hybrid mode:**
+Instructions #1 (gene independence), #9 (no-row-repetition) exist solely because of
+batching. Remove them when `extraction_mode != "economy"`. Keep disambiguation clause,
+verbatim numbers, gene-named citations.
+
+**Risks to flag in the UI:**
+- Free-tier Gemini with precision + >5 papers will hit daily quota fast (20 req/day,
+  precision = ~1 req/gene/paper).
+- Cache TTL of 5 min means the full-paper context expires quickly on slow runs.
+
+**Before shipping:** run both modes on the benchmark (`pipeline/data/benchmark/`) and
+compute F1 / citation coverage / Cohen's κ per mode. This is publication-worthy data
+for SoftwareX — "user-selectable extraction modes with characterised precision/cost
+trade-off."
+
 ---
 
 ## F6 — Greek letter transliteration is asymmetric between body and abstract
@@ -629,6 +1090,32 @@ supposed to protect.
       body text as cited reference), non-Latin transliteration, emoji. Usually fine,
       worth noting because it's aggressive.
 
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO (unconfirmed in production). P1 tier — S effort.
+
+**Verify first:** before fixing, reproduce on a haematology paper. Candidate PMIDs:
+28077840 (α-thalassemia), any paper discussing β-globin or γ-heavy chain in the
+abstract. Run with `--trace-pmid`, inspect `drop_debug.json` for any
+`rejected_ungrounded` drops whose `raw_gene_labels` contain Greek letters. If no
+drops fit this pattern, downgrade this finding to "documented limitation" rather than
+a real bug.
+
+**Fix if confirmed:**
+- Apply `_clean_and_validate_content` to `abstract_text` in
+  `pipeline/modules/pipeline_orchestrator.py::_prepare_paper_inputs` (~line 392), OR in
+  `pubmed_data_collector._normalize_pubmed_record` (~line 82) as the abstract is first
+  extracted from the Medline AB field.
+- Cheapest: at `_prepare_paper_inputs`, do `abstract = _clean_and_validate_content(abstract, url="")[0]`
+  before passing to the worker.
+- Cleaner: in `_normalize_pubmed_record`, apply Greek transliteration + ASCII coercion
+  to the abstract text consistently with what happens to body text. This ensures
+  every downstream consumer sees the same normalisation.
+
+**Cross-reference:** F10a (encoding drift in citation validator) has overlapping cause —
+a unified normaliser that runs on every text surface (abstract, body, citation candidate)
+would close both F6 and F10a.
+
 ---
 
 ## F5 — PubTator response has more annotation types than we consume
@@ -696,6 +1183,38 @@ Not urgent. Noted here so it's not rediscovered later:
       - Expose as optional columns in the CSV for researchers who want them.
 - [ ] Cheap to add; ship only when there's a concrete consumer for it — don't add data
       to the pipeline that nothing reads.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P4 tier — M effort. Low urgency, high ceiling.
+
+**Don't ship this without a concrete consumer.** Adding data the pipeline doesn't
+read is dead weight. Ship alongside one of:
+- F9 fix — PubTator's `Disease` / `Chemical` annotations feed the corroboration gate
+  to distinguish table-only genes that have context vs ones that don't.
+- A per-column user schema change — e.g., a "Drug" column in the user schema would
+  immediately benefit from `Chemical` annotations as seed data.
+
+**Code location:** `pipeline/modules/pubtator_tool.py::_parse_document` (~line 231).
+Current code only branches on `ann_type in ("gene", "variant", "snp", "mutation")`.
+
+**Minimal extension:**
+```python
+# Add new dataclasses alongside PubTatorGene and PubTatorVariant:
+@dataclass
+class PubTatorChemical: text: str; identifier: Optional[str]; locations: List[Dict]
+@dataclass
+class PubTatorDisease: text: str; identifier: Optional[str]; locations: List[Dict]
+@dataclass
+class PubTatorSpecies: text: str; taxon_id: Optional[str]; locations: List[Dict]
+```
+
+Then branch in `_parse_document`: `elif ann_type == "chemical"`,
+`elif ann_type == "disease"`, `elif ann_type == "species"`. Thread through
+`HybridExtractionResult` as new fields.
+
+**Cost:** zero additional API calls — this data is already in the BioC JSON response
+we pay for. Pure parsing.
 
 ---
 
@@ -794,6 +1313,39 @@ Two reasonable strategies — pick one, don't half-do it:
       without full bundle-forwarding, a `citationCounts` map in `startPipeline` args
       would eliminate one entire fetch stage.
 
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P3 tier — M–L effort. Efficiency only, not correctness.
+
+**Recommended minimal fix — Strategy B first, then consider A:**
+
+- **Strategy B (smaller scope, immediate benefit):** eliminate the pipeline-internal
+  duplication. Currently `fetch_paper_details` uses Medline text and the abstract also
+  gets extracted from PMC JATS XML. Pick one and use everywhere:
+  - `pubmed_data_collector.fetch_paper_details` — switch to esummary JSON (same as UI)
+    for consistency. Drop Medline parsing.
+  - OR keep Medline but refactor `_normalize_pubmed_record` to be the single source of
+    truth and feed the UI from it.
+- **Strategy A (cleanest but bigger):** extend the IPC contract.
+  - `app/src/main/python-bridge.ts::startPipeline` accepts a `pre_fetched` bundle.
+  - Serialise to a JSON file in the run's output dir, path passed via env var.
+  - `pipeline_orchestrator` reads the file if present, skips the corresponding
+    fetches.
+
+**Cheapest immediate win (ship before either strategy):** the 2nd iCite call in the
+pipeline. Pass UI's `{pmid → citation_count}` map through `startPipeline` args.
+Pipeline's `fetch_citation_counts_with_fallback` checks the map first, falls back to
+iCite API only for PMIDs not in the map.
+
+**Subtle risk:** staleness. UI fetches happen when the user is browsing; pipeline
+runs later (possibly much later if the user dwells). For titles/authors this is fine
+(they don't change). For citation counts, this might be fine too (monthly update
+cadence from iCite). Document the staleness acceptance.
+
+**Data point for planning:** on PMID 41017238, the pipeline spent ~1s each on
+`fetch_paper_details` and `fetch_icite_citation_counts`. Not a lot. The win is
+visible mainly on large multi-paper runs.
+
 ---
 
 ## F3 — DOI and PMC ID inputs are silently dropped from user-defined lists
@@ -859,6 +1411,40 @@ Concrete trace with `PMC9035072` and `10.1038/nature12373` pasted:
       than accept-and-drop.
 - [ ] After fixing, verify `useValid()` and `QueryBuilder`'s merge both consume all items,
       not just those with a `.pmid` field.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P0 tier — M effort.
+
+**Code locations:**
+- UI parser: `app/src/renderer/components/SmartInput.tsx` — `parseIdentifiers()`
+  recognises 4 types (PMID/DOI/PMC/URL) but `validate()` only resolves PMID-typed
+  entries via `window.api.pubmed.fetchDetails`.
+- Drop site #1: `SmartInput.tsx::useValid` (~line 184) — `papers.filter(p => p.pmid)`.
+- Drop site #2: `QueryBuilder.tsx` (~line 164) — second filter on the merge.
+
+**Recommended fix — reverse lookup in `SmartInput.validate()`:**
+- DOI → PMID: NCBI esearch with `term={doi}[AID]`. One call per DOI.
+  - Example: `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=10.1038%2Fnature12373[AID]&retmode=json`
+- PMC → PMID: `elink.fcgi?dbfrom=pmc&db=pubmed&id={PMCID}` or esummary on db=pmc.
+
+**IPC additions needed:**
+- New `pubmed:resolve-doi` handler in `app/src/main/ipc-handlers.ts` (wraps the esearch call).
+- New `pubmed:resolve-pmc` handler (wraps the elink call).
+- Preload exposes as `window.api.pubmed.resolveDoi` and `.resolvePmc`.
+
+**Fallback (if backend work is blocked):** strip DOI / PMC / URL from the placeholder
+text and the parser. Better to refuse the input than accept-and-drop. One-line
+placeholder edit + remove the doi/pmc branches in `parseIdentifiers()`.
+
+**Validation after fix:**
+- Paste mixed input: `12345678\nDOI:10.1038/nature12373\nPMC9035072`. All three
+  should resolve to PMIDs (or surface a clear "not in PubMed" error for that one).
+- `useValid()` should pass all three PMIDs to the pipeline.
+
+**Cross-reference:** F2 (OA invariant) and F3 both live in SmartInput's entry path.
+Consider fixing together — the DOI→PMID lookup and the OA-check can share one IPC
+round trip.
 
 ---
 
@@ -935,6 +1521,42 @@ accepted into the run with no warning. When it reaches `full_text_fetcher`:
 - [ ] Revise `full_text_fetcher.py`'s opening comment — the guarantee claim is currently
       wrong and future contributors will rely on it.
 
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P0 tier — S–M effort. Ship with F3 as a single SmartInput pass.
+
+**Preferred approach — UI-level gate in `SmartInput.tsx`:**
+After `fetchDetails()` resolves each pasted PMID, check each entry's `pmc` field.
+Mirror the topic-search modal's logic: absence of `pmc` → "Abstract only" badge.
+For the paste box, escalate: show an error chip next to the PMID saying
+*"Paywalled — not open access. Removed from selection."*
+
+**Implementation sketch:**
+```typescript
+// inside validate(), after fetchDetails resolves:
+const oaItems = validPapers.filter(p => p.pmc || !p.pmid);  // keep non-PMID rows
+const paywalledItems = validPapers.filter(p => p.pmid && !p.pmc);
+setInvalid([...unknowns.map(u => u.original),
+            ...paywalledItems.map(p => `PMID ${p.pmid} — not open access`)]);
+setPapers(oaItems);
+```
+
+**Backup gate at pipeline level** (defence in depth):
+In `pipeline_orchestrator.py::run_complete_pipeline`, after `fetch_paper_details`,
+filter `specific_pmids` to those with a `pmc` field populated. Log dropped PMIDs with
+a clear "excluded — not open access" reason and surface the count in pipeline_stats.
+
+**Also fix the misleading comment:** `pipeline/modules/full_text_fetcher.py:1–14`
+currently states the OA guarantee as if enforced. Revise to note the one bypass path
+and reference F2.
+
+**Cross-reference:** part of the same entry-path hardening as F3. Plan a single
+"SmartInput entry hardening" task that does both.
+
+**Don't ship without:** a clear user-visible indication when a pasted PMID is
+rejected for OA reasons. Silently dropping would be worse than the current silent
+downgrade.
+
 ---
 
 ## F1 — The "4× overfetch factor" does not exist in code
@@ -997,3 +1619,301 @@ References asserting this:
       `docs/reports/pipeline-report.tex`, `publication/working/*`.
 - [ ] Either delete `ANALYSIS_OVERFETCH_FACTOR` from `config.py` or wire it up — don't leave
       orphaned config.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P2 tier — S effort. Doc-only cleanup, no code behaviour changes.
+
+**Decision already taken during audit:** remove the claim. `PUBMED_RELEVANT_COUNT=200`
+is the real candidate-widening mechanism; `specific_pmids` are always 1:1. The
+overfetch-factor story was never implemented and doesn't match user intuition for
+curated lists.
+
+**Exact edits needed** (search for "overfetch" globally first to catch anything
+added since this audit):
+
+| File | Line / section | Edit |
+|---|---|---|
+| `.claude/rules/memory-decisions.md` | :164 | Strike "mitigated by overfetch factor (4x)". Add note that OA-gap mitigation is via `PUBMED_RELEVANT_COUNT=200`. |
+| `docs/pipeline-internals.md` | :369, :1122 | Remove the ANALYSIS_OVERFETCH_FACTOR description. Replace with accurate description of `PUBMED_RELEVANT_COUNT`. |
+| `docs/reports/pipeline-report.tex` | :319, :609 | Same edits; this is the PDF version of pipeline-internals. |
+| `publication/sections/02_description.tex` | :14 | **Must be fixed before submission.** Rewrite the one-liner that claims the 4× factor. |
+| `publication/working/MEETING_NOTES_2026-03-09.md` | :219 | Historical note — mark as superseded rather than rewriting. |
+| `publication/working/elicit_research/03_semantic_search.md` | :60, :70 | Frame as "RS's candidate-widening via `PUBMED_RELEVANT_COUNT`" rather than "overfetch factor". |
+| `publication/working/elicit_research/04_search_vs_vectordb.md` | :48, :56 | Same. |
+| `publication/working/elicit_research/06_keyword_search.md` | :46 | Same. |
+| `pipeline/modules/config.py` | :158 | Delete `ANALYSIS_OVERFETCH_FACTOR = int(os.getenv("ANALYSIS_OVERFETCH_FACTOR", "4"))`. |
+
+**Verification after fix:** `grep -r "overfetch\|ANALYSIS_OVERFETCH" .` should return
+only historical references in `Final_Audit.md` (this file) and
+`memory-sessions.md` (session log — leave historical entries intact).
+
+**Cross-reference:** F2/F3 (specific-PMIDs entry hardening) is orthogonal — both are
+about user-curated lists but F1 is purely cosmetic docs cleanup.
+
+---
+
+## P5-L1 — Orchestrator helpers observed name-only, add to watchlist
+
+**Date:** 2026-04-20
+**Source:** PMID 41017238 audit (Section 3 function coverage matrix).
+**Severity:** LOW (tool quality). Fix delivers higher-value rows in the interactive viewer.
+
+### What we found
+
+Seven orchestrator-side functions are captured in the function trace (green-checked
+in the viewer's row list) but without `arg_values` / `return_value` because they're not in
+`_FN_TRACER_VALUE_CAPTURE`. Each does meaningful per-row transformation worth inspecting:
+
+1. `pipeline_orchestrator._finalize_paper_result` — adds Gene Source, NCBI ID, full name,
+   aliases, chromosome per row. First-class candidate; the "shape" of each output row.
+2. `pipeline_orchestrator._get_citation_record` — resolves PMID → iCite/SemanticScholar
+   record per row.
+3. `pipeline_orchestrator._write_split_output` — returns the 4 output-artefact paths.
+4. `pipeline_orchestrator._run_pipeline_worker` — the boundary between orchestrator
+   and worker. Seeing its args lets the viewer show exactly what went into the worker
+   for a given paper.
+5. `pipeline_orchestrator.get_gene_source`, `get_ncbi_id`, `get_full_name`,
+   `get_aliases`, `get_chromosome` — nested closures inside `_finalize_paper_result`.
+   Called once per row; would surface per-row enrichment values.
+6. `pipeline_orchestrator._agg_variants` — variant-string joiner used in dedup.
+
+### Suggested action
+
+- [ ] Add to `pipeline/modules/pipeline_tracer.py::_FN_TRACER_VALUE_CAPTURE`:
+  `_finalize_paper_result`, `_get_citation_record`, `_write_split_output`,
+  `_run_pipeline_worker`, `get_gene_source`, `get_ncbi_id`, `get_full_name`,
+  `get_aliases`, `get_chromosome`, `_agg_variants`.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P5 tier — XS effort. One-file edit.
+
+Just append the 10 names to the frozenset in `pipeline_tracer.py`. No other changes
+needed; the tracer machinery already handles any function by name. Next run will
+capture values for these rows.
+
+Caveat: the 5 nested getter closures (`get_gene_source` etc.) may have `self`-like
+closure-captured variables. The tracer's `skip self/cls` guard will filter those out;
+actual per-row values will still be captured.
+
+Cross-reference: ship together with L2 (one commit, one watchlist diff).
+
+---
+
+## P5-L2 — `_collect_debug_artifact` high-value missing from watchlist
+
+**Date:** 2026-04-20
+**Source:** PMID 41017238 audit.
+**Severity:** LOW (tool quality). Single highest-value addition to the watchlist.
+
+### What we found
+
+`gemini_extractor._collect_debug_artifact` (line 436) returns the complete
+`candidate_meta` state at end-of-run — every candidate's full provenance, drop reason,
+normalisation applied, raw labels, sources set, validation_outcome. It's the same data
+that gets written to `drop_debug_*.json`.
+
+In the viewer, clicking this row today shows only the function name and types. Adding
+it to the watchlist would surface the whole candidate lifecycle in one JSON blob —
+effectively turning one click into a full extraction post-mortem.
+
+### Suggested action
+
+- [ ] Add `"_collect_debug_artifact"` to `_FN_TRACER_VALUE_CAPTURE`.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P5 tier — XS effort. Single-line addition.
+
+The `summarise()` helper will handle the return value gracefully — it's a dict; max
+sizes will cap output at ~30 candidate previews. If a run has more than 30 candidates,
+the viewer shows a previewed sample with length counts, not the full list. That's OK
+because the full data still lives in `drop_debug_*.json` on disk.
+
+Ship together with L1 — one `_FN_TRACER_VALUE_CAPTURE` edit, 11 names added total.
+
+---
+
+## P5-M3 — Function events not linked to stage markers
+
+**Date:** 2026-04-20
+**Source:** PMID 41017238 audit trace coverage analysis.
+**Severity:** LOW (tool quality / debuggability).
+
+### What we found
+
+The tracer emits two kinds of events to the same live file:
+- Stage markers via `pipeline_tracer.capture(node_id, ...)` — one per pipeline stage
+- Function events via `sys.setprofile` — one `fn_call` / `fn_return` per function
+
+The viewer currently groups function events into stage windows by timestamp, which is
+lossy. A function call that fires 50 ms after the `detail_extraction` stage marker but
+before the next stage gets attributed to `detail_extraction` — usually correct, but
+edge cases like overlapping worker+orchestrator events get misattributed.
+
+The audit analysis reported `hgnc_validation`, `low_confidence_gate`,
+`detail_extraction`, `row_merge` as "empty stages" when in reality the function calls
+for those stages WERE captured — they just landed in a neighbouring window.
+
+### Suggested action
+
+- [ ] Add a `stage_id` field to every `fn_call` / `fn_return` event, populated from a
+      tracer-level stack that `capture()` pushes/pops. Update the viewer to group by
+      stage_id instead of time windows.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P5 tier — S effort.
+
+**Code location:** `pipeline/modules/pipeline_tracer.py`. Add a module-level
+`_current_stage` variable set to None. Modify `capture()` to accept an optional
+`scope="enter"|"exit"` param — entering a stage pushes its node_id onto a stack;
+exiting pops. The `_profile` callback reads the current stage and includes it on
+emitted events.
+
+**Viewer-side:** `publication/figures/pipeline-viewer/index.html` — the stage-windowing
+logic in the function view should key off `event.stage_id` when present, fall back to
+timestamp grouping when absent (for backward compatibility with old trace files).
+
+**Non-goal:** don't try to link worker-side function events to stage markers that
+fired in the orchestrator. Separate process, separate stacks. Workers should have
+their own stage flow — currently they don't, and that's a bigger change scoped to
+F7 (per-gene architecture would natively have per-gene stage markers).
+
+---
+
+## P5-L3 — NCBI enrichment rate-limit silent
+
+**Date:** 2026-04-20
+**Source:** PMID 41017238 audit — `"NCBI enrichment: Added metadata for 1/3 genes"`
+logged during NCBI Gene rate-limit.
+**Severity:** LOW. Silent quality degradation in an enrichment column.
+
+### What we found
+
+`NCBIGeneTool.enrich_gene_symbols` calls NCBI eutils (`esummary.fcgi?db=gene`) per
+gene symbol. These calls are rate-limited separately from PubMed eutils — hitting 429
+during enrichment produces empty `Gene Full Name`, `Gene Aliases`, `Chromosome` columns
+for the affected rows, with no indication why.
+
+On the PMID 41017238 run, 2 of 3 genes got rate-limited and the columns are blank in
+the output CSV.
+
+### Suggested action
+
+- [ ] Add a `ncbi_enrichment_status` column per row. Values: `"enriched"`,
+      `"rate_limited"`, `"not_found"`, `"skipped"`. Similar to F11's
+      `extraction_mode` approach.
+
+### Implementation notes (session continuity)
+
+**Status:** ⬜ TODO. P5 tier — S effort.
+
+**Code location:** `pipeline/modules/pubtator_tool.py::NCBIGeneTool.enrich_gene_symbols`
+and the call site in `pipeline_orchestrator.py::_finalize_paper_result`.
+
+**Simple fix:** `enrich_gene_symbols` returns a dict mapping gene symbol →
+`NCBIGeneMetadata | None`. In `_finalize_paper_result`, when looking up a gene's
+enrichment, record whether the lookup returned metadata or was None/missing, and
+surface that as a column.
+
+**Better fix (if we also ship F11-style):** differentiate "rate-limited this run"
+(retry next run) from "NCBI has no entry" (won't help to retry). The 429 path in
+`enrich_gene_symbols` should tag the row as `rate_limited`; a 200-with-no-result as
+`not_found`.
+
+**Cross-reference:** F11 solved the analogous problem for the LLM detail extraction.
+The pattern is the same — per-row status column exposing what went wrong with each
+data source.
+
+---
+
+## Session handoff notes (for future Claude sessions)
+
+This block captures state that would be painful to rediscover after context compaction.
+
+### Active branch
+
+**`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Uncommitted changes as
+of F11 ship include modifications to `pipeline/modules/gemini_extractor.py` and
+`pipeline/modules/pipeline_orchestrator.py`.
+
+### What's on disk but not yet committed
+
+```
+M Final_Audit.md                             (this doc + F11/F12 + priority restructure)
+M pipeline/modules/gemini_extractor.py       (F11 extraction_mode tagging)
+M pipeline/modules/pipeline_orchestrator.py  (F11 confidence + CSV col; earlier worker tracer install + Pool.join fix)
+?? docs/audit_pmid_41017238.md               (audit report)
+?? python/                                   (stale leftover from python/→pipeline/ rename in commit 16308cf; .DS_Store + .pytest_cache only; safe to ignore)
+```
+
+### Recommended next session batch
+
+**Batch 1 — quick wins (~1 hour, all XS–S):**
+1. **P5-L1 + P5-L2** — single watchlist edit in `pipeline_tracer.py`, 11 names
+2. **F8b** — extend fuzzy separator class in `_find_evidence_snippet`
+3. **F8c** — docstring clarification on `_run_grounding_check`
+4. **F1** — global sed over the 8 files listed under F1 implementation notes, delete
+   orphaned `ANALYSIS_OVERFETCH_FACTOR` from `config.py`
+
+**Batch 2 — higher-impact P0/P1 (~2–3 hours):**
+1. **F12** — per-gene snippet search in `_backfill_sparse_row_evidence`
+2. **F10a** — pre-validate snippets from our own backfill
+3. **F10b** — surface `strict_gate_drops` in metadata CSV
+
+**Batch 3 — entry-path hardening:**
+1. **F2** + **F3** together — single SmartInput pass that adds DOI/PMC resolution
+   and OA gate
+
+### Key file paths (for quick navigation)
+
+- Tracer watchlist: `pipeline/modules/pipeline_tracer.py::_FN_TRACER_VALUE_CAPTURE`
+- Tracer noise blocklist: `pipeline/modules/pipeline_tracer.py::_FN_TRACER_NOISE`
+- Confidence scoring: `pipeline/modules/pipeline_orchestrator.py::_compute_row_confidence`
+- CSV output: `pipeline/modules/pipeline_orchestrator.py::_write_split_output`
+- Paper entry UI: `app/src/renderer/components/SmartInput.tsx`
+- Settings IPC chain (F7 sketch): `app/src/main/settings-store.ts` →
+  `preload/index.ts` → `useSettings.ts` → `python-bridge.ts` → `config.py`
+- Audit report: `docs/audit_pmid_41017238.md`
+- Pipeline narrative: `docs/pipeline-understanding.md`
+- Interactive viewer: `publication/figures/pipeline-viewer/index.html` + `serve.py`
+
+### Known-good verification commands
+
+```bash
+# Pipeline Python files parse cleanly
+python3 -c "import ast; [ast.parse(open(f).read(), filename=f) for f in [
+    'pipeline/modules/gemini_extractor.py',
+    'pipeline/modules/pipeline_orchestrator.py',
+    'pipeline/modules/pipeline_tracer.py',
+    'pipeline/run_pipeline.py',
+]]; print('all OK')"
+
+# Viewer HTML's embedded JS parses (requires node)
+node -e "new Function(require('fs').readFileSync('publication/figures/pipeline-viewer/index.html','utf8').match(/<script>([\\s\\S]*)<\\/script>/)[1])" && echo "JS OK"
+
+# _compute_row_confidence smoke test (see F11 implementation notes)
+pipeline/.venv/bin/python -c "
+import sys; sys.path.insert(0, 'pipeline')
+from modules.pipeline_orchestrator import _compute_row_confidence
+print(_compute_row_confidence({'Gene/Group': 'X', 'extraction_mode': 'skeleton', 'detail_extraction_error': '429'}, ['x']))
+# should print: ('REVIEW', 'LLM failed; no content (429)')
+"
+```
+
+### Context from previous sessions
+
+- **Worker-level function tracing was added** ~2026-04-20 21:10 (in `_run_pipeline_worker`) —
+  without it the trace goes silent during Gemini phase. Verified working in the
+  21:32 run of PMID 41017238.
+- **Viewer noise blocklist** currently includes 13 entries — XML walkers, poll loops
+  (`check_cancellation`, `report_progress`, `emit_log`), tracer self-refs, dunders,
+  generator frames, `to_dict`. Removing any of these would flood the trace.
+- **Gemini free-tier daily cap** is 20 req/day on `gemini-3-flash`. Every test
+  against the live pipeline consumes that budget. Budget often exhausted by end of
+  testing session; wait 24 h for reset.
+- **The demo trace** at `publication/figures/pipeline-viewer/demo_trace.json` has
+  synthetic values pre-populated so the viewer can be exercised without a live run
+  or API key.
