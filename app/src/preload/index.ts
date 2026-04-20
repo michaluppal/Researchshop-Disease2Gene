@@ -74,6 +74,8 @@ export interface ElectronAPI {
     expandQuery: (query: string) => Promise<{ expandedQuery?: string; changes?: string; error?: string }>
     buildQuery: (description: string) => Promise<{ query?: string; explanation?: string; error?: string }>
     refineQuery: (payload: { previousQuery: string; refinementRequest: string }) => Promise<{ query?: string; explanation?: string; error?: string }>
+    resolveDoi: (dois: string[]) => Promise<Record<string, string | null>>
+    resolvePmc: (pmcs: string[]) => Promise<Record<string, string | null>>
   }
   citations: {
     fetch: (pmids: string[]) => Promise<Record<string, number>>
@@ -168,7 +170,9 @@ const api: ElectronAPI = {
     count: (query) => ipcRenderer.invoke('pubmed:count', query),
     expandQuery: (query) => ipcRenderer.invoke('pubmed:expand-query', query),
     buildQuery: (description) => ipcRenderer.invoke('pubmed:build-query', description),
-    refineQuery: (payload) => ipcRenderer.invoke('pubmed:refine-query', payload)
+    refineQuery: (payload) => ipcRenderer.invoke('pubmed:refine-query', payload),
+    resolveDoi: (dois) => ipcRenderer.invoke('pubmed:resolve-doi', dois),
+    resolvePmc: (pmcs) => ipcRenderer.invoke('pubmed:resolve-pmc', pmcs)
   },
   citations: {
     fetch: (pmids) => ipcRenderer.invoke('citations:fetch', pmids)

@@ -8,6 +8,77 @@ import { readFileSync, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
 import path from 'node:path'
 
+/**
+ * Reverse-lookup DOIs to PubMed PMIDs via NCBI esearch [AID] field.
+ * Sequential calls with 100ms delay between (rate-limit friendly).
+ * @returns map keyed by the original DOI; value is the resolved PMID or null.
+ */
+export async function resolveDoisToPmids(dois: string[]): Promise<Record<string, string | null>> {
+  const results: Record<string, string | null> = {}
+  const unique = Array.from(new Set(dois))
+  for (const doi of unique) {
+    try {
+      const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(doi.toLowerCase())}[AID]&retmode=json`
+      const res = await fetch(url)
+      if (!res.ok) {
+        results[doi] = null
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any
+        const idlist = data?.esearchresult?.idlist || []
+        results[doi] = idlist.length > 0 ? idlist[0] : null
+      }
+    } catch {
+      results[doi] = null
+    }
+    await new Promise(r => setTimeout(r, 100))
+  }
+  return results
+}
+
+/**
+ * Reverse-lookup PMC IDs to PubMed PMIDs via NCBI elink.
+ * Single batched call for all valid PMCs (PMC\d+); invalid entries map to null.
+ * @returns map keyed by the original (uppercase-form) PMC; value is the resolved PMID or null.
+ */
+export async function resolvePmcsToPmids(pmcs: string[]): Promise<Record<string, string | null>> {
+  const results: Record<string, string | null> = {}
+  const unique = Array.from(new Set(pmcs))
+  const valid = unique.filter(p => /^PMC\d+$/i.test(p))
+  // Invalid entries → null
+  for (const p of unique) {
+    if (!/^PMC\d+$/i.test(p)) results[p] = null
+  }
+  if (valid.length === 0) return results
+  try {
+    const digits = valid.map(p => p.replace(/^PMC/i, ''))
+    const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pmc&db=pubmed&id=${digits.join(',')}&retmode=json`
+    const res = await fetch(url)
+    if (!res.ok) {
+      for (const p of valid) results[p] = null
+      return results
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await res.json() as any
+    const linksets = Array.isArray(data?.linksets) ? data.linksets : []
+    // Build map: pmc-digit → pmid
+    const digitToPmid: Record<string, string | null> = {}
+    for (const ls of linksets) {
+      const pmcDigit = ls?.ids?.[0] != null ? String(ls.ids[0]) : null
+      if (!pmcDigit) continue
+      const pmid = ls?.linksetdbs?.[0]?.links?.[0]
+      digitToPmid[pmcDigit] = pmid != null ? String(pmid) : null
+    }
+    for (const p of valid) {
+      const digit = p.replace(/^PMC/i, '')
+      results[p] = digitToPmid[digit] ?? null
+    }
+  } catch {
+    for (const p of valid) results[p] = null
+  }
+  return results
+}
+
 export function registerIpcHandlers(): void {
   function validateOutputPath(filePath: string): string {
     const settings = getSettings()
@@ -167,6 +238,10 @@ export function registerIpcHandlers(): void {
       return { count: 0, pmids: [], error: `Network error — check your internet connection (${String(err)})` }
     }
   })
+
+  ipcMain.handle('pubmed:resolve-doi', (_e, dois: string[]) => resolveDoisToPmids(dois))
+
+  ipcMain.handle('pubmed:resolve-pmc', (_e, pmcs: string[]) => resolvePmcsToPmids(pmcs))
 
   ipcMain.handle('pubmed:fetch-details', async (_e, pmids: string[]) => {
     try {

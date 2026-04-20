@@ -23,6 +23,8 @@ interface PaperItem {
   // PMID was resolved but no PMC record exists (paywalled — abstract only).
   // Undefined for DOI/PMC items not yet resolved to PMIDs.
   isOpenAccess?: boolean
+  /** How this row got here. 'pmid' = pasted directly, 'doi' = reverse-looked-up from a DOI, 'pmc' = from a PMC. */
+  source?: 'pmid' | 'doi' | 'pmc'
 }
 
 interface SmartInputProps {
@@ -30,7 +32,7 @@ interface SmartInputProps {
 }
 
 // Parse various PubMed identifiers from raw text
-function parseIdentifiers(text: string): Array<{ type: string; value: string; original: string }> {
+export function parseIdentifiers(text: string): Array<{ type: string; value: string; original: string }> {
   const lines = text
     .split(/[\n,;]+/)
     .map((s) => s.trim())
@@ -123,53 +125,77 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
 
     const parsed = parseIdentifiers(text)
     const pmidItems = parsed.filter((p) => p.type === 'pmid')
-    const unknowns = parsed.filter((p) => p.type === 'unknown')
     const doiItems = parsed.filter((p) => p.type === 'doi')
     const pmcItems = parsed.filter((p) => p.type === 'pmc')
+    const unknowns = parsed.filter((p) => p.type === 'unknown')
 
     setInvalid(unknowns.map((u) => u.original))
 
-    // Collect all PMIDs to fetch
-    const pmids = pmidItems.map((p) => p.value)
-
     try {
-      const details = pmids.length > 0 ? await window.api.pubmed.fetchDetails(pmids) : {}
+      // F3: reverse-lookup DOIs and PMCs to PMIDs in parallel. On network failure
+      // per-call, fall back to an empty map so those items surface in `invalid`
+      // rather than throwing out the whole validation.
+      const [doiMap, pmcMap] = await Promise.all([
+        doiItems.length > 0
+          ? window.api.pubmed
+              .resolveDoi(doiItems.map((d) => d.value))
+              .catch(() => ({} as Record<string, string | null>))
+          : Promise.resolve({} as Record<string, string | null>),
+        pmcItems.length > 0
+          ? window.api.pubmed
+              .resolvePmc(pmcItems.map((p) => p.value))
+              .catch(() => ({} as Record<string, string | null>))
+          : Promise.resolve({} as Record<string, string | null>),
+      ])
 
-      const validPapers: PaperItem[] = []
+      // Build a unified resolved list; items that can't be resolved go to invalid.
+      type ResolvedItem = { pmid: string; original: string; source: 'pmid' | 'doi' | 'pmc' }
+      const resolved: ResolvedItem[] = []
+      const newInvalid: string[] = [...unknowns.map((u) => u.original)]
 
       for (const item of pmidItems) {
-        const d = details[item.value]
-        validPapers.push({
-          pmid: item.value,
+        resolved.push({ pmid: item.value, original: item.original, source: 'pmid' })
+      }
+      for (const item of doiItems) {
+        const pmid = doiMap[item.value]
+        if (pmid) resolved.push({ pmid, original: item.original, source: 'doi' })
+        else newInvalid.push(`DOI not in PubMed: ${item.value}`)
+      }
+      for (const item of pmcItems) {
+        const pmid = pmcMap[item.value]
+        if (pmid) resolved.push({ pmid, original: item.original, source: 'pmc' })
+        else newInvalid.push(`PMC not indexed in PubMed: ${item.value}`)
+      }
+      setInvalid(newInvalid)
+
+      // Dedup on resolved PMID — first occurrence wins (keeps its original + source).
+      const seen = new Set<string>()
+      const deduped = resolved.filter((r) => {
+        if (seen.has(r.pmid)) return false
+        seen.add(r.pmid)
+        return true
+      })
+
+      // Single fetchDetails call for the merged PMID list.
+      const pmids = deduped.map((r) => r.pmid)
+      const details = pmids.length > 0 ? await window.api.pubmed.fetchDetails(pmids) : {}
+
+      // F2: OA status inferred from PMC presence. PubMed-search upstream applies
+      // `loattrfull text[sb]` to enforce OA; the paste box has no such filter,
+      // so we gate here. Applies uniformly to PMID/DOI/PMC-resolved rows.
+      const validPapers: PaperItem[] = deduped.map((r) => {
+        const d = details[r.pmid]
+        return {
+          pmid: r.pmid,
           title: d?.title,
           doi: d?.doi,
           pmc: d?.pmc,
-          url: d?.url || `https://pubmed.ncbi.nlm.nih.gov/${item.value}/`,
-          original: item.original,
-          // F2: OA status inferred from PMC presence. PubMed-search upstream
-          // applies `loattrfull text[sb]` to enforce OA; the paste box has no
-          // such filter, so we gate here.
+          url: d?.url || `https://pubmed.ncbi.nlm.nih.gov/${r.pmid}/`,
+          original: r.original,
           isOpenAccess: !!d?.pmc,
-        })
-      }
-
-      // DOI items (no enrichment yet, just store them)
-      for (const item of doiItems) {
-        validPapers.push({
-          doi: item.value,
-          url: `https://doi.org/${item.value}`,
-          original: item.original,
-        })
-      }
-
-      // PMC items
-      for (const item of pmcItems) {
-        validPapers.push({
-          pmc: item.value,
-          url: `https://www.ncbi.nlm.nih.gov/pmc/articles/${item.value}/`,
-          original: item.original,
-        })
-      }
+          source: r.source,
+        }
+      })
 
       setPapers(validPapers)
       setMode('validated')
@@ -204,13 +230,9 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
     : oaPapers.length
 
   const useValid = () => {
-    // F2: filter out paywalled PMIDs unless the user explicitly opts in.
-    // Note: DOI/PMC items don't have a PMID yet so they were already being
-    // filtered by the `p.pmid` check — that behaviour is unchanged (tracked
-    // separately as F3). The OA filter applies only to resolved PMID rows.
+    // Every paper has a PMID post-F3; only the F2 OA gate filters here.
     const keptPapers = papers.filter((p) => {
-      if (!p.pmid) return false  // DOI/PMC items (F3)
-      if (p.isOpenAccess === false && !includePaywalled) return false  // F2 gate
+      if (p.isOpenAccess === false && !includePaywalled) return false
       return true
     })
     const pmids = keptPapers.map((p) => p.pmid!)
@@ -353,6 +375,16 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
                           {!paper.pmid && paper.pmc && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-green-50 text-green-700 text-xs font-mono">
                               {paper.pmc}
+                            </span>
+                          )}
+                          {paper.source === 'doi' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-mono ml-1">
+                              from DOI
+                            </span>
+                          )}
+                          {paper.source === 'pmc' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-600 text-[10px] font-mono ml-1">
+                              from PMC
                             </span>
                           )}
                         </td>
