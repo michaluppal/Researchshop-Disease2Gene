@@ -120,6 +120,7 @@ class GeneInfoPipeline:
         self.table_inputs = table_inputs or []
         self._paper_api_calls: int = 0
         self._context_warning: Optional[str] = None
+        self._truncation_rescue_count: int = 0
 
         # Lazy import to avoid top-level import failures
         from google import genai  # type: ignore
@@ -350,11 +351,19 @@ class GeneInfoPipeline:
         co_mentioned = _peers_present_in(fallback)
         return fallback, False, co_mentioned
 
-    def _find_evidence_snippet(self, terms: List[str]) -> str:
+    def _find_evidence_snippet(
+        self, terms: List[str], text: Optional[str] = None
+    ) -> str:
         """
         Find the first grounded snippet in paper text mentioning any candidate term.
+
+        When `text` is None (default), uses `self.paper_text` — preserves existing
+        behaviour for all current callers. Passing `text=` explicitly lets callers
+        (e.g. F8a truncation rescue) search an alternative corpus such as
+        `self.original_paper_text`.
         """
-        text = self.paper_text or ""
+        if text is None:
+            text = self.paper_text or ""
         if not text:
             return ""
 
@@ -639,6 +648,7 @@ class GeneInfoPipeline:
             "paper_text_length": len(self.paper_text or ""),
             "api_calls_this_paper": self._paper_api_calls,
             "context_warning": self._context_warning,
+            "truncation_rescue_count": self._truncation_rescue_count,
             "final_associations": [
                 {
                     "gene": str((assoc.get("gene") if isinstance(assoc, dict) else assoc[0]) or ""),
@@ -1723,6 +1733,7 @@ Paper text:
         )
         grounded = []
         ungrounded_count = 0
+        rescued_count = 0
         for assoc in self.associations:
             gene = (assoc.get("gene") or "").strip()
             variant = self._normalize_variant_value(assoc.get("variant", ""))
@@ -1766,6 +1777,30 @@ Paper text:
             if self._find_evidence_snippet(terms):
                 grounded.append(assoc)
             else:
+                # Primary (truncated) search failed.
+                # F8a: retry against untruncated text when truncation fired.
+                # Invariant: self.paper_text is only reassigned by
+                # _validate_and_prepare_paper_text on actual truncation (~line 2584),
+                # so the identity check reliably gates the rescue branch.
+                if (self.original_paper_text
+                        and self.paper_text != self.original_paper_text):
+                    rescue_snippet = self._find_evidence_snippet(
+                        terms, text=self.original_paper_text
+                    )
+                    if rescue_snippet:
+                        if key in self.candidate_meta:
+                            self.candidate_meta[key]["truncation_rescued"] = True
+                            self.candidate_meta[key]["validation_outcome"] = (
+                                "passed_untruncated_rescue"
+                            )
+                        self._truncation_rescue_count += 1
+                        rescued_count += 1
+                        logging.info(
+                            f"Grounding rescue: '{gene}' found in untruncated text only "
+                            f"(truncation dropped a section containing this gene)."
+                        )
+                        grounded.append(assoc)
+                        continue
                 logging.warning(
                     f"Grounding check: dropping '{gene}' (raw: {list(meta.get('raw_gene_labels') or [])}) "
                     f"— not found in paper text by any of {terms[:6]}"
@@ -1796,6 +1831,7 @@ Paper text:
                 outputs={
                     "grounded_count": len(grounded),
                     "dropped_count": ungrounded_count,
+                    "rescued_count": rescued_count,
                     "dropped_samples": pipeline_tracer.summarise(dropped_here),
                 },
             )
