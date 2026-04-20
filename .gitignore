@@ -40,6 +40,9 @@ Desktop.ini
 # ─── Pipeline outputs (runtime) ──────────────────────
 data/output/
 
+# ─── Pipeline viewer live-run artifacts (runtime only) ───
+publication/figures/pipeline-viewer/live_runs/
+
 # ─── Benchmark transient artifacts ───────────────────
 pipeline/data/benchmark/**/drop_debug_*.json
 pipeline/data/benchmark/**/*.pkl.gz

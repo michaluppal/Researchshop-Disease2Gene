@@ -12,7 +12,7 @@ import uuid
 import pandas as pd
 from tqdm import tqdm
 
-from . import config, full_text_fetcher, pubmed_data_collector
+from . import config, full_text_fetcher, pipeline_tracer, pubmed_data_collector
 from .abstract_screener import has_genetic_content
 from .gemini_extractor import GeneInfoPipeline
 from .pubtator_tool import HybridExtractionResult, NCBIGeneTool, PubTatorTool
@@ -106,7 +106,7 @@ logging.basicConfig(
 )
 
 
-def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, abstract_text=None, table_inputs=None):
+def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, abstract_text=None, table_inputs=None, pmid=None):
     """Top-level worker function for multiprocessing pool (must be picklable).
 
     Returns the result dict directly; mp.Pool.apply_async transmits it back to
@@ -119,6 +119,8 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
         figure_inputs: Optional list of figure metadata dicts for Gemini multimodal analysis
         abstract_text: Abstract text for independent abstract-level gene discovery
         table_inputs: Optional list of structured table dicts for table-cell citation validation
+        pmid: Optional PMID — used only by the pipeline tracer to decide whether
+              to record detailed per-stage events for this paper.
     """
     try:
         inst = GeneInfoPipeline(
@@ -127,8 +129,14 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
             pubtator_genes=pubtator_genes,
             figure_inputs=figure_inputs,
             table_inputs=table_inputs,
+            pmid=pmid,
         )
         df = inst.run_pipeline(cols)
+        # Flush any tracer events this worker recorded before returning.
+        try:
+            pipeline_tracer.flush_worker_partial()
+        except Exception:
+            pass
         return {
             "records": df.to_dict(orient="records"),
             "debug": inst._collect_debug_artifact(),
@@ -671,6 +679,18 @@ def run_complete_pipeline(
     report_progress("Initializing pipeline", 0)
     emit_log("info", "Initializing pipeline")
 
+    # If tracing is enabled, point the tracer at the output dir so workers write partials there
+    if pipeline_tracer.is_enabled():
+        pipeline_tracer.set_output_dir(os.path.join(config.OUTPUT_DIR, ".trace_partials"))
+        emit_log("info", f"Pipeline tracing enabled for PMID {pipeline_tracer.target_pmid()}")
+        # Function-level tracing runs only in the orchestrator process (not in workers,
+        # where sys.setprofile conflicts with multiprocessing.Pool internals). This still
+        # captures all fetching, PubTator, dedup, and output code — the per-paper worker
+        # work is mostly network I/O inside Gemini.
+        if pipeline_tracer.function_tracer_enabled():
+            pipeline_tracer.install_function_tracer()
+            emit_log("info", "Function-level tracing active (orchestrator process)")
+
     # Step 1 & 2: Get PMIDs and Details
     report_progress("Searching PubMed", 10)
     if query:
@@ -715,7 +735,41 @@ def run_complete_pipeline(
     report_progress("Fetching paper details", 20, {"papers_found": len(initial_pmids)})
     check_cancellation()
     emit_log("debug", f"Fetching details for {len(initial_pmids)} PMIDs from PubMed")
+
+    # ── Tracer: record the user selection handoff (pipeline-wide, always recorded when enabled)
+    if pipeline_tracer.is_enabled():
+        pipeline_tracer.capture(
+            "user_selection",
+            inputs={
+                "query": query or "",
+                "specific_pmids": list(specific_pmids or []),
+                "specific_authors": list(specific_authors or []),
+                "top_n_cited": top_n_cited,
+            },
+            outputs={
+                "deduplicated_pmids_count": len(initial_pmids),
+                "mandatory_pmids_count": len(mandatory_pmids),
+                "target_pmid_in_selection": pipeline_tracer.matches_any(initial_pmids),
+            },
+        )
+
+    fetch_start = time.time()
     paper_details = pubmed_data_collector.fetch_paper_details(list(initial_pmids))
+    fetch_duration_ms = (time.time() - fetch_start) * 1000.0
+    # ── Tracer: record PubMed metadata fetch for the target PMID
+    if pipeline_tracer.is_enabled():
+        target = pipeline_tracer.target_pmid()
+        entry = paper_details.get(target) if target else None
+        pipeline_tracer.capture(
+            "pubmed_metadata",
+            pmid=target,
+            inputs={"pmids_requested": len(initial_pmids)},
+            outputs={
+                "target_metadata": pipeline_tracer.summarise(entry) if entry else None,
+                "retrieved_count": len(paper_details),
+            },
+            duration_ms=fetch_duration_ms,
+        )
     incomplete_count = sum(
         1
         for v in paper_details.values()
@@ -735,7 +789,9 @@ def run_complete_pipeline(
     check_cancellation()
     pmids_to_fetch = list(paper_details.keys())
     content_dict_path = _create_unique_filepath("content_dict", "pkl.gz")
+    fetch_start = time.time()
     full_text_fetcher.run_fetching(pmids_to_fetch, content_dict_path)
+    fetch_duration_ms = (time.time() - fetch_start) * 1000.0
 
     report_progress("Processing fetched content", 45)
     try:
@@ -750,6 +806,37 @@ def run_complete_pipeline(
     emit_log(
         "info", f"Retrieved full text for {len(scraped_pmids)} of {len(pmids_to_fetch)} papers"
     )
+
+    # ── Tracer: full-text fetch + text cleaning (cleaning already happened inside the fetcher)
+    if pipeline_tracer.is_enabled():
+        target = pipeline_tracer.target_pmid()
+        entry = content_dict.get(target) if target else None
+        pipeline_tracer.capture(
+            "full_text_fetch",
+            pmid=target,
+            inputs={"pmids_requested": len(pmids_to_fetch)},
+            outputs={
+                "scraped_count": len(scraped_pmids),
+                "target_present": entry is not None,
+                "extraction_method": (entry or {}).get("extraction_method"),
+                "content_length": (entry or {}).get("content_length"),
+                "quality_score": (entry or {}).get("quality_score"),
+                "figures_count": len((entry or {}).get("figures") or []),
+                "tables_count": len((entry or {}).get("tables") or []),
+                "content_preview": pipeline_tracer.summarise((entry or {}).get("content", "")),
+            },
+            duration_ms=fetch_duration_ms,
+        )
+        # The cleaning step happens inside full_text_fetcher; captured as a derived observation.
+        pipeline_tracer.capture(
+            "text_cleaning",
+            pmid=target,
+            inputs={"note": "Greek transliteration + non-ASCII strip already applied"},
+            outputs={
+                "final_content_length": (entry or {}).get("content_length"),
+                "ascii_only": True,
+            },
+        )
     if getattr(config, "ENABLE_FIGURE_ANALYSIS", True):
         papers_with_figures = 0
         total_figures = 0
@@ -798,13 +885,35 @@ def run_complete_pipeline(
 
         try:
             pubtator_tool = PubTatorTool()
+            pt_start = time.time()
             batch_results = pubtator_tool.extract_from_pmids(scraped_pmids)
+            pt_duration_ms = (time.time() - pt_start) * 1000.0
 
             for pmid, (genes, variants) in batch_results.items():
                 result = HybridExtractionResult(pmid)
                 result.pubtator_genes = genes
                 result.pubtator_variants = variants
                 pubtator_results[pmid] = result
+
+            # ── Tracer: PubTator NER for the target PMID
+            if pipeline_tracer.is_enabled():
+                target = pipeline_tracer.target_pmid()
+                target_result = pubtator_results.get(target) if target else None
+                pipeline_tracer.capture(
+                    "pubtator_ner",
+                    pmid=target,
+                    inputs={"scraped_pmids_count": len(scraped_pmids)},
+                    outputs={
+                        "target_present": target_result is not None,
+                        "genes": [g.symbol for g in (target_result.pubtator_genes if target_result else [])],
+                        "variants": pipeline_tracer.summarise(
+                            [{"text": v.text, "type": v.variant_type, "rsid": v.rsid, "hgvs": v.hgvs}
+                             for v in (target_result.pubtator_variants if target_result else [])]
+                        ),
+                    },
+                    meta={"papers_returned": len(pubtator_results)},
+                    duration_ms=pt_duration_ms,
+                )
 
             total_pt_genes = sum(len(r.pubtator_genes) for r in pubtator_results.values())
             pt_skipped = len(scraped_pmids) - len(pubtator_results)
@@ -867,8 +976,25 @@ def run_complete_pipeline(
     report_progress("Fetching citation counts", 50)
     logging.info("STEP 4: Fetching citations for scraped PMIDs and selecting top papers...")
     check_cancellation()
+    cite_start = time.time()
     citation_records = pubmed_data_collector.fetch_citation_counts_with_fallback(scraped_pmids)
     citations_dict = {pmid: rec.get("count", 0) for pmid, rec in citation_records.items()}
+
+    # ── Tracer: citation fetch for target PMID
+    if pipeline_tracer.is_enabled():
+        target = pipeline_tracer.target_pmid()
+        rec = citation_records.get(target) if target else None
+        pipeline_tracer.capture(
+            "citation_fetch",
+            pmid=target,
+            inputs={"scraped_pmids_count": len(scraped_pmids)},
+            outputs={
+                "target_record": rec,
+                "target_count": (rec or {}).get("count"),
+                "source": (rec or {}).get("source"),
+            },
+            duration_ms=(time.time() - cite_start) * 1000.0,
+        )
 
     scraped_details = {pmid: info for pmid, info in paper_details.items() if pmid in scraped_pmids}
     all_papers_df = pd.DataFrame.from_dict(scraped_details, orient="index")
@@ -1051,6 +1177,7 @@ def run_complete_pipeline(
                             prepared["figure_inputs"],
                             prepared["abstract"],
                             prepared["table_inputs"],
+                            pmid,
                         ),
                     )
                     in_flight[pmid] = {"idx": idx, "async_result": ar, "ctx": ctx}
@@ -1183,6 +1310,7 @@ def run_complete_pipeline(
                                 ctx["figure_inputs"],
                                 ctx["abstract"],
                                 ctx["table_inputs"],
+                                pmid,
                             ),
                         )
                         in_flight[pmid] = {
@@ -1238,6 +1366,7 @@ def run_complete_pipeline(
                             prepared["figure_inputs"],
                             prepared["abstract"],
                             prepared["table_inputs"],
+                            pmid,
                         ),
                     )
                     submitted_at = time.time()
@@ -1677,10 +1806,30 @@ def run_complete_pipeline(
     )
     report_progress("Completed", 100)
     logging.info(f"--- PIPELINE FINISHED IN {elapsed:.2f} SECONDS ---")
-    return {
+
+    # ── Tracer: merge worker partials and write trace_<pmid>.json
+    trace_path = None
+    if pipeline_tracer.is_enabled():
+        # Uninstall the function tracer before final I/O so the collector's own
+        # work doesn't flood the trace with write-path noise.
+        pipeline_tracer.uninstall_function_tracer()
+        try:
+            target = pipeline_tracer.target_pmid()
+            out = os.path.join(config.OUTPUT_DIR, f"trace_{target}.json")
+            written = pipeline_tracer.collect_and_write(target, out)
+            if written:
+                trace_path = str(written)
+                emit_log("info", f"Pipeline trace written to {trace_path}")
+        except Exception as e:
+            logging.warning(f"Trace collection failed: {e}")
+
+    result = {
         "local_path": primary_path,
         "metadata_path": metadata_path,
         "excel_path": excel_path,
         "json_path": json_path,
         "debug_path": debug_path,
     }
+    if trace_path:
+        result["trace_path"] = trace_path
+    return result

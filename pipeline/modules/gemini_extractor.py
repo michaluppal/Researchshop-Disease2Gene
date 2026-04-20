@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 import requests
 
-from . import config
+from . import config, pipeline_tracer
 from .gene_validator import (
     ContextWindowValidator,
     GeneValidator,
@@ -94,9 +94,11 @@ class GeneInfoPipeline:
         pubtator_genes: List[str] = None,
         figure_inputs: List[Dict[str, Any]] = None,
         table_inputs: List[Dict[str, Any]] = None,
+        pmid: Optional[str] = None,
     ):
         if not config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set in the configuration.")
+        self.pmid = pmid  # used only for the pipeline tracer
         self.paper_text = paper_text
         self.abstract_text = abstract_text  # Store abstract separately
         self.original_paper_text = paper_text  # Keep original for reference
@@ -1358,6 +1360,14 @@ Paper text:
     # run_pipeline sub-stages (extracted for readability, not reuse)
     # ------------------------------------------------------------------
 
+    def _summarise_sources(self) -> Dict[str, int]:
+        """Tracer helper: how many candidates carry each source tag."""
+        counts: Dict[str, int] = {}
+        for meta in self.candidate_meta.values():
+            for src in (meta.get("sources") or []):
+                counts[str(src)] = counts.get(str(src), 0) + 1
+        return counts
+
     def _run_candidate_discovery(self) -> None:
         """Steps 0.5–1.5: Discover gene candidates from all sources."""
         # Reset candidate tracking for this run.
@@ -1374,15 +1384,47 @@ Paper text:
         # e.g. abstract says "IL-6" / "IFN-γ" while full text says "interleukin-6" / "interferon-gamma"
         if getattr(config, "ENABLE_ABSTRACT_GENE_DISCOVERY", True) and self.abstract_text:
             logging.info("Step 0.5: Extracting gene-variant associations from abstract")
+            import time as _t
+            t0 = _t.time()
             abstract_associations = self.extract_gene_names_from_abstract()
             if abstract_associations:
                 added = self._ingest_associations(abstract_associations, "llm_abstract")
                 logging.info(f"Abstract gene discovery added {added} candidate genes")
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "abstract_pass",
+                    pmid=self.pmid,
+                    inputs={
+                        "abstract_length": len(self.abstract_text or ""),
+                        "abstract_preview": pipeline_tracer.summarise(self.abstract_text or ""),
+                    },
+                    outputs={
+                        "associations": pipeline_tracer.summarise(abstract_associations or []),
+                        "candidate_count_after": len(self.candidate_meta),
+                    },
+                    duration_ms=(_t.time() - t0) * 1000.0,
+                )
 
         # Step 1: Extract gene names using smaller model on full paper text
         logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
+        import time as _t
+        t0 = _t.time()
         self.extract_gene_names()
         pass1_count = len(self.associations)
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "fulltext_pass_greedy",
+                pmid=self.pmid,
+                inputs={
+                    "paper_text_length": len(self.paper_text or ""),
+                    "pubtator_seeds": self.pubtator_genes[:20],
+                },
+                outputs={
+                    "associations_count_after_ingest": pass1_count,
+                    "candidate_meta_size": len(self.candidate_meta),
+                },
+                duration_ms=(_t.time() - t0) * 1000.0,
+            )
 
         # Step 1b: Second independent LLM pass at a higher temperature to actually diverge from
         # pass 1. temperature=0 (greedy) is nominally deterministic but Gemini's inference is not
@@ -1393,11 +1435,24 @@ Paper text:
             logging.info(
                 "Step 1b: Second gene discovery pass (temperature=0.4) for recall improvement"
             )
+            t0 = _t.time()
             self.extract_gene_names(temperature=0.4)
             pass2_count = len(self.associations)
             if pass2_count > pass1_count:
                 logging.info(
                     f"Second pass added {pass2_count - pass1_count} additional genes (total: {pass2_count})"
+                )
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "fulltext_pass_recall",
+                    pmid=self.pmid,
+                    inputs={"temperature": 0.4},
+                    outputs={
+                        "pass1_count": pass1_count,
+                        "pass2_count": pass2_count,
+                        "new_from_recall": pass2_count - pass1_count,
+                    },
+                    duration_ms=(_t.time() - t0) * 1000.0,
                 )
         except Exception as e:
             logging.warning(
@@ -1405,27 +1460,84 @@ Paper text:
             )
 
         # Step 1.1: Deterministic lexicon candidates (HGNC symbols/aliases)
+        t0 = _t.time()
         deterministic_candidates = self.extract_deterministic_candidates()
         if deterministic_candidates:
             added = self._ingest_associations(deterministic_candidates, "deterministic_lexicon")
             logging.info(f"Deterministic candidate extraction added {added} genes")
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "deterministic_scan",
+                pmid=self.pmid,
+                inputs={"paper_text_length": len(self.paper_text or "")},
+                outputs={
+                    "deterministic_hits": [a.get("gene") for a in (deterministic_candidates or [])],
+                    "new_candidates_added": len(deterministic_candidates or []),
+                    "candidate_meta_size": len(self.candidate_meta),
+                },
+                duration_ms=(_t.time() - t0) * 1000.0,
+            )
 
         # Step 1.25: Multimodal figure analysis (PMC figure images + captions)
         if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
             logging.info("Step 1.25: Extracting gene-variant associations from figures")
+            t0 = _t.time()
             figure_associations = self.extract_gene_names_from_figures()
             if figure_associations:
                 added = self._ingest_associations(figure_associations, "llm_figure")
                 logging.info(f"Merged {added} figure-derived associations")
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "figure_analysis",
+                    pmid=self.pmid,
+                    inputs={"figures_available": len(self.figure_inputs)},
+                    outputs={
+                        "associations": pipeline_tracer.summarise(figure_associations or []),
+                    },
+                    duration_ms=(_t.time() - t0) * 1000.0,
+                )
 
         # Step 1.5: HYBRID PIPELINE - Merge PubTator genes (ensures union)
         if self.pubtator_genes:
+            pre_merge_size = len(self.candidate_meta)
             pt_associations = [{"gene": g, "variant": ""} for g in self.pubtator_genes if g]
             added_count = self._ingest_associations(pt_associations, "pubtator")
             if added_count > 0:
                 logging.info(
                     f"Hybrid pipeline: Added {added_count} PubTator genes missed by Gemini"
                 )
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "pubtator_merge",
+                    pmid=self.pmid,
+                    inputs={"pubtator_genes_count": len(self.pubtator_genes)},
+                    outputs={
+                        "new_from_pubtator": added_count,
+                        "pre_merge_candidate_count": pre_merge_size,
+                        "post_merge_candidate_count": len(self.candidate_meta),
+                    },
+                )
+
+        # Final candidate_meta snapshot after all sourcing
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "candidate_meta",
+                pmid=self.pmid,
+                outputs={
+                    "total_candidates": len(self.candidate_meta),
+                    "by_source": self._summarise_sources(),
+                    "sample": pipeline_tracer.summarise(
+                        [
+                            {
+                                "gene": v.get("gene"),
+                                "variant": v.get("variant"),
+                                "sources": sorted(list(v.get("sources") or []))
+                            }
+                            for v in list(self.candidate_meta.values())[:30]
+                        ]
+                    ),
+                },
+            )
 
     def _run_grounding_check(self) -> None:
         """Step 1.6: Drop candidates not found in the fetched paper text.
@@ -1501,6 +1613,26 @@ Paper text:
             )
         self.associations = grounded
 
+        # ── Tracer: grounding outcome
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            dropped_here = [
+                {"gene": v.get("gene"), "variant": v.get("variant"),
+                 "outcome": v.get("validation_outcome"),
+                 "sources": sorted(list(v.get("sources") or []))}
+                for v in self.candidate_meta.values()
+                if v.get("validation_outcome") in ("rejected_ungrounded", "rejected_ungrounded_figure")
+            ]
+            pipeline_tracer.capture(
+                "grounding_check",
+                pmid=self.pmid,
+                inputs={"candidates_in": len(grounded) + ungrounded_count},
+                outputs={
+                    "grounded_count": len(grounded),
+                    "dropped_count": ungrounded_count,
+                    "dropped_samples": pipeline_tracer.summarise(dropped_here),
+                },
+            )
+
     def _run_validation_and_normalize(self) -> None:
         """Step 2: Gene validation heuristics + ensure one gene-level row per gene."""
         pre_validation_associations = list(self.associations)
@@ -1556,6 +1688,9 @@ Paper text:
         Returns the extracted_info list (may be empty).
         """
         logging.info("Step 3: Extracting detailed information for validated associations")
+        import time as _t
+        _t0 = _t.time()
+        _assoc_count_in = len(self.associations)
         extracted_info = self.extract_gene_info(column_descriptions)
 
         # Merge duplicate rows: Stage 3 sometimes emits the same gene twice with different
@@ -1591,6 +1726,33 @@ Paper text:
 
         if extracted_info:
             self._backfill_sparse_row_evidence(extracted_info, column_descriptions)
+
+        # ── Tracer: detail extraction outcome
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "detail_extraction",
+                pmid=self.pmid,
+                inputs={
+                    "associations_in": _assoc_count_in,
+                    "user_columns": list(column_descriptions.keys()),
+                },
+                outputs={
+                    "rows_returned": len(extracted_info or []),
+                    "sample": pipeline_tracer.summarise(extracted_info[:3] if extracted_info else []),
+                    "status": self.detail_extraction_status,
+                },
+                duration_ms=(_t.time() - _t0) * 1000.0,
+            )
+            pipeline_tracer.capture(
+                "row_merge",
+                pmid=self.pmid,
+                outputs={"rows_after_merge": len(extracted_info or [])},
+            )
+            pipeline_tracer.capture(
+                "evidence_backfill",
+                pmid=self.pmid,
+                outputs={"rows_after_backfill": len(extracted_info or [])},
+            )
 
         return extracted_info
 
@@ -1648,11 +1810,53 @@ Paper text:
                     )
                 df = pd.DataFrame()
 
+        # ── Tracer: strict gate outcome
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "strict_gate",
+                pmid=self.pmid,
+                outputs={
+                    "rows_after": len(df),
+                    "dropped_count": len(self.strict_gate_drops),
+                    "threshold": float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7)),
+                    "dropped": pipeline_tracer.summarise(self.strict_gate_drops),
+                },
+            )
+
         # Only add citation validation if enabled
         if not df.empty and config.ENABLE_CITATION_VALIDATION:
             self._add_citation_validation_metadata(df)
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                valid_counts = {}
+                for col in df.columns:
+                    if col.endswith("_citation_valid"):
+                        base = col[: -len("_citation_valid")]
+                        try:
+                            valid_counts[base] = int(df[col].fillna(False).astype(bool).sum())
+                        except Exception:
+                            continue
+                pipeline_tracer.capture(
+                    "citation_validation",
+                    pmid=self.pmid,
+                    outputs={
+                        "rows": len(df),
+                        "valid_counts_by_column": valid_counts,
+                    },
+                )
 
+        rows_before_evidence = len(df)
         df = self._apply_evidence_gate(df, column_descriptions)
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "evidence_gate",
+                pmid=self.pmid,
+                outputs={
+                    "rows_before": rows_before_evidence,
+                    "rows_after": len(df),
+                    "dropped_count": len(self.evidence_gate_drops),
+                    "dropped": pipeline_tracer.summarise(self.evidence_gate_drops),
+                },
+            )
 
         if not df.empty:
             self._add_context_metadata(df, context_validation)
@@ -1786,6 +1990,45 @@ Paper text:
                 )
 
         self.associations = self.validated_associations
+
+        # ── Tracer: split drops by reason for the three sub-gates (HGNC / low-conf / corroboration)
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            low_conf = [d for d in dropped if d.get("reason") == "low_confidence"]
+            corrob = [d for d in dropped if d.get("reason") == "deterministic_uncorroborated"]
+            pipeline_tracer.capture(
+                "hgnc_validation",
+                pmid=self.pmid,
+                inputs={"associations_in": total_associations},
+                outputs={
+                    "results_sample": pipeline_tracer.summarise(
+                        [
+                            {"gene": r.gene, "variant": r.variant,
+                             "confidence": r.confidence_score,
+                             "source": r.validation_source,
+                             "is_valid_gene": r.is_valid_gene}
+                            for r in self.validation_results[:30]
+                        ]
+                    ),
+                },
+            )
+            pipeline_tracer.capture(
+                "low_confidence_gate",
+                pmid=self.pmid,
+                outputs={
+                    "dropped_count": len(low_conf),
+                    "dropped": pipeline_tracer.summarise(low_conf),
+                    "threshold": min_confidence,
+                },
+            )
+            pipeline_tracer.capture(
+                "corroboration_gate",
+                pmid=self.pmid,
+                outputs={
+                    "dropped_count": len(corrob),
+                    "dropped": pipeline_tracer.summarise(corrob),
+                    "survivors": validated_count,
+                },
+            )
 
     def _add_candidate_provenance_metadata(self, df: pd.DataFrame):
         """

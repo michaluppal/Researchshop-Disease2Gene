@@ -17,7 +17,20 @@ def main():
     parser.add_argument('--columns', type=str, default='{}', help='JSON object of column name->description')
     parser.add_argument('--top-n', type=int, default=10)
     parser.add_argument('--output-dir', type=str, required=True)
+    parser.add_argument('--trace-pmid', type=str, default='',
+                        help='If set, capture a detailed trace for this PMID into '
+                             '{output-dir}/trace_{pmid}.json for the pipeline viewer.')
+    parser.add_argument('--trace-functions', action='store_true',
+                        help='Additionally capture every pipeline function call as '
+                             'fn_call/fn_return events. Requires --trace-pmid. Noisy.')
     args = parser.parse_args()
+
+    # Enable tracer early so any import that reads the flag sees it.
+    # The tracer is inert unless TRACE_PMID is set.
+    if args.trace_pmid:
+        os.environ['TRACE_PMID'] = str(args.trace_pmid).strip()
+    if args.trace_functions:
+        os.environ['TRACE_FUNCTIONS'] = '1'
 
     # Secrets are passed via environment variables, never CLI args (visible in ps aux).
     # GEMINI_API_KEY and ENTREZ_EMAIL must be set in the process environment by the caller.
