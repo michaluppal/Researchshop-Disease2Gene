@@ -53,15 +53,15 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 | [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
 | [F10c](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ⬜ TODO | S | Per-tier evidence thresholds not visible to operator | `_apply_evidence_gate` + UI |
 | [F8a](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | M | Truncation × grounding — genes in abstract but not truncated body | `_run_grounding_check` |
-| [F8b](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | XS | Fuzzy pattern blind spot: `IL(6)`, `IL.6` | `_find_evidence_snippet` |
-| [F8c](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ⬜ TODO | XS | `_run_grounding_check` docstring scope clarification | `_run_grounding_check` |
+| [F8b](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | XS | Fuzzy pattern blind spot: `IL(6)`, `IL.6` | `_find_evidence_snippet` |
+| [F8c](#f8--grounding-check-silent-failure-modes-truncation-interaction-and-fuzzy-pattern-blind-spots) | ✅ DONE | XS | `_run_grounding_check` docstring scope clarification | `_run_grounding_check` |
 | [F6](#f6--greek-letter-transliteration-is-asymmetric-between-body-and-abstract) | ⬜ TODO | S | Greek letter transliteration asymmetric abstract ↔ body | `_prepare_paper_inputs` |
 
 ### P2 — Documentation accuracy
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
-| [F1](#f1--the-4-overfetch-factor-does-not-exist-in-code) | ⬜ TODO | S | "4× overfetch factor" claim in 6+ docs — doesn't exist in code | Docs + paper draft + `config.py` |
+| [F1](#f1--the-4-overfetch-factor-does-not-exist-in-code) | ✅ DONE | S | "4× overfetch factor" claim in 6+ docs — doesn't exist in code | Docs + paper draft + `config.py` |
 
 ### P3 — Efficiency
 
@@ -81,8 +81,8 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
-| [L1](#p5-l1--orchestrator-helpers-observed-name-only-on-watchlist) | ⬜ TODO | XS | 7 orchestrator helpers observed name-only in viewer (watchlist additions) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
-| [L2](#p5-l2--_collect_debug_artifact-high-value-missing-from-watchlist) | ⬜ TODO | XS | `_collect_debug_artifact` missing from watchlist (highest-value single add) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
+| [L1](#p5-l1--orchestrator-helpers-observed-name-only-on-watchlist) | ✅ DONE | XS | 7 orchestrator helpers observed name-only in viewer (watchlist additions) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
+| [L2](#p5-l2--_collect_debug_artifact-high-value-missing-from-watchlist) | ✅ DONE | XS | `_collect_debug_artifact` missing from watchlist (highest-value single add) | `pipeline_tracer._FN_TRACER_VALUE_CAPTURE` |
 | [M3](#p5-m3--function-events-not-linked-to-stage-markers) | ⬜ TODO | S | Function events not linked to stage markers (time-window alignment lossy) | `pipeline_tracer.capture` |
 | [L3](#p5-l3--ncbi-enrichment-rate-limit-silent) | ⬜ TODO | S | NCBI enrichment rate-limit silently produces empty columns | NCBI enrichment in orchestrator |
 
@@ -787,20 +787,34 @@ supplement-heavy studies).
 
 #### F8b — Fuzzy pattern blind spot
 
-**Trivial fix.** In `pipeline/modules/gemini_extractor.py::_find_evidence_snippet`
-(~line 263), the fuzzy pattern uses `[\s\-_\/]*` as the separator class. Extend to
-`[\s\-_\/\.\(\)]*` to cover `IL(6)`, `IL.6`, `IL(6)`. Word-boundary guards keep
-false-positive risk at zero.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `af4fe61`).
 
-**Test after fix:** grep trace for any candidate that failed the strict pattern but
-matched the new fuzzy pattern. Low risk of false positives because the lookahead/
-lookbehind `(?<![A-Za-z0-9])` and `(?![A-Za-z0-9])` bracket the match.
+**Files modified:**
+- `pipeline/modules/gemini_extractor.py:265` — fuzzy separator class extended from
+  `[\s\-_\/]*` to `[\s\-_\/\.\(\)]*` in `_find_evidence_snippet`.
+
+**Verification performed:**
+- AST-parse clean on the modified file.
+- Smoke test (inline Python replicating the compiled pattern) confirmed:
+  `IL(6)`, `IL.6`, `IL6`, and `IL 6` all match the pattern for term `"IL6"`.
+  Word-boundary guard holds: `IL6K` is correctly excluded.
+
+**What's NOT in this patch:** no cross-corpus replay of the change against past
+grounding-check drops — that would be useful to quantify uplift but requires a
+second benchmark run. Tracked separately if and when we re-run the full
+benchmark.
 
 #### F8c — Docstring clarification
 
-**Trivial.** Add one-line note to `_run_grounding_check` docstring:
-*"Verifies gene presence only. Variant presence is validated downstream by the
-citation validator and evidence gate."* No code change.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `af4fe61`).
+
+**Files modified:**
+- `pipeline/modules/gemini_extractor.py:1557` — appended scope-note paragraph to
+  `_run_grounding_check` docstring clarifying gene-only verification scope.
+
+**Verification performed:**
+- AST-parse clean on the modified file (docstring changes only).
+- No code behaviour change.
 
 ---
 
@@ -1637,34 +1651,46 @@ References asserting this:
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P2 tier — S effort. Doc-only cleanup, no code behaviour changes.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `af4fe61`).
 
-**Decision already taken during audit:** remove the claim. `PUBMED_RELEVANT_COUNT=200`
-is the real candidate-widening mechanism; `specific_pmids` are always 1:1. The
-overfetch-factor story was never implemented and doesn't match user intuition for
-curated lists.
+**Files modified:**
+- `pipeline/modules/config.py` — deleted orphaned `ANALYSIS_OVERFETCH_FACTOR` line
+- `publication/sections/02_description.tex:14` — rewrote the 4× claim to accurately
+  describe `PUBMED_RELEVANT_COUNT=200` query-mode widening; user-curated PMID lists
+  explicitly noted as 1:1
+- `.claude/rules/memory-decisions.md:164` — OA-gap mitigation corrected
+- `.claude/rules/memory-pipeline.md:292` — replaced "overfetch factor" section with
+  query-mode widening description; explicitly notes the 4× claim was a myth
+- `docs/pipeline-internals.md` — §3.4 rewritten, §5.6 corrected, config-table line
+  removed
+- `publication/working/elicit_research/{03_semantic_search,04_search_vs_vectordb,06_keyword_search}.md`
+  — all overfetch refs neutralised to `PUBMED_RELEVANT_COUNT=200` framing
+- `publication/working/MEETING_NOTES_2026-03-09.md:219` — superseded-note HTML
+  comment added above the historical claim (preserves history per meeting-notes
+  convention)
 
-**Exact edits needed** (search for "overfetch" globally first to catch anything
-added since this audit):
+**Verification performed:**
+- AST-parse clean on `config.py` after the symbol removal
+- `grep ANALYSIS_OVERFETCH_FACTOR` returns only 3 intentional refs: 2 explanatory
+  "has been removed" texts (in `pipeline-internals.md` and `pipeline-understanding.md`)
+  and Final_Audit.md's F1 finding record
+- `grep "overfetch factor"` returns only historical/explanatory refs: Final_Audit
+  (this record), MEETING_NOTES with superseded-marker, pipeline-understanding
+  side-finding, memory-pipeline/pipeline-internals explanatory "no 4× factor" texts
 
-| File | Line / section | Edit |
-|---|---|---|
-| `.claude/rules/memory-decisions.md` | :164 | Strike "mitigated by overfetch factor (4x)". Add note that OA-gap mitigation is via `PUBMED_RELEVANT_COUNT=200`. |
-| `docs/pipeline-internals.md` | :369, :1122 | Remove the ANALYSIS_OVERFETCH_FACTOR description. Replace with accurate description of `PUBMED_RELEVANT_COUNT`. |
-| `docs/reports/pipeline-report.tex` | :319, :609 | Same edits; this is the PDF version of pipeline-internals. |
-| `publication/sections/02_description.tex` | :14 | **Must be fixed before submission.** Rewrite the one-liner that claims the 4× factor. |
-| `publication/working/MEETING_NOTES_2026-03-09.md` | :219 | Historical note — mark as superseded rather than rewriting. |
-| `publication/working/elicit_research/03_semantic_search.md` | :60, :70 | Frame as "RS's candidate-widening via `PUBMED_RELEVANT_COUNT`" rather than "overfetch factor". |
-| `publication/working/elicit_research/04_search_vs_vectordb.md` | :48, :56 | Same. |
-| `publication/working/elicit_research/06_keyword_search.md` | :46 | Same. |
-| `pipeline/modules/config.py` | :158 | Delete `ANALYSIS_OVERFETCH_FACTOR = int(os.getenv("ANALYSIS_OVERFETCH_FACTOR", "4"))`. |
+**What's NOT in this patch (deliberate non-goals):**
+- `Final_Audit.md` (this file) — the F1 finding IS the record that the claim was
+  false; leaving the original-claim quotes here is the paper trail.
+- `docs/pipeline-understanding.md` §3438+ (Side finding: "overfetch factor is a
+  fiction") — already correctly acknowledges F1 and cross-references it.
+- `.claude/rules/memory-sessions.md` — historical session log; do not rewrite
+  history.
+- `docs/reports/pipeline-report.tex` — legacy PDF artefact, regenerate on next
+  pandoc build.
+- `dist/**` — app-build artefacts, regenerate on next package.
 
-**Verification after fix:** `grep -r "overfetch\|ANALYSIS_OVERFETCH" .` should return
-only historical references in `Final_Audit.md` (this file) and
-`memory-sessions.md` (session log — leave historical entries intact).
-
-**Cross-reference:** F2/F3 (specific-PMIDs entry hardening) is orthogonal — both are
-about user-curated lists but F1 is purely cosmetic docs cleanup.
+**Cross-reference:** F2/F3 (specific-PMIDs entry hardening) is orthogonal — both
+touch user-curated lists but F1 was purely cosmetic docs cleanup.
 
 ---
 
@@ -1702,17 +1728,20 @@ in the viewer's row list) but without `arg_values` / `return_value` because they
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P5 tier — XS effort. One-file edit.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `af4fe61`).
 
-Just append the 10 names to the frozenset in `pipeline_tracer.py`. No other changes
-needed; the tracer machinery already handles any function by name. Next run will
-capture values for these rows.
+**Files modified:**
+- `pipeline/modules/pipeline_tracer.py` — 10 function names appended to the
+  Orchestrator-level plumbing block of `_FN_TRACER_VALUE_CAPTURE`:
+  `_finalize_paper_result`, `_get_citation_record`, `_write_split_output`,
+  `_run_pipeline_worker`, `get_gene_source`, `get_ncbi_id`, `get_full_name`,
+  `get_aliases`, `get_chromosome`, `_agg_variants`.
 
-Caveat: the 5 nested getter closures (`get_gene_source` etc.) may have `self`-like
-closure-captured variables. The tracer's `skip self/cls` guard will filter those out;
-actual per-row values will still be captured.
+**Verification performed:**
+- AST-parse clean; no other code changes.
+- Shipped in the same frozenset edit as L2 (single diff, commit `af4fe61`).
 
-Cross-reference: ship together with L2 (one commit, one watchlist diff).
+**Cross-reference:** L2 shipped in the same commit (adds `_collect_debug_artifact`).
 
 ---
 
@@ -1739,14 +1768,18 @@ effectively turning one click into a full extraction post-mortem.
 
 ### Implementation notes (session continuity)
 
-**Status:** ⬜ TODO. P5 tier — XS effort. Single-line addition.
+**Status:** ✅ DONE — 2026-04-20 (branch `dev/cleanup`, commit `af4fe61`).
 
-The `summarise()` helper will handle the return value gracefully — it's a dict; max
-sizes will cap output at ~30 candidate previews. If a run has more than 30 candidates,
-the viewer shows a previewed sample with length counts, not the full list. That's OK
-because the full data still lives in `drop_debug_*.json` on disk.
+**Files modified:**
+- `pipeline/modules/pipeline_tracer.py` — `_collect_debug_artifact` added to the
+  Gemini block of `_FN_TRACER_VALUE_CAPTURE`.
 
-Ship together with L1 — one `_FN_TRACER_VALUE_CAPTURE` edit, 11 names added total.
+**Verification performed:**
+- AST-parse clean; no other code changes.
+- Shipped in the same frozenset edit as L1 (one commit, 11 names total: 10 for
+  L1 + 1 for L2).
+
+**Cross-reference:** L1 shipped in the same commit.
 
 ---
 
@@ -1853,27 +1886,28 @@ This block captures state that would be painful to rediscover after context comp
 **`dev/cleanup`** — branched from `main` at commit `b2eb8f5`. Pushed to origin.
 
 Commits on the branch so far (newest first):
-- `778fbdd` **feat(oa-gate): F2 enforce OA invariant on specific-PMIDs entry path**
+- `af4fe61` **chore: batch-1 quick wins (tracer watchlist, fuzzy pattern, docstring, overfetch cleanup)**
+- `11b4219` docs: mark F2 DONE in Final_Audit.md
+- `778fbdd` feat(oa-gate): F2 enforce OA invariant on specific-PMIDs entry path
 - `580a5b7` docs: PMID 41017238 audit + F11/F12 findings + priority restructure
 - `b44f8f7` feat(tracer,extraction): F11 extraction_mode + worker function tracing
 
 ### What's on disk but not yet committed
 
 ```
-M Final_Audit.md    (F2 status flipped DONE + implementation notes rewritten
-                     to match shipped state; needs commit after F2 session)
+M Final_Audit.md    (Batch-1 status flips + implementation-notes rewrites
+                     + handoff section update; this commit is next)
 ?? python/          (stale leftover from python/→pipeline/ rename in commit
                      16308cf; .DS_Store + .pytest_cache only; safe to ignore)
 ```
 
 ### Recommended next session batch
 
-**Batch 1 — quick wins (~1 hour, all XS–S):**
-1. **P5-L1 + P5-L2** — single watchlist edit in `pipeline_tracer.py`, 11 names
-2. **F8b** — extend fuzzy separator class in `_find_evidence_snippet`
-3. **F8c** — docstring clarification on `_run_grounding_check`
-4. **F1** — global sed over the 8 files listed under F1 implementation notes, delete
-   orphaned `ANALYSIS_OVERFETCH_FACTOR` from `config.py`
+**Batch 1 — quick wins (~1 hour, all XS–S):** ✅ SHIPPED in commit `af4fe61`
+1. ~~**P5-L1 + P5-L2**~~ ✅ single watchlist edit in `pipeline_tracer.py`, 11 names
+2. ~~**F8b**~~ ✅ extended fuzzy separator class in `_find_evidence_snippet`
+3. ~~**F8c**~~ ✅ docstring clarification on `_run_grounding_check`
+4. ~~**F1**~~ ✅ 8-file doc sweep + orphaned `ANALYSIS_OVERFETCH_FACTOR` deleted
 
 **Batch 2 — higher-impact P0/P1 (~2–3 hours):**
 1. **F12** — per-gene snippet search in `_backfill_sparse_row_evidence`
