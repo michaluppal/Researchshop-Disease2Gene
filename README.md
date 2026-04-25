@@ -121,7 +121,7 @@ The output CSV contains one row per gene-paper pair with the following key colum
 ```
 PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
                                                               ↓
-                                          CSV Output ← Gene Validation ← Gemini Extraction
+                                          CSV Output ← Gene Validation ← Stage 5 Extraction
 ```
 
 **Stage details:**
@@ -132,7 +132,7 @@ PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
 | 2. Abstract Screening | `abstract_screener.py` | Keyword filter — removes non-genetics papers |
 | 3. Full Text Fetch | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback |
 | 4. PubTator NER | `pubtator_tool.py` | NCBI NER — high-precision gene/variant tagging |
-| 5. Gemini Extraction | `gemini_extractor.py` | LLM extraction with structured schema + citations |
+| 5. Stage 5 Extraction | `stage5/` | Candidate discovery, Gemini structured extraction, grounding, validation, and evidence gates |
 | 6. Gene Validation | `gene_validator.py` | HGNC validation, citation grounding (≥0.85 match) |
 | 7. CSV Output | `pipeline_orchestrator.py` | Deduplication, citation ranking, CSV write |
 
