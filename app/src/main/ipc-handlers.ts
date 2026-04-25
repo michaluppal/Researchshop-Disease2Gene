@@ -252,7 +252,8 @@ export function registerIpcHandlers(): void {
         const batch = safePmids.slice(i, i + 200)
         const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${batch.join(',')}&retmode=json`
         const res = await fetch(url)
-        const data = await res.json()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any
         if (data?.result) {
           for (const pmid of batch) {
             if (data.result[pmid] && !data.result[pmid].error) {
@@ -325,7 +326,8 @@ export function registerIpcHandlers(): void {
     try {
       const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=0&retmode=json`
       const res = await fetch(url)
-      const data = await res.json()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await res.json() as any
       return { count: parseInt(data?.esearchresult?.count || '0') }
     } catch {
       return { count: 0 }
@@ -521,7 +523,8 @@ Return JSON:
         try {
           const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/PMID:${pmid}?fields=citationCount`)
           if (res.ok) {
-            const data = await res.json()
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const data = await res.json() as any
             results[pmid] = data.citationCount || 0
           } else {
             results[pmid] = 0

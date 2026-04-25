@@ -22,7 +22,7 @@ function isProgressPayload(p: unknown): p is { stage: string; percent: number; s
 function isLogPayload(p: unknown): p is { level: string; msg: string; detail?: string | null } {
   return typeof p === 'object' && p !== null && 'level' in p && 'msg' in p
 }
-function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; error?: string } {
+function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string } {
   return typeof p === 'object' && p !== null
 }
 

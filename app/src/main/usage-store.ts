@@ -4,6 +4,8 @@ interface UsageSchema {
   geminiDailyUsage: { date: string; used: number }
 }
 
+const GEMINI_FREE_TIER_DAILY_LIMIT = 1000
+
 const usageStore = new Store<UsageSchema>({
   name: 'usage',
   defaults: { geminiDailyUsage: { date: '', used: 0 } }
@@ -17,9 +19,9 @@ export function getGeminiDailyUsage(): { used: number; limit: number; date: stri
   const stored = usageStore.get('geminiDailyUsage')
   const today = todayDate()
   if (stored.date !== today) {
-    return { used: 0, limit: 1500, date: today }
+    return { used: 0, limit: GEMINI_FREE_TIER_DAILY_LIMIT, date: today }
   }
-  return { used: stored.used, limit: 1500, date: stored.date }
+  return { used: stored.used, limit: GEMINI_FREE_TIER_DAILY_LIMIT, date: stored.date }
 }
 
 export function addGeminiApiCalls(count: number): void {

@@ -81,7 +81,7 @@
 | Python tests | `python/tests/` | ~1,200 |
 | Benchmark scripts | `python/scripts/` | ~1,600 |
 | HGNC database | `python/data/reference/` | 44,943 genes (6.6 MB) |
-| Audit log | `AUDIT.md` | ~4,100 lines |
+| Audit log | `docs/audit/AUDIT.md` | ~4,100 lines |
 | **Total** | | **~23,200 lines** |
 
 ### Key Python Modules
@@ -272,4 +272,4 @@ The LaTeX paper has been **completely rewritten** to reflect the current archite
 - **NEW (Elicit analysis):** Add 4 future work directions (claim-level verification, LLM query construction, ClinicalTrials.gov, cross-run aggregation)
 - **NEW (Elicit analysis):** Expand benchmark from 12 → 20-30 papers (blocking for credibility vs Elicit's 58)
 
-> Full gap remediation plan: see `ROADMAP.md` P3-A through P3-D (added 2026-03-09)
+> Full gap remediation plan: see `docs/planning/ROADMAP.md` P3-A through P3-D (added 2026-03-09)

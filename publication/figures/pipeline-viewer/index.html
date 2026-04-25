@@ -321,9 +321,9 @@
       </div>
       <div class="panel-section">
         <h3>Related docs</h3>
-        <p>Full narrative: <code>docs/pipeline-understanding.md</code><br>
-           Audit findings: <code>Final_Audit.md</code><br>
-           Stage reference: <code>.claude/rules/memory-pipeline.md</code></p>
+        <p>Full narrative: <code>docs/pipeline/understanding.md</code><br>
+           Audit findings: <code>docs/audit/final-audit.md</code><br>
+           Stage reference: <code>.codex/rules/memory-pipeline.md</code></p>
       </div>
     </div>
   </aside>
@@ -535,7 +535,7 @@ const NODES = {
     audit: []
   },
   strict_gate: { lane: 6, row: 0, label: "Strict gate", stage_id: "confidence ≥ 0.7", laneClass: "lane-gate",
-    desc: "Drop if validation_confidence < 0.7. Medical-accuracy threshold (CLAUDE.md IMPORTANT). Fail-closed if column missing.",
+    desc: "Drop if validation_confidence < 0.7. Medical-accuracy threshold (AGENTS.md non-negotiable). Fail-closed if column missing.",
     inputs: ["backfilled rows"],
     outputs: ["≥0.7 confidence rows (tag: rejected_below_final_threshold)"],
     config: ["FINAL_VALIDATION_MIN_CONFIDENCE=0.7", "ENABLE_STRICT_VALIDATION_GATE"],
@@ -860,7 +860,7 @@ function renderPanel(id) {
   // Docs
   html += `<div class="panel-section">
     <h3>Docs</h3>
-    <p><code>docs/pipeline-understanding.md</code> ${escapeHtml(n.docs)}</p>
+    <p><code>docs/pipeline/understanding.md</code> ${escapeHtml(n.docs)}</p>
   </div>`;
 
   // Audit

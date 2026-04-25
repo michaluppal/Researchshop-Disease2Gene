@@ -329,6 +329,9 @@ class _SyncAsyncResult:
     def __init__(self, value):
         self._value = value
 
+    def ready(self):
+        return True
+
     def get(self, timeout=None):  # noqa: ARG002
         return self._value
 
@@ -365,7 +368,7 @@ class _SyncPool:
 
 
 def _mock_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None,
-                          abstract_text=None, table_inputs=None):
+                          abstract_text=None, table_inputs=None, pmid=None):  # noqa: ARG001
     """Return pre-built gene records based on which sample paper text is passed in.
 
     Identifies the paper by matching text against SAMPLE_FULL_TEXT and returns

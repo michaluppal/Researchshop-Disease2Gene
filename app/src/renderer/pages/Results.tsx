@@ -412,6 +412,7 @@ export default function Results() {
   const excelPath = searchParams.get('excel') || ''
   const metaPath  = searchParams.get('meta')  || ''
   const jsonPath  = searchParams.get('json')  || ''
+  const runWarning = searchParams.get('warning') || ''
   // F10b: strict-gate drop surfacing. Both params are optional — banner hides when count <= 0.
   const dropDebugPath   = searchParams.get('dropDebug') || ''
   const strictGateDrops = Number(searchParams.get('dropCount') || '0') || 0
@@ -429,6 +430,8 @@ export default function Results() {
   const [showMetaPicker, setShowMetaPicker]     = useState(false)
   const [researchBannerDismissed, setResearchBannerDismissed] = useState(false)
   const [strictGateBannerDismissed, setStrictGateBannerDismissed] = useState(false)
+  const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false)
+  const [emptyGeneBannerDismissed, setEmptyGeneBannerDismissed] = useState(false)
 
   // Search, sort, pagination state
   const [searchQuery, setSearchQuery] = useState('')
@@ -507,6 +510,31 @@ export default function Results() {
     if (ctxIdx < 0) return null
     return metaRows.filter(row => (row[ctxIdx] ?? '').includes('no_oa_full_text')).length
   }, [metaLoaded, metaHeaders, metaRows])
+
+  const quotaLimitedRows = useMemo(() => {
+    if (rows.length === 0) return 0
+    const modeIdx = headers.indexOf('extraction_mode')
+    const errIdx = headers.indexOf('detail_extraction_error')
+    if (modeIdx < 0 && errIdx < 0) return 0
+    return rows.filter((row) => {
+      const mode = modeIdx >= 0 ? row[modeIdx] || '' : ''
+      const err = errIdx >= 0 ? row[errIdx] || '' : ''
+      return mode === 'skeleton' && (
+        err.includes('429') ||
+        err.includes('RESOURCE_EXHAUSTED') ||
+        err.toLowerCase().includes('quota')
+      )
+    }).length
+  }, [headers, rows])
+
+  const hasOnlyMetadataRows = useMemo(() => {
+    if (rows.length === 0) return false
+    const modeIdx = headers.indexOf('extraction_mode')
+    const geneIdx = headers.findIndex((h) => h === 'Gene' || h === 'Gene/Group')
+    const allGenesBlank = geneIdx >= 0 && rows.every((row) => !(row[geneIdx] || '').trim())
+    const explicitNoGenes = modeIdx >= 0 && rows.every((row) => row[modeIdx] === 'no_validated_genes')
+    return allGenesBlank || explicitNoGenes
+  }, [headers, rows])
 
   // Filtered rows (search)
   const filteredRows = useMemo(() => {
@@ -643,6 +671,41 @@ export default function Results() {
           <button
             onClick={() => setResearchBannerDismissed(true)}
             className="text-amber-600 hover:text-amber-800 flex-shrink-0 ml-2"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {(runWarning || quotaLimitedRows > 0) && !quotaBannerDismissed && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg mb-4 text-sm text-red-800">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">
+            <strong>Incomplete Gemini extraction.</strong>{' '}
+            {runWarning || `${quotaLimitedRows} row${quotaLimitedRows === 1 ? '' : 's'} were saved after Gemini quota or rate limits.`}
+            {' '}Rows marked as skeleton/REVIEW contain fallback snippets, not complete AI extraction.
+          </span>
+          <button
+            onClick={() => setQuotaBannerDismissed(true)}
+            className="text-red-600 hover:text-red-800 flex-shrink-0 ml-2"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {hasOnlyMetadataRows && !emptyGeneBannerDismissed && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-sky-50 border border-sky-200 rounded-lg mb-4 text-sm text-sky-800">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">
+            <strong>No validated genes extracted.</strong>{' '}
+            The paper metadata was saved, but no candidate gene passed the validation and evidence gates.
+          </span>
+          <button
+            onClick={() => setEmptyGeneBannerDismissed(true)}
+            className="text-sky-600 hover:text-sky-800 flex-shrink-0 ml-2"
             aria-label="Dismiss"
           >
             ✕

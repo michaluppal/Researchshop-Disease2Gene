@@ -177,6 +177,7 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
             pmid=pmid,
         )
         df = inst.run_pipeline(cols)
+        df = _ensure_unique_columns(df)
         # Flush any tracer events this worker recorded before returning.
         try:
             pipeline_tracer.flush_worker_partial()
@@ -264,7 +265,20 @@ def _write_excel_output(
 
 def _write_json_output(df_clean: "pd.DataFrame", json_path: "os.PathLike") -> None:
     """Write the clean results as a JSON array of records."""
+    df_clean = _ensure_unique_columns(df_clean.copy())
     df_clean.to_json(json_path, orient="records", indent=2, force_ascii=False)
+
+
+def _unique_preserve_order(items: list) -> list:
+    """Return items with duplicates removed while preserving first appearance."""
+    seen = set()
+    unique = []
+    for item in items:
+        if item in seen:
+            continue
+        unique.append(item)
+        seen.add(item)
+    return unique
 
 
 def _write_split_output(
@@ -293,6 +307,7 @@ def _write_split_output(
     from pathlib import Path
 
     output_path = Path(output_path)
+    df = _ensure_unique_columns(df.copy())
 
     # Compute confidence flags row-by-row
     confidence_rows = [
@@ -312,6 +327,7 @@ def _write_split_output(
         "Journal Name": "Journal",
     }
     df_clean = df.rename(columns=rename_map)
+    df_clean = _ensure_unique_columns(df_clean)
 
     primary_cols = (
         ["Gene", "Variant"]
@@ -326,16 +342,18 @@ def _write_split_output(
         ]
         + ["PMID", "Title", "Year", "Journal", "Authors", "Citations", "DOI"]
     )
-    primary_cols_present = [c for c in primary_cols if c in df_clean.columns]
+    primary_cols_present = _unique_preserve_order([c for c in primary_cols if c in df_clean.columns])
     df_primary = df_clean[primary_cols_present]
+    df_primary = _ensure_unique_columns(df_primary)
     df_primary.to_csv(output_path, index=False)
 
     # --- Metadata CSV (full transparency, same row order as primary) ---
     meta_path = output_path.with_name(output_path.stem + "_metadata.csv")
     join_keys = ["PMID", "Gene/Group", "Variant Name"]
     remaining = [c for c in df.columns if c not in join_keys]
-    meta_cols_present = [c for c in join_keys + remaining if c in df.columns]
+    meta_cols_present = _unique_preserve_order([c for c in join_keys + remaining if c in df.columns])
     df_meta = df[meta_cols_present]
+    df_meta = _ensure_unique_columns(df_meta)
     df_meta.to_csv(meta_path, index=False)
 
     # --- Excel workbook (Results + Metadata sheets) ---
@@ -370,6 +388,14 @@ def _sanitize_user_columns(user_columns: dict) -> dict:
         "Author Affiliations",
         "Citations",
         "Abstract",
+        # Primary output names after researcher-facing renames.
+        "Gene",
+        "Variant",
+        "Title",
+        "Year",
+        "Journal",
+        "Confidence",
+        "Confidence Note",
         # Internal identifiers occasionally surfaced
         "gene_name",
         "variant_name",
@@ -401,7 +427,7 @@ def _ensure_unique_columns(df: pd.DataFrame) -> pd.DataFrame:
     Pandas reindexing requires unique column names; this function disambiguates
     duplicates by appending " (2)", "(3)", ... in appearance order.
     """
-    if not isinstance(df, pd.DataFrame) or df.empty:
+    if not isinstance(df, pd.DataFrame):
         return df
     cols = list(df.columns)
     seen_counts: dict[str, int] = {}
@@ -426,6 +452,11 @@ def _get_citation_record(pmid, citation_records):
         "icite_count": rec.get("icite_count"),
         "semantic_scholar_count": rec.get("semantic_scholar_count"),
     }
+
+
+def _is_gemini_quota_error(text: object) -> bool:
+    err = str(text or "")
+    return "429" in err or "RESOURCE_EXHAUSTED" in err or "quota" in err.lower()
 
 
 def _prepare_paper_inputs(pmid, content_dict, paper_details, pubtator_results):
@@ -586,6 +617,27 @@ def _finalize_paper_result(
     if paper_df.empty and not worker_debug:
         worker_debug = {"status": "empty_result"}
 
+    detail_error = worker_debug.get("detail_extraction_error", "")
+    detail_status = worker_debug.get("detail_extraction_status", "")
+    quota_limited = (
+        bool(worker_debug.get("quota_limited"))
+        or _is_gemini_quota_error(detail_error)
+        or detail_status == "quota_limited_fallback"
+    )
+    if quota_limited:
+        row_count = int(len(paper_df))
+        pipeline_stats["quota_limited_papers"] = int(
+            pipeline_stats.get("quota_limited_papers", 0)
+        ) + 1
+        pipeline_stats["quota_limited_rows"] = int(
+            pipeline_stats.get("quota_limited_rows", 0)
+        ) + row_count
+        emit_log(
+            "warn",
+            f"PMID {pmid}: Gemini quota/rate limit reached; output rows require review",
+            "Rows were saved as fallback skeletons with auto-snippets, not full AI extraction.",
+        )
+
     # F10b: Aggregate strict-gate drops into run-level pipeline_stats so the
     # Results UI can surface a banner without the operator opening the
     # drop_debug_*.json forensic file. Each entry is tagged with its PMID.
@@ -599,6 +651,7 @@ def _finalize_paper_result(
         "candidates": worker_debug.get("candidates", []),
         "detail_extraction_status": worker_debug.get("detail_extraction_status", ""),
         "detail_extraction_error": worker_debug.get("detail_extraction_error", ""),
+        "quota_limited": quota_limited,
         "detail_extraction_rows": worker_debug.get("detail_extraction_rows"),
         "validation_drops": worker_debug.get("validation_drops", []),
         "strict_gate_drops": paper_drops,
@@ -691,6 +744,8 @@ def run_complete_pipeline(
         "papers_excluded_not_oa": 0,  # F2: count of paywalled PMIDs dropped at the backup gate
         "strict_gate_drops": [],  # F10b: flat list of per-gene strict-gate drops across all papers
         "strict_gate_drops_count": 0,  # F10b: operator-facing count surfaced to Results UI
+        "quota_limited_papers": 0,
+        "quota_limited_rows": 0,
     }
     paper_debug_artifacts = []
     forensic_screening = []
@@ -1632,9 +1687,31 @@ def run_complete_pipeline(
             logging.warning("AI produced no rows; falling back to minimal rows only.")
             all_results_df = pd.DataFrame(minimal_rows)
         else:
-            logging.warning("No results were extracted by the pipeline.")
-            report_progress("Completed", 100)
-            return None
+            logging.warning("No validated genes were extracted; saving metadata-only rows.")
+            emit_log(
+                "warn",
+                "No validated genes were extracted",
+                "The paper was analyzed, but no gene candidates passed validation and evidence gates.",
+            )
+            recorded_pmids = {
+                str(artifact.get("pmid"))
+                for artifact in paper_debug_artifacts
+                if artifact.get("pmid")
+            } or set(pmids_to_process)
+            for pmid in pmids_to_process:
+                if pmid not in recorded_pmids:
+                    continue
+                base_info = paper_details.get(pmid, {})
+                minimal_rows.append(
+                    {
+                        **build_minimal_row(pmid, base_info, citation_records),
+                        "extraction_mode": "no_validated_genes",
+                        "detail_extraction_error": (
+                            "No validated genes were extracted from this paper."
+                        ),
+                    }
+                )
+            all_results_df = pd.DataFrame(minimal_rows)
 
     # HYBRID PIPELINE: NCBI Gene enrichment
     if getattr(config, "ENABLE_NCBI_ENRICHMENT", True) and not all_results_df.empty:
@@ -1925,6 +2002,13 @@ def run_complete_pipeline(
         "info",
         f"Pipeline complete: {total_genes} genes from {total_analyzed} papers ({elapsed:.0f}s)",
     )
+    quota_rows = int(pipeline_stats.get("quota_limited_rows", 0) or 0)
+    if quota_rows:
+        emit_log(
+            "warn",
+            f"Gemini quota/rate limit affected {quota_rows} output rows",
+            "Treat this run as incomplete and rerun after quota resets or with a paid/higher-limit key.",
+        )
     report_progress("Completed", 100)
     logging.info(f"--- PIPELINE FINISHED IN {elapsed:.2f} SECONDS ---")
 
@@ -1955,6 +2039,11 @@ def run_complete_pipeline(
         # to the same artifact.
         "drop_debug_path": debug_path,
     }
+    if quota_rows:
+        result["warning"] = (
+            f"Gemini quota/rate limit affected {quota_rows} output rows. "
+            "Rows marked REVIEW/skeleton are fallback evidence, not full AI extraction."
+        )
     if trace_path:
         result["trace_path"] = trace_path
     return result

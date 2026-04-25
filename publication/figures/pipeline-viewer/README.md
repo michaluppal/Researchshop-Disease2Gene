@@ -22,8 +22,8 @@ Open `index.html` in any modern browser. No build step, no server, no
 dependencies. Everything is inline.
 
 Without a trace file, the viewer shows the static pipeline schema. Every stage
-links to its section in `docs/pipeline-understanding.md` and any related audit
-findings in `Final_Audit.md`.
+links to its section in `docs/pipeline/understanding.md` and any related audit
+findings in `docs/audit/final-audit.md`.
 
 ## Quick use — live mode
 
@@ -132,6 +132,6 @@ at the appropriate site. Keep node IDs in sync with the `NODES` table in
 
 ## Related docs
 
-- `docs/pipeline-understanding.md` — full narrative trace of the pipeline
-- `Final_Audit.md` — findings (F1–F10) the viewer cross-references
-- `.claude/rules/memory-pipeline.md` — stage-level reference for Claude sessions
+- `docs/pipeline/understanding.md` — full narrative trace of the pipeline
+- `docs/audit/final-audit.md` — findings (F1–F10) the viewer cross-references
+- `.codex/rules/memory-pipeline.md` — stage-level reference for Codex sessions
