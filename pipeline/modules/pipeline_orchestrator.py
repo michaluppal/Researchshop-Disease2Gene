@@ -14,8 +14,8 @@ from tqdm import tqdm
 
 from . import config, full_text_fetcher, pipeline_tracer, pubmed_data_collector
 from .abstract_screener import has_genetic_content
-from .gemini_extractor import GeneInfoPipeline
 from .pubtator_tool import HybridExtractionResult, NCBIGeneTool, PubTatorTool
+from .stage5.pipeline import Stage5Pipeline
 
 
 class JobCancelledException(Exception):
@@ -168,7 +168,7 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
         pass
 
     try:
-        inst = GeneInfoPipeline(
+        inst = Stage5Pipeline(
             text,
             abstract_text=abstract_text or "",
             pubtator_genes=pubtator_genes,
@@ -1267,8 +1267,8 @@ def run_complete_pipeline(
 
     report_progress("Analyzing papers with AI", 70)
     emit_log("info", f"Analyzing {len(pmids_to_process)} papers with AI")
-    # Step 5: Process each paper using the GeneInfoPipeline class (Gemini)
-    logging.info("STEP 5: Analyzing papers with Gemini using the GeneInfoPipeline...")
+    # Step 5: Process each paper using the Stage5Pipeline coordinator.
+    logging.info("STEP 5: Analyzing papers with Stage 5 extraction using Stage5Pipeline...")
     all_results_df = pd.DataFrame()
     # Sanitize user columns to avoid collisions with core fields
     column_descriptions = _sanitize_user_columns(user_columns)

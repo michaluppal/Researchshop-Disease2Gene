@@ -249,6 +249,44 @@ class TestImageDownloadFailureHandledGracefully:
             "No genes should be extracted when figure download times out"
         )
 
+    def test_transient_cdn_lookup_failure_is_not_cached(self):
+        """A temporary PMC article-page failure must not poison CDN lookup cache."""
+        pipeline = _make_pipeline(paper_text="BRCA1 was studied.")
+        figure = {
+            "label": "Figure 1",
+            "caption": "BRCA1 expression panel.",
+            "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/fig1.jpg",
+            "url_candidates": ["https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/fig1.jpg"],
+            "source": "pmc_xml",
+        }
+        cdn_url = "https://cdn.ncbi.nlm.nih.gov/pmc/blobs/x/123456/y/fig1.jpg"
+
+        failed_article_response = MagicMock()
+        failed_article_response.status_code = 503
+        ok_article_response = MagicMock()
+        ok_article_response.status_code = 200
+        ok_article_response.text = f'<img src="{cdn_url}">'
+        failed_image_response = MagicMock()
+        failed_image_response.status_code = 404
+        ok_image_response = MagicMock()
+        ok_image_response.status_code = 200
+        ok_image_response.headers = {"Content-Type": "image/jpeg", "Content-Length": "104"}
+        ok_image_response.iter_content = MagicMock(
+            return_value=iter([b"\xFF\xD8\xFF\xE0" + b"\x00" * 100])
+        )
+
+        responses = iter([
+            failed_image_response,
+            failed_article_response,
+            failed_image_response,
+            ok_article_response,
+            ok_image_response,
+        ])
+
+        with patch("requests.get", side_effect=lambda *_args, **_kwargs: next(responses)):
+            assert pipeline._fetch_figure_image(figure) is None
+            assert pipeline._fetch_figure_image(figure)["url"] == cdn_url
+
 
 # ---------------------------------------------------------------------------
 # Test 4: test_malformed_json_figure_response

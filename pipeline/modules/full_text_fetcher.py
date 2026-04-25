@@ -48,7 +48,7 @@ from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 from urllib3.util.retry import Retry
 
-from . import config
+from . import config, pubmed_xml_parser
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +428,75 @@ def _extract_figures_from_pmc_xml(root, article_url: str) -> List[Dict[str, Any]
     return figures
 
 
+def _figure_identity_keys(figure: Dict[str, Any]) -> set[str]:
+    """Return stable keys for deduping figure metadata from multiple parsers."""
+    keys = set()
+
+    graphic_ref = str(figure.get("graphic_ref") or "").strip()
+    if graphic_ref:
+        keys.add(f"graphic:{graphic_ref}")
+
+    url = str(figure.get("url") or "").strip()
+    if url:
+        keys.add(f"url:{url}")
+
+    for candidate in figure.get("url_candidates") or []:
+        candidate_url = str(candidate or "").strip()
+        if candidate_url:
+            keys.add(f"url:{candidate_url}")
+
+    return keys
+
+
+def _merge_figure_metadata(
+    pubmed_parser_figures: List[Dict[str, Any]],
+    researchshop_figures: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge pubmed_parser figures with ResearchShop's JATS figure parser.
+
+    pubmed_parser can provide useful IDs and graphic refs, but browser ground
+    truth showed it may return only a subset of article figures. Treat it as an
+    enrichment source, not an exclusive replacement.
+    """
+    merged: List[Dict[str, Any]] = []
+    key_to_index: Dict[str, int] = {}
+
+    def _add_or_merge(figure: Dict[str, Any]) -> None:
+        keys = _figure_identity_keys(figure)
+        existing_indices = {key_to_index[key] for key in keys if key in key_to_index}
+
+        if not existing_indices:
+            merged.append(dict(figure))
+            index = len(merged) - 1
+            for key in keys:
+                key_to_index[key] = index
+            return
+
+        index = min(existing_indices)
+        existing = merged[index]
+
+        for field in ("label", "caption", "url", "source", "parser", "fig_id", "graphic_ref"):
+            if not existing.get(field) and figure.get(field):
+                existing[field] = figure[field]
+
+        existing_candidates = list(existing.get("url_candidates") or [])
+        for candidate in figure.get("url_candidates") or []:
+            if candidate and candidate not in existing_candidates:
+                existing_candidates.append(candidate)
+        if existing_candidates:
+            existing["url_candidates"] = existing_candidates
+
+        for key in _figure_identity_keys(existing):
+            key_to_index[key] = index
+
+    for figure in pubmed_parser_figures:
+        _add_or_merge(figure)
+    for figure in researchshop_figures:
+        _add_or_merge(figure)
+
+    return merged
+
+
 def _extract_structured_tables_from_pmc_xml(root) -> List[StructuredTable]:
     """Parse <table-wrap> elements into StructuredTable objects.
 
@@ -511,32 +580,10 @@ def _extract_structured_tables_from_pmc_xml(root) -> List[StructuredTable]:
     return tables
 
 
-def _extract_text_and_figures_from_pmc_xml(xml_bytes: bytes, article_url: Optional[str] = None) -> Tuple[Optional[str], List[Dict[str, Any]], List[StructuredTable]]:
-    """
-    Parse PMC full-text XML and extract text + figure metadata + structured tables.
-    """
-    import xml.etree.ElementTree as ET
-
-    try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError as e:
-        logger.debug(f"Failed to parse PMC XML: {e}")
-        return None, [], []
-
+def _extract_body_sections_from_pmc_root(root) -> List[str]:
+    """Fallback body-section parser used when pubmed_parser yields no body text."""
     sections: List[str] = []
-    figures: List[Dict[str, Any]] = []
 
-    # Extract abstract from <front>
-    for abstract in root.iter():
-        if not _jats_tag_matches(abstract, 'abstract'):
-            continue
-        for p in abstract.iter():
-            if _jats_tag_matches(p, 'p'):
-                text = _collect_xml_text(p).strip()
-                if text:
-                    sections.append(text)
-
-    # Extract body sections
     for body in root.iter():
         if not _jats_tag_matches(body, 'body'):
             continue
@@ -563,6 +610,47 @@ def _extract_text_and_figures_from_pmc_xml(xml_bytes: bytes, article_url: Option
                     text = _collect_xml_text(p).strip()
                     if text:
                         sections.append(text)
+
+    return sections
+
+
+def _extract_text_and_figures_from_pmc_xml(xml_bytes: bytes, article_url: Optional[str] = None) -> Tuple[Optional[str], List[Dict[str, Any]], List[StructuredTable]]:
+    """
+    Parse PMC full-text XML and extract text + figure metadata + structured tables.
+
+    pubmed_parser is used first for body paragraphs and figure metadata because
+    it understands standard PMC OA JATS. ResearchShop's parser remains the
+    fallback and still owns abstract, tables, supplementary files, and schema
+    normalization.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as e:
+        logger.debug(f"Failed to parse PMC XML: {e}")
+        return None, [], []
+
+    sections: List[str] = []
+    figures: List[Dict[str, Any]] = []
+
+    # Extract abstract from <front>
+    for abstract in root.iter():
+        if not _jats_tag_matches(abstract, 'abstract'):
+            continue
+        for p in abstract.iter():
+            if _jats_tag_matches(p, 'p'):
+                text = _collect_xml_text(p).strip()
+                if text:
+                    sections.append(text)
+
+    # Extract body sections. Prefer pubmed_parser, but keep the previous parser
+    # as the fallback for unusual JATS structures or parser failures.
+    body_text = pubmed_xml_parser.parse_pubmed_parser_paragraph_text(xml_bytes)
+    if body_text:
+        sections.append(body_text)
+    else:
+        sections.extend(_extract_body_sections_from_pmc_root(root))
 
     if not sections:
         # Fallback: grab all <p> elements anywhere in the document
@@ -616,7 +704,10 @@ def _extract_text_and_figures_from_pmc_xml(xml_bytes: bytes, article_url: Option
 
     # Extract figure metadata and include captions in text context.
     if article_url and getattr(config, 'ENABLE_FIGURE_ANALYSIS', True):
-        figures = _extract_figures_from_pmc_xml(root, article_url)
+        figures = _merge_figure_metadata(
+            pubmed_xml_parser.parse_pubmed_parser_figures(xml_bytes, article_url),
+            _extract_figures_from_pmc_xml(root, article_url),
+        )
         for fig in figures:
             label = (fig.get("label") or "").strip()
             caption = (fig.get("caption") or "").strip()

@@ -24,7 +24,7 @@ Build configs live in `config/`. `package.json` scripts pass explicit config pat
 |---|---|---|
 | Entry | `pipeline/run_pipeline.py` | CLI spawned by Electron |
 | Orchestration | `pipeline/modules/pipeline_orchestrator.py` | chains all stages |
-| Extraction | `pipeline/modules/gemini_extractor.py` | LLM extraction engine |
+| Extraction | `pipeline/modules/stage5/` | Stage 5 candidate discovery, Gemini extraction, validation, and evidence gates |
 | Validation | `pipeline/modules/gene_validator.py` | HGNC + remote APIs |
 | NER | `pipeline/modules/pubtator_tool.py` | high-precision gene NER |
 | Config | `pipeline/modules/config.py` | all pipeline feature flags |

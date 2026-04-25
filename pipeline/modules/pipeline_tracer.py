@@ -323,6 +323,8 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_clean_and_validate_content",              # Greek → Latin, non-ASCII strip
     "_normalize_unicode_slashes",               # slash/μ/LaTeX unification
     "_extract_text_and_figures_from_pmc_xml",
+    "parse_pubmed_parser_paragraph_text",
+    "parse_pubmed_parser_figures",
     "_extract_supplementary_urls_from_pmc_xml",
     "_extract_supplementary_content",           # downloads & parses supp files
     "_extract_pdf_text",                        # pdfminer extraction
@@ -540,7 +542,7 @@ def install_function_tracer(max_events: int = 5000) -> None:
                     arg_values: Dict[str, Any] = {}
                     for name in arg_names:
                         # Skip self/cls — their repr is always noisy
-                        # ("<modules.gemini_extractor.GeneInfoPipeline object at 0x…>")
+                        # ("<modules.stage5.pipeline.Stage5Pipeline object at 0x…>")
                         # and adds nothing to understanding a method's behaviour.
                         if name in ("self", "cls"):
                             continue

@@ -14,12 +14,12 @@
 ```
 UI: PubMed Search → Gene Relevance Scoring → User Selection
                                                      ↓
-Pipeline: Full Text Fetch → PubTator NER → Gemini Extraction → Gene Validation → CSV Output
+Pipeline: Full Text Fetch → PubTator NER → Stage 5 Extraction → Gene Validation → CSV Output
 ```
 
 Two precision layers:
 - **PubTator** (Stage 4): high precision / lower recall — forms the safety floor
-- **Gemini** (Stage 5): high recall / lower precision — extends coverage, adds relationships
+- **Stage 5 Gemini calls**: high recall / lower precision — extend coverage and add relationships
 - **Gene Validation** (Stage 6): final safety gate before any result reaches the user
 
 **UI-side screening:** Gene relevance scoring runs in the Electron renderer (`geneRelevanceScorer.ts`)
@@ -98,7 +98,9 @@ No silent post-selection filtering. Researchers who know a paper is relevant can
 ## Stage 3 — Full Text Fetch (`full_text_fetcher.py`)
 
 **What it does:** Retrieves structured full-text for OA papers via PMC Entrez JATS XML (preferred)
-or Europe PMC fullTextXML (fallback). Also extracts figure metadata for multimodal Gemini analysis.
+or Europe PMC fullTextXML (fallback). Parsed XML goes through a `pubmed_parser`
+adapter for body paragraphs and figure metadata, with ResearchShop's parser as
+fallback. Also extracts figure metadata for multimodal Gemini analysis.
 
 **Inputs:** PMID list
 **Outputs:** per-paper dict with sections (abstract, intro, methods, results, discussion, conclusion),
@@ -107,6 +109,7 @@ or Europe PMC fullTextXML (fallback). Also extracts figure metadata for multimod
 **Strategy chain:**
 1. PMC Entrez `efetch` → structured JATS XML (preferred, section-aware)
 2. Europe PMC fullTextXML → alternative OA endpoint
+3. `pubmed_parser` adapter → standard paragraph + figure-caption parsing; current parser remains fallback
 3. Supplementary file extraction (tables, data files — max 3 files, 200 KB each)
 
 **Failure modes:**
@@ -156,14 +159,15 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
 
 ---
 
-## Stage 5 — Gemini Extraction (`gemini_extractor.py`, 1,703 lines)
+## Stage 5 — Extraction Package (`pipeline/modules/stage5/`)
 
-**What it does:** Two-stage LLM extraction using Google Gemini Flash.
+**What it does:** Per-paper candidate discovery, Gemini extraction, grounding, validation, evidence backfill, and metadata annotation.
 - Stage A: abstract-level gene discovery (fast, cheap — screens for gene-rich papers)
 - Stage B: full-text detailed extraction with user-defined schema columns
 
 **Architecture:**
-- `GeneInfoPipeline` class: instantiated per paper by multiprocessing worker
+- `Stage5Pipeline` class: instantiated per paper by multiprocessing worker
+- `pipeline/modules/gemini_extractor.py` is only a compatibility shim exporting `GeneInfoPipeline = Stage5Pipeline`
 - Inputs: full text + abstract + PubTator seeds + figure metadata + user column schema
 - JSON schema prompting: Gemini is given the user's column definitions with BRCA1/TP53 examples
 
@@ -179,7 +183,7 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
   abbreviations (ESR mm/h, AST U/L, CRP mg/L) as genes. Works with corroboration gate (see C18/C21).
 
 **Stage 3 CRITICAL INSTRUCTIONS (in prompt — do not remove any):**
-These 9 instructions in `gemini_extractor.py` are accumulated fixes for specific failure modes:
+These instructions in `pipeline/modules/stage5/prompts.py` are accumulated fixes for specific failure modes:
 1. Independent row filling per gene (do not leave rows empty because another gene was filled)
 2. Verbatim numbers and units — no unit conversion, rounding, or substitution
 3. No ellipsis in citations (`...`, `[...]`) — quote only the specific clause, or leave empty
@@ -286,7 +290,7 @@ C19 (citation validator silent TypeError fixed), C22 (encoding normalization, ge
 deduplicates, ranks by citation count, and writes final CSV.
 
 **Worker pool:** 2–4 persistent processes (configurable via `AI_WORKER_POOL_SIZE`).
-Each worker holds a `GeneInfoPipeline` instance alive across papers (avoids re-init overhead).
+Each worker creates a fresh `Stage5Pipeline` instance per paper.
 Per-paper timeout: 600 seconds (`AI_PER_PAPER_TIMEOUT_SECONDS`).
 
 **Deduplication:** `groupby(gene + pmid)` then `first()` strategy.

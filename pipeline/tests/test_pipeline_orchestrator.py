@@ -2,7 +2,7 @@
 Tests for pipeline_orchestrator
 
 Smoke test: imports succeed without errors.
-Unit test: _run_pipeline_worker returns expected structure when GeneInfoPipeline is mocked.
+Unit test: _run_pipeline_worker returns expected structure when Stage5Pipeline is mocked.
 
 These tests do NOT call the Gemini API or any external service.
 """
@@ -46,7 +46,7 @@ def test_sanitize_user_columns_empty_input():
 def test_run_pipeline_worker_returns_records_on_success(sample_paper_text):
     """
     _run_pipeline_worker should return {"records": [...], "debug": ...} when
-    GeneInfoPipeline succeeds. The real Gemini extractor is mocked.
+    Stage5Pipeline succeeds. The real Stage 5 extractor is mocked.
     """
     mock_df = pd.DataFrame([
         {"Gene/Group": "BRCA1", "Variant Name": "p.Glu1915Ter", "PMID": "34876594"},
@@ -56,7 +56,7 @@ def test_run_pipeline_worker_returns_records_on_success(sample_paper_text):
     mock_pipeline.return_value.run_pipeline.return_value = mock_df
     mock_pipeline.return_value._collect_debug_artifact.return_value = {}
 
-    with patch("modules.pipeline_orchestrator.GeneInfoPipeline", mock_pipeline):
+    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
         from modules.pipeline_orchestrator import _run_pipeline_worker
         result = _run_pipeline_worker(
             text=sample_paper_text,
@@ -83,7 +83,7 @@ def test_run_pipeline_worker_deduplicates_columns_before_records(sample_paper_te
     mock_pipeline.return_value.run_pipeline.return_value = mock_df
     mock_pipeline.return_value._collect_debug_artifact.return_value = {}
 
-    with patch("modules.pipeline_orchestrator.GeneInfoPipeline", mock_pipeline):
+    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
         from modules.pipeline_orchestrator import _run_pipeline_worker
         result = _run_pipeline_worker(
             text=sample_paper_text,
@@ -98,12 +98,12 @@ def test_run_pipeline_worker_deduplicates_columns_before_records(sample_paper_te
 def test_run_pipeline_worker_returns_error_on_exception(sample_paper_text):
     """
     _run_pipeline_worker should return {"error": "..."} rather than raising
-    when GeneInfoPipeline raises an exception.
+    when Stage5Pipeline raises an exception.
     """
     mock_pipeline = MagicMock()
     mock_pipeline.side_effect = RuntimeError("Simulated Gemini failure")
 
-    with patch("modules.pipeline_orchestrator.GeneInfoPipeline", mock_pipeline):
+    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
         from modules.pipeline_orchestrator import _run_pipeline_worker
         result = _run_pipeline_worker(
             text=sample_paper_text,
