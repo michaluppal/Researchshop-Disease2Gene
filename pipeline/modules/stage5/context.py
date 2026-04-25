@@ -72,8 +72,6 @@ class ContextMixin:
         Returns:
             Dictionary with validation results and any modifications made
         """
-        from .. import config
-
         if not config.ENABLE_CONTEXT_CHECKING:
             return {
                 "failed": False,

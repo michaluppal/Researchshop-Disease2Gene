@@ -98,7 +98,9 @@ No silent post-selection filtering. Researchers who know a paper is relevant can
 ## Stage 3 — Full Text Fetch (`full_text_fetcher.py`)
 
 **What it does:** Retrieves structured full-text for OA papers via PMC Entrez JATS XML (preferred)
-or Europe PMC fullTextXML (fallback). Also extracts figure metadata for multimodal Gemini analysis.
+or Europe PMC fullTextXML (fallback). Parsed XML goes through a `pubmed_parser`
+adapter for body paragraphs and figure metadata, with ResearchShop's parser as
+fallback. Also extracts figure metadata for multimodal Gemini analysis.
 
 **Inputs:** PMID list
 **Outputs:** per-paper dict with sections (abstract, intro, methods, results, discussion, conclusion),
@@ -107,6 +109,7 @@ or Europe PMC fullTextXML (fallback). Also extracts figure metadata for multimod
 **Strategy chain:**
 1. PMC Entrez `efetch` → structured JATS XML (preferred, section-aware)
 2. Europe PMC fullTextXML → alternative OA endpoint
+3. `pubmed_parser` adapter → standard paragraph + figure-caption parsing; current parser remains fallback
 3. Supplementary file extraction (tables, data files — max 3 files, 200 KB each)
 
 **Failure modes:**

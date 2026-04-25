@@ -252,7 +252,7 @@ is the only identifier that ties them together.
 | Step | Function | What it fetches | API hit |
 |---|---|---|---|
 | **A** | [`pubmed_data_collector.fetch_paper_details(pmids)`](pipeline/modules/pubmed_data_collector.py:249) | Metadata + abstract | NCBI Entrez `efetch` (db=pubmed, rettype=medline) |
-| **B** | [`full_text_fetcher.run_fetching(pmids, path)`](pipeline/modules/full_text_fetcher.py) | Full text + figures + tables | NCBI Entrez `efetch` (db=pmc) → Europe PMC `fullTextXML` fallback |
+| **B** | [`full_text_fetcher.run_fetching(pmids, path)`](pipeline/modules/full_text_fetcher.py) | Full text + figures + tables | NCBI Entrez `efetch` (db=pmc) → Europe PMC `fullTextXML` fallback → `pubmed_parser` adapter for paragraphs/figure metadata |
 | **C** | [`pubmed_data_collector.fetch_citation_counts_with_fallback(pmids)`](pipeline/modules/pubmed_data_collector.py:388) | Citation counts | iCite (NIH) → Semantic Scholar fallback |
 
 Steps A and B are called back-to-back in `run_pipeline` ([orchestrator.py:718, 738](pipeline/modules/pipeline_orchestrator.py:718)).
@@ -297,10 +297,9 @@ keyed by PMID. For each PMID it tries two paths:
    `https://www.ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML` as fallback.
    Also JATS XML.
 
-Both responses flow through the same parser
-([`_extract_text_and_figures_from_pmc_xml`](pipeline/modules/full_text_fetcher.py:499))
-using `xml.etree.ElementTree` (stdlib — not lxml, despite lxml being in requirements).
-The parser walks JATS tags (`<abstract>`, `<body>`, `<sec>`, `<fig>`, `<table-wrap>`) and
+Both responses flow through the same parser entrypoint
+([`_extract_text_and_figures_from_pmc_xml`](pipeline/modules/full_text_fetcher.py:499)).
+The parser combines `pubmed_parser` for body paragraphs and figure metadata with ResearchShop's own JATS handling for abstracts, tables, supplementary links, cleaning, and fallback parsing. Together they walk JATS tags (`<abstract>`, `<body>`, `<sec>`, `<fig>`, `<table-wrap>`) and
 returns three things:
 
 - **`body_text`** — flat string with sections concatenated in document order (abstract,
@@ -355,7 +354,7 @@ From [`pipeline/requirements.txt`](pipeline/requirements.txt):
 |---|---|---|
 | `biopython` | `Bio.Entrez` wrapper + `Bio.Medline.parse` | `Entrez.efetch(db='pmc')` in full-text fetcher; `Medline.parse()` in metadata fetcher |
 | `requests` | Raw HTTP (with retry/backoff adapter) | Metadata fetch, Europe PMC, iCite, Semantic Scholar |
-| `xml.etree.ElementTree` (stdlib) | JATS XML parsing | Full-text extraction |
+| `pubmed_parser` + `xml.etree.ElementTree` | JATS XML parsing | Full-text paragraph/figure parsing with ResearchShop fallback, plus tables/supplement handling |
 | `lxml` | Pulled in by `trafilatura` | Not used directly for PMC parsing |
 | `trafilatura` | HTML extraction | Supplementary HTML files only (not primary full text) |
 | `pdfminer.six` | PDF text extraction | Supplementary PDF files only |
@@ -408,16 +407,17 @@ PMID ─▶ PMCID lookup ─▶ Bio.Entrez.efetch(db='pmc', retmode='xml')
                 JATS XML bytes
                        │
                        ▼
-          xml.etree.ElementTree parse
+          pubmed_parser adapter
+          + ResearchShop fallback JATS parser
                        │
                        ▼
     (body_text, figures[], tables[])
 ```
 
 Two endpoints, both returning the **same format** (JATS XML — the NLM journal archiving
-DTD that PubMed Central standardised on), parsed by **one stdlib parser**
-(`xml.etree.ElementTree`). No scraping, no HTML, no DOM selectors, no browser. The module
-header's claim is accurate for this path.
+DTD that PubMed Central standardised on), parsed by `pubmed_parser` with ResearchShop's
+stdlib fallback/parser glue for tables, supplementary links, and quality checks. No scraping,
+no HTML, no DOM selectors, no browser. The module header's claim is accurate for this path.
 
 ### 4.2 Where scraping-flavoured code lives — supplementary files
 
@@ -455,11 +455,12 @@ and it's the **only** place `requests.get()` fetches something that isn't a stru
 | `biopython` (`Bio.Entrez`) | Wraps NCBI efetch for PMC XML (primary text path 1) | **Yes** — this is how PMC full text is fetched |
 | `biopython` (`Bio.Medline`) | Parses Medline-format metadata responses | Yes for metadata; no for full text |
 | `requests` | (a) Europe PMC fallback for primary text, (b) every non-Entrez API call, (c) supplementary-file downloads | Yes — Europe PMC fallback depends on it |
-| `xml.etree.ElementTree` (stdlib) | Parses JATS XML from both PMC and Europe PMC | Yes — no XML parse, no body text |
+| `pubmed_parser` | Parses standard PMC OA body paragraphs and figure metadata | Yes for preferred paragraph/figure parsing; ResearchShop fallback still protects the path |
+| `xml.etree.ElementTree` (stdlib) | Parses JATS XML fallback plus abstracts, tables, and supplementary links | Yes — no fallback parse, no table/supplement extraction |
 | `trafilatura` | HTML → plain text for supplementary HTML only | No — only affects supp-file coverage |
 | `pdfminer.six` | PDF → plain text for supplementary PDFs only | No — only affects supp-file coverage |
 | `openpyxl` | XLSX → tab-separated text for supp spreadsheets | No — only affects supp-file coverage |
-| `lxml` | Pulled in transitively by `trafilatura` | No — not used directly |
+| `lxml` | Used by `pubmed_parser` and pulled in transitively by `trafilatura` | Yes for the preferred `pubmed_parser` path |
 
 So the honest mental model:
 
@@ -542,7 +543,7 @@ flowchart TD
         direction TB
         PMCEfetch["Bio.Entrez.efetch<br/>db=pmc, retmode=xml"]
         EuropePMC["requests.get<br/>europepmc.org/.../fullTextXML"]
-        XMLParse["xml.etree.ElementTree<br/>JATS parser"]
+                XMLParse["pubmed_parser adapter<br/>+ ResearchShop fallback JATS parser"]
 
         PMCEfetch -->|success| XMLParse
         PMCEfetch -->|empty / low quality| EuropePMC
@@ -643,8 +644,8 @@ Fired from `pipeline_orchestrator.run_pipeline` and its downstream modules. For 
 | # | Service | Endpoint | Format | Library | What we get |
 |---|---|---|---|---|---|
 | 4 | NCBI eutils | `efetch.fcgi?db=pubmed&rettype=medline&retmode=text` | Medline text | `requests.post` + `Bio.Medline.parse` | `title`, `authors[]` (full list), `year`, `journal`, `affiliations[]`, `abstract`, `doi`, + `_metadata_warnings`, `_metadata_completeness` |
-| 5 | NCBI PMC | `efetch.fcgi?db=pmc&retmode=xml` | JATS XML | `Bio.Entrez.efetch` + `xml.etree.ElementTree` | `body_text` (abstract + sections + figure captions + tables-as-text), `figures[]`, `tables[]`, supplementary URLs |
-| 6 | Europe PMC | `ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML` | JATS XML | `requests.get` + same parser | Same as #5 — only hit if #5 fails or quality is low |
+| 5 | NCBI PMC | `efetch.fcgi?db=pmc&retmode=xml` | JATS XML | `Bio.Entrez.efetch` + `pubmed_parser` adapter + ResearchShop fallback parser | `body_text` (abstract + sections + figure captions + tables-as-text), `figures[]`, `tables[]`, supplementary URLs |
+| 6 | Europe PMC | `ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML` | JATS XML | `requests.get` + same parser stack | Same as #5 — only hit if #5 fails or quality is low |
 | 7 | Supplementary files | URLs from JATS `<supplementary-material>` (publisher CDN, PMC, Dryad, figshare…) | varies | `requests.Session.get` → `csv` / `openpyxl` / `zipfile` / `pdfminer.six` / `trafilatura` | Up to 3 files × 200 KB each: tabular data, PDF text, HTML readable text |
 | 8 | Figure images | URLs from `figures[].image_url` (NCBI PMC CDN) | PNG/JPG binary | `requests.get` | Image bytes sent to Gemini as multimodal input (if `ENABLE_FIGURE_ANALYSIS=True`) |
 | 9 | PubTator3 | `ncbi.nlm.nih.gov/research/pubtator3-api/publications/export/biocjson?pmids=...` | BioC JSON | `requests.get` (batched 10) | `pubtator_genes[]` (symbol, `ncbi_gene_id`, text mentions, character offsets) + `pubtator_variants[]` (text, type, rsid, hgvs, gene_id) |

@@ -45,6 +45,19 @@ class CandidateMixin:
     def _assoc_key(gene: str, variant: str) -> Tuple[str, str]:
         return ((gene or "").strip().upper(), (variant or "").strip().upper())
 
+    @staticmethod
+    def _as_string_set(value: Any) -> Set[str]:
+        """Normalize metadata values that may be a string, list, tuple, or set."""
+        if isinstance(value, str):
+            text = value.strip()
+            return {text} if text else set()
+        if isinstance(value, (list, tuple, set)):
+            return {str(item).strip() for item in value if item and str(item).strip()}
+        return set()
+
+    def _as_sorted_strings(self, value: Any) -> List[str]:
+        return sorted(self._as_string_set(value))
+
     def _get_hgnc_aliases_for_gene(self, gene: str) -> List[str]:
         """
         Return HGNC alias_symbol + prev_symbol entries for the given canonical gene symbol.

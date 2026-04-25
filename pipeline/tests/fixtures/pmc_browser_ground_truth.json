@@ -1,0 +1,51 @@
+[
+  {
+    "pmid": "36552004",
+    "pmcid": "PMC9776003",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9776003/",
+    "browser_reference": {
+      "source": "PMC browser page",
+      "text_selector": "main article",
+      "chars": 28990,
+      "words": 4682,
+      "results_hits": 6,
+      "table_hits": 6,
+      "figure_hits": 0,
+      "figure_count": 0,
+      "table_count": 3
+    }
+  },
+  {
+    "pmid": "41169353",
+    "pmcid": "PMC12568354",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12568354/?report=printable",
+    "browser_reference": {
+      "source": "PMC printable browser page",
+      "text_selector": "main article",
+      "chars": 82255,
+      "words": 12257,
+      "results_hits": 14,
+      "table_hits": 10,
+      "figure_hits": 35,
+      "figure_count": 6,
+      "table_count": 2,
+      "note": "Normal PMC page initially triggered a browser check; printable PMC page was used."
+    }
+  },
+  {
+    "pmid": "41017238",
+    "pmcid": "PMC12477333",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12477333/",
+    "browser_reference": {
+      "source": "PMC browser page",
+      "text_selector": "main article",
+      "chars": 94522,
+      "words": 13930,
+      "results_hits": 3,
+      "table_hits": 11,
+      "figure_hits": 5,
+      "figure_count": 2,
+      "table_count": 5
+    }
+  }
+]

@@ -15,32 +15,12 @@ class MetadataMixin:
         """
         candidates: List[Dict[str, Any]] = []
         for meta in self.candidate_meta.values():
-            src = meta.get("sources", set())
-            if isinstance(src, set):
-                sources = sorted(str(s) for s in src if s)
-            elif isinstance(src, (list, tuple)):
-                sources = sorted(str(s) for s in src if s)
-            elif isinstance(src, str):
-                sources = [src]
-            else:
-                sources = []
-
-            raw = meta.get("raw_gene_labels", set())
-            if isinstance(raw, set):
-                raw_labels = sorted(str(r) for r in raw if r)
-            elif isinstance(raw, (list, tuple)):
-                raw_labels = sorted(str(r) for r in raw if r)
-            elif isinstance(raw, str):
-                raw_labels = [raw]
-            else:
-                raw_labels = []
-
             candidates.append(
                 {
                     "gene": str(meta.get("gene") or ""),
                     "variant": self._normalize_variant_value(meta.get("variant", "")),
-                    "sources": sources,
-                    "raw_gene_labels": raw_labels,
+                    "sources": self._as_sorted_strings(meta.get("sources")),
+                    "raw_gene_labels": self._as_sorted_strings(meta.get("raw_gene_labels")),
                     "normalization_applied": str(meta.get("normalization_applied") or ""),
                     "validation_confidence": meta.get("validation_confidence"),
                     "validation_source": str(meta.get("validation_source") or ""),
@@ -106,11 +86,9 @@ class MetadataMixin:
             if not meta:
                 continue
 
-            sources = meta.get("sources", set())
-            if isinstance(sources, set):
-                df.at[i, "Candidate Source"] = ",".join(sorted(sources))
-            else:
-                df.at[i, "Candidate Source"] = str(sources)
+            df.at[i, "Candidate Source"] = ",".join(
+                self._as_sorted_strings(meta.get("sources"))
+            )
 
             df.at[i, "Normalization Applied"] = meta.get("normalization_applied", "") or ""
             df.at[i, "Validation Outcome"] = meta.get("validation_outcome", "") or ""
@@ -275,7 +253,7 @@ class MetadataMixin:
             variant_symbol = str(row.get("variant_name", "")).strip()
             meta_key = (gene_symbol.upper(), variant_symbol.upper())
             meta = self.candidate_meta.get(meta_key) or {}
-            raw_labels = [str(r) for r in (meta.get("raw_gene_labels") or set()) if r]
+            raw_labels = self._as_sorted_strings(meta.get("raw_gene_labels"))
 
             for content_col, citation_col in pairs:
                 raw = row.get(citation_col, "")

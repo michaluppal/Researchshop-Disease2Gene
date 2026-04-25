@@ -556,7 +556,7 @@ class EvidenceMixin:
                 self._normalize_variant_value(row_dict.get("variant_name", "")),
             )
             meta = self.candidate_meta.get(key) or {}
-            sources = meta.get("sources", set()) or set()
+            sources = self._as_string_set(meta.get("sources"))
             llm_sources = {"llm_text", "llm_figure", "llm_abstract"}
             is_llm_sourced = bool(sources & llm_sources)
             det_only = bool(sources) and not (sources & llm_sources)

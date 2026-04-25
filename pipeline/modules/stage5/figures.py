@@ -13,6 +13,18 @@ from .prompts import _FIGURE_ANALYSIS_INSTRUCTION
 
 
 class FigureMixin:
+    def _figure_http_get(self, url: str, **kwargs):
+        """GET helper with a short retry for transient figure/CDN failures."""
+        attempts = max(1, int(getattr(config, "FIGURE_HTTP_RETRIES", 2)))
+        for attempt in range(attempts):
+            try:
+                return requests.get(url, **kwargs)
+            except Exception:
+                if attempt + 1 >= attempts:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+        raise RuntimeError("unreachable figure HTTP retry state")
+
     def _build_gemini_image_part(self, types_module, image_bytes: bytes, mime_type: str):
         """Construct a Gemini image Part with fallback for library-version differences."""
         try:
@@ -50,20 +62,30 @@ class FigureMixin:
             "pmc.ncbi.nlm.nih.gov/articles/",
         )
 
+        cdn_cache = getattr(self, "_pmc_cdn_url_cache", None)
+        if cdn_cache is None:
+            cdn_cache = {}
+            setattr(self, "_pmc_cdn_url_cache", cdn_cache)
+
         try:
-            resp = requests.get(
-                article_page,
-                timeout=15,
-                headers={"User-Agent": "Mozilla/5.0 (ResearchShop Figure Fetch)"},
-            )
-            if resp.status_code != 200:
-                return []
+            if article_page in cdn_cache:
+                all_cdn = cdn_cache[article_page]
+            else:
+                resp = self._figure_http_get(
+                    article_page,
+                    timeout=15,
+                    headers={"User-Agent": "Mozilla/5.0 (ResearchShop Figure Fetch)"},
+                )
+                if resp.status_code != 200:
+                    return []
+                cdn_pattern = re.compile(
+                    r'https://cdn\.ncbi\.nlm\.nih\.gov/pmc/blobs/[^"\'>\s]+'
+                )
+                all_cdn = cdn_pattern.findall(resp.text)
+                cdn_cache[article_page] = all_cdn
+
             # Extract all cdn.ncbi.nlm.nih.gov/pmc/blobs URLs whose filename matches
             stem = re.escape(re.sub(r'\.[^.]+$', '', filename))  # strip extension for fuzzy match
-            cdn_pattern = re.compile(
-                r'https://cdn\.ncbi\.nlm\.nih\.gov/pmc/blobs/[^"\'>\s]+'
-            )
-            all_cdn = cdn_pattern.findall(resp.text)
             # Prefer exact filename match, then stem match
             exact = [u for u in all_cdn if u.endswith("/" + filename)]
             if exact:
@@ -73,13 +95,57 @@ class FigureMixin:
         except Exception:
             return []
 
-    def _fetch_figure_image(self, figure: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Download a figure image from candidate URLs with size and type safeguards.
+    def _download_figure_url(
+        self,
+        url: str,
+        *,
+        max_bytes: int,
+        timeout: int,
+        headers: Dict[str, str],
+    ) -> Optional[Dict[str, Any]]:
+        """Download one image URL with type and size guards."""
+        try:
+            response = self._figure_http_get(
+                url, timeout=timeout, stream=True, allow_redirects=True, headers=headers
+            )
+            if response.status_code != 200:
+                return None
 
-        Falls back to CDN URL resolution if all pre-built candidates return non-200.
-        PMC migrated figure hosting to cdn.ncbi.nlm.nih.gov/pmc/blobs/... which requires
-        an HTML page scrape to resolve the hash-based path components.
-        """
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > max_bytes:
+                return None
+
+            mime_type = (
+                (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            )
+            if not mime_type.startswith("image/"):
+                return None
+
+            chunks: List[bytes] = []
+            total = 0
+            too_large = False
+            for chunk in response.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    too_large = True
+                    break
+                chunks.append(chunk)
+
+            if too_large:
+                return None
+
+            payload = b"".join(chunks)
+            if not payload:
+                return None
+
+            return {"bytes": payload, "mime_type": mime_type, "url": url}
+        except Exception:
+            return None
+
+    def _validate_figure_download(self, figure: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return downloadable figure bytes and the resolved URL, if available."""
         candidates = list(figure.get("url_candidates") or [])
         primary_url = figure.get("url")
         if primary_url and primary_url not in candidates:
@@ -94,50 +160,11 @@ class FigureMixin:
             "Accept": "image/*,*/*;q=0.8",
         }
 
-        def _try_download(url: str) -> Optional[Dict[str, Any]]:
-            try:
-                response = requests.get(
-                    url, timeout=timeout, stream=True, allow_redirects=True, headers=headers
-                )
-                if response.status_code != 200:
-                    return None
-
-                content_length = response.headers.get("Content-Length")
-                if content_length and int(content_length) > max_bytes:
-                    return None
-
-                mime_type = (
-                    (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-                )
-                if not mime_type.startswith("image/"):
-                    return None
-
-                chunks: List[bytes] = []
-                total = 0
-                too_large = False
-                for chunk in response.iter_content(chunk_size=65536):
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    if total > max_bytes:
-                        too_large = True
-                        break
-                    chunks.append(chunk)
-
-                if too_large:
-                    return None
-
-                payload = b"".join(chunks)
-                if not payload:
-                    return None
-
-                return {"bytes": payload, "mime_type": mime_type, "url": url}
-            except Exception:
-                return None
-
         # Phase 1: try pre-built candidate URLs
         for url in candidates:
-            result = _try_download(url)
+            result = self._download_figure_url(
+                url, max_bytes=max_bytes, timeout=timeout, headers=headers
+            )
             if result:
                 return result
 
@@ -148,12 +175,34 @@ class FigureMixin:
                 f"Figure fetch: primary candidates failed; trying {len(cdn_candidates)} CDN URL(s)"
             )
         for url in cdn_candidates:
-            result = _try_download(url)
+            result = self._download_figure_url(
+                url, max_bytes=max_bytes, timeout=timeout, headers=headers
+            )
             if result:
                 logging.debug(f"Figure fetch: CDN fallback succeeded for {url}")
                 return result
 
         return None
+
+    def _resolve_figure_download_url(self, figure: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Probe a figure and return URL/mime/size metadata without exposing bytes."""
+        downloaded = self._validate_figure_download(figure)
+        if not downloaded:
+            return None
+        return {
+            "url": downloaded["url"],
+            "mime_type": downloaded["mime_type"],
+            "bytes": len(downloaded["bytes"]),
+        }
+
+    def _fetch_figure_image(self, figure: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Download a figure image from candidate URLs with size and type safeguards.
+
+        Falls back to CDN URL resolution if all pre-built candidates return non-200.
+        PMC migrated figure hosting to cdn.ncbi.nlm.nih.gov/pmc/blobs/... which requires
+        an HTML page scrape to resolve the hash-based path components.
+        """
+        return self._validate_figure_download(figure)
 
     def extract_gene_names_from_figures(self) -> List[Dict[str, str]]:
         """
@@ -202,8 +251,7 @@ class FigureMixin:
             if idx > 1 and _fig_inter_call_delay > 0:
                 # Small mandatory gap between figure vision calls: prevents back-to-back
                 # calls from immediately re-saturating the per-minute sliding rate window.
-                import time as _time_mod
-                _time_mod.sleep(_fig_inter_call_delay)
+                time.sleep(_fig_inter_call_delay)
             downloaded = self._fetch_figure_image(figure)
             if not downloaded:
                 logging.debug(f"Figure analysis skipped for figure {idx}: could not download image")

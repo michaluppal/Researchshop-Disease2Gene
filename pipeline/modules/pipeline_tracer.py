@@ -323,6 +323,8 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_clean_and_validate_content",              # Greek → Latin, non-ASCII strip
     "_normalize_unicode_slashes",               # slash/μ/LaTeX unification
     "_extract_text_and_figures_from_pmc_xml",
+    "parse_pubmed_parser_paragraph_text",
+    "parse_pubmed_parser_figures",
     "_extract_supplementary_urls_from_pmc_xml",
     "_extract_supplementary_content",           # downloads & parses supp files
     "_extract_pdf_text",                        # pdfminer extraction

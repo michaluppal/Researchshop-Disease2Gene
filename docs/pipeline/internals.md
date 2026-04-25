@@ -90,6 +90,7 @@ User types query in UI (renderer)
 │ Stage 3: Full-Text Fetch                             │
 │ full_text_fetcher.py                                 │
 │ → PMC JATS XML primary → Europe PMC fallback         │
+│ → pubmed_parser adapter for paragraphs + figures     │
 │ → Parse sections, figures, tables                    │
 └──────────────────────────────────────────────────────┘
        │
@@ -427,17 +428,18 @@ In `abstract_screener.py` and mirrored in `geneRelevanceScorer.ts`: papers with 
 
 1. **PMC Entrez efetch** → structured JATS XML (preferred).
 2. **Europe PMC fullTextXML** → fallback OA endpoint if `ENABLE_EUROPE_PMC_FALLBACK=True` (config.py:60).
+3. **`pubmed_parser` adapter** → parses body paragraphs and figure metadata from the XML; ResearchShop's existing parser remains the fallback and still owns tables, supplementary files, cleaning, and output normalization.
 3. **Supplementary files** → CSV/Excel/ZIP parsing if `ENABLE_SUPPLEMENTARY_EXTRACTION=True` (config.py:64). Max 3 files, 200 KB each.
 
 ### 5.3 Section parsing
 
-JATS XML is parsed into named sections: `abstract`, `introduction`, `methods`, `results`, `discussion`, `conclusion`, `supplementary`, plus `_preamble` (text before first heading) and `_remainder` (text after last heading).
+JATS XML is parsed into text sections by combining ResearchShop's abstract/table/supplement handling with `pubmed_parser` body paragraph extraction. If the adapter returns no useful body text, the existing JATS traversal is used as fallback.
 
 The section keys match `stage5/context.py:ContextMixin._SECTION_HEADER_PATTERNS` so downstream truncation can drop sections by name.
 
 ### 5.4 Figure extraction
 
-- PMC figure URLs extracted from JATS XML
+- PMC figure captions/labels/graphic refs parsed with `pubmed_parser`; ResearchShop still builds URL candidates, resolves PMC CDN fallbacks, and downloads images
 - Image downloaded if `ENABLE_FIGURE_ANALYSIS=True` (config.py:70)
 - Capped at `FIGURE_MAX_IMAGES_PER_PAPER=3` (config.py:71)
 - Max bytes per image: `FIGURE_IMAGE_MAX_BYTES=5MB` (config.py:72)

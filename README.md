@@ -130,7 +130,7 @@ PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
 |-------|--------|------|
 | 1. PubMed Search | `pubmed_data_collector.py` | Fetches papers, ranks by citation count (iCite) |
 | 2. Abstract Screening | `abstract_screener.py` | Keyword filter — removes non-genetics papers |
-| 3. Full Text Fetch | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback |
+| 3. Full Text Fetch | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback; `pubmed_parser` adapter for paragraphs/figure metadata |
 | 4. PubTator NER | `pubtator_tool.py` | NCBI NER — high-precision gene/variant tagging |
 | 5. Stage 5 Extraction | `stage5/` | Candidate discovery, Gemini structured extraction, grounding, validation, and evidence gates |
 | 6. Gene Validation | `gene_validator.py` | HGNC validation, citation grounding (≥0.85 match) |

@@ -1,6 +1,7 @@
 """Stage 5 per-paper extraction coordinator."""
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
@@ -111,8 +112,8 @@ class Stage5Pipeline(
         """Tracer helper: how many candidates carry each source tag."""
         counts: Dict[str, int] = {}
         for meta in self.candidate_meta.values():
-            for src in (meta.get("sources") or []):
-                counts[str(src)] = counts.get(str(src), 0) + 1
+            for src in self._as_string_set(meta.get("sources")):
+                counts[src] = counts.get(src, 0) + 1
         return counts
 
     def _run_candidate_discovery(self) -> None:
@@ -131,8 +132,7 @@ class Stage5Pipeline(
         # e.g. abstract says "IL-6" / "IFN-γ" while full text says "interleukin-6" / "interferon-gamma"
         if getattr(config, "ENABLE_ABSTRACT_GENE_DISCOVERY", True) and self.abstract_text:
             logging.info("Step 0.5: Extracting gene-variant associations from abstract")
-            import time as _t
-            t0 = _t.time()
+            t0 = time.time()
             abstract_associations = self.extract_gene_names_from_abstract()
             if abstract_associations:
                 added = self._ingest_associations(abstract_associations, "llm_abstract")
@@ -149,17 +149,15 @@ class Stage5Pipeline(
                         "associations": pipeline_tracer.summarise(abstract_associations or []),
                         "candidate_count_after": len(self.candidate_meta),
                     },
-                    duration_ms=(_t.time() - t0) * 1000.0,
+                    duration_ms=(time.time() - t0) * 1000.0,
                 )
-
-        import time as _t
 
         # Step 1: Optional LLM gene discovery on full paper text. Free-tier
         # defaults keep this off and rely on PubTator + deterministic seeding,
         # saving the quota for the detail-extraction call that creates output.
         if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False):
             logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
-            t0 = _t.time()
+            t0 = time.time()
             self.extract_gene_names()
             pass1_count = len(self.associations)
             if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
@@ -174,7 +172,7 @@ class Stage5Pipeline(
                         "associations_count_after_ingest": pass1_count,
                         "candidate_meta_size": len(self.candidate_meta),
                     },
-                    duration_ms=(_t.time() - t0) * 1000.0,
+                    duration_ms=(time.time() - t0) * 1000.0,
                 )
         else:
             pass1_count = len(self.associations)
@@ -195,7 +193,7 @@ class Stage5Pipeline(
                 "Step 1b: Second gene discovery pass (temperature=0.4) for recall improvement"
             )
             try:
-                t0 = _t.time()
+                t0 = time.time()
                 self.extract_gene_names(temperature=0.4)
                 pass2_count = len(self.associations)
                 if pass2_count > pass1_count:
@@ -212,7 +210,7 @@ class Stage5Pipeline(
                             "pass2_count": pass2_count,
                             "new_from_recall": pass2_count - pass1_count,
                         },
-                        duration_ms=(_t.time() - t0) * 1000.0,
+                        duration_ms=(time.time() - t0) * 1000.0,
                     )
             except Exception as e:
                 logging.warning(
@@ -222,7 +220,7 @@ class Stage5Pipeline(
             logging.info("Step 1b: Skipping second Gemini gene discovery pass")
 
         # Step 1.1: Deterministic lexicon candidates (HGNC symbols/aliases)
-        t0 = _t.time()
+        t0 = time.time()
         deterministic_candidates = self.extract_deterministic_candidates()
         if deterministic_candidates:
             added = self._ingest_associations(deterministic_candidates, "deterministic_lexicon")
@@ -237,13 +235,13 @@ class Stage5Pipeline(
                     "new_candidates_added": len(deterministic_candidates or []),
                     "candidate_meta_size": len(self.candidate_meta),
                 },
-                duration_ms=(_t.time() - t0) * 1000.0,
+                duration_ms=(time.time() - t0) * 1000.0,
             )
 
         # Step 1.25: Multimodal figure analysis (PMC figure images + captions)
         if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
             logging.info("Step 1.25: Extracting gene-variant associations from figures")
-            t0 = _t.time()
+            t0 = time.time()
             figure_associations = self.extract_gene_names_from_figures()
             if figure_associations:
                 added = self._ingest_associations(figure_associations, "llm_figure")
@@ -256,7 +254,7 @@ class Stage5Pipeline(
                     outputs={
                         "associations": pipeline_tracer.summarise(figure_associations or []),
                     },
-                    duration_ms=(_t.time() - t0) * 1000.0,
+                    duration_ms=(time.time() - t0) * 1000.0,
                 )
 
         # Step 1.5: HYBRID PIPELINE - Merge PubTator genes (ensures union)
@@ -293,7 +291,7 @@ class Stage5Pipeline(
                             {
                                 "gene": v.get("gene"),
                                 "variant": v.get("variant"),
-                                "sources": sorted(list(v.get("sources") or []))
+                                "sources": self._as_sorted_strings(v.get("sources")),
                             }
                             for v in list(self.candidate_meta.values())[:30]
                         ]
@@ -331,8 +329,8 @@ class Stage5Pipeline(
                 continue
             key = self._assoc_key(gene, variant)
             meta = self.candidate_meta.get(key) or {}
-            sources = meta.get("sources", set()) or set()
-            if isinstance(sources, set) and sources == {"llm_figure"}:
+            sources = self._as_string_set(meta.get("sources"))
+            if sources == {"llm_figure"}:
                 # Verify gene appears in at least one figure caption or label.
                 # This is a lighter check than prose grounding — we're confirming
                 # the gene was actually visible in the figures, not hallucinated.
@@ -340,7 +338,9 @@ class Stage5Pipeline(
                     f"{fig.get('label', '')} {fig.get('caption', '')}"
                     for fig in (self.figure_inputs or [])
                 ).lower()
-                candidate_terms = [gene] + list(meta.get("raw_gene_labels") or [])
+                candidate_terms = [gene] + list(
+                    self._as_string_set(meta.get("raw_gene_labels"))
+                )
                 gene_in_figures = any(
                     term.lower() in figure_text_lower for term in candidate_terms if term
                 )
@@ -361,7 +361,7 @@ class Stage5Pipeline(
             terms = list(self._candidate_terms_for_row(gene, variant))
             # Also include the raw labels extracted by the LLM (e.g. "BNP" for NPPB,
             # "M-CSF" for CSF1) so normalization doesn't cause false grounding failures.
-            for raw_label in meta.get("raw_gene_labels") or set():
+            for raw_label in self._as_string_set(meta.get("raw_gene_labels")):
                 if raw_label and raw_label.upper() not in {t.upper() for t in terms}:
                     terms.append(raw_label)
             if self._find_evidence_snippet(terms):
@@ -392,7 +392,8 @@ class Stage5Pipeline(
                         grounded.append(assoc)
                         continue
                 logging.warning(
-                    f"Grounding check: dropping '{gene}' (raw: {list(meta.get('raw_gene_labels') or [])}) "
+                    f"Grounding check: dropping '{gene}' "
+                    f"(raw: {self._as_sorted_strings(meta.get('raw_gene_labels'))}) "
                     f"— not found in paper text by any of {terms[:6]}"
                 )
                 # Mark in meta so the debug artifact records why this candidate was removed
@@ -410,7 +411,7 @@ class Stage5Pipeline(
             dropped_here = [
                 {"gene": v.get("gene"), "variant": v.get("variant"),
                  "outcome": v.get("validation_outcome"),
-                 "sources": sorted(list(v.get("sources") or []))}
+                 "sources": self._as_sorted_strings(v.get("sources"))}
                 for v in self.candidate_meta.values()
                 if v.get("validation_outcome") in ("rejected_ungrounded", "rejected_ungrounded_figure")
             ]
@@ -510,8 +511,7 @@ class Stage5Pipeline(
         Returns the extracted_info list (may be empty).
         """
         logging.info("Step 3: Extracting detailed information for validated associations")
-        import time as _t
-        _t0 = _t.time()
+        _t0 = time.time()
         _assoc_count_in = len(self.associations)
         extracted_info = self.extract_gene_info(column_descriptions)
 
@@ -572,7 +572,7 @@ class Stage5Pipeline(
                     "sample": pipeline_tracer.summarise(extracted_info[:3] if extracted_info else []),
                     "status": self.detail_extraction_status,
                 },
-                duration_ms=(_t.time() - _t0) * 1000.0,
+                duration_ms=(time.time() - _t0) * 1000.0,
             )
             pipeline_tracer.capture(
                 "row_merge",
@@ -761,16 +761,8 @@ class Stage5Pipeline(
                 )
                 continue
 
-            sources = set()
             meta = self.candidate_meta.get(key)
-            if meta:
-                src = meta.get("sources", set())
-                if isinstance(src, set):
-                    sources = {str(s) for s in src if s}
-                elif isinstance(src, (list, tuple)):
-                    sources = {str(s) for s in src if s}
-                elif isinstance(src, str) and src:
-                    sources = {src}
+            sources = self._as_string_set(meta.get("sources")) if meta else set()
             require_corroboration = bool(
                 getattr(config, "DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY", True)
             )
