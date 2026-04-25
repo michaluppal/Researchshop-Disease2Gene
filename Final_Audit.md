@@ -40,6 +40,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
+| [F16](#f16--paywalled-opt-in-is-silently-discarded-by-the-backend-oa-gate) | ⬜ TODO | XS–S | Paywalled opt-in silently discarded by backend OA gate | `SmartInput.tsx` + `python-bridge.ts` + orchestrator |
 | [F11](#f11--auto-snippet-fallback-is-indistinguishable-from-llm-extracted-content) | ✅ DONE | S | Auto-snippet fallback indistinguishable from LLM-extracted content | Detail-extraction fallback path |
 | [F2](#f2--all-papers-are-oa-is-not-actually-enforced-on-all-entry-paths) | ✅ DONE | S–M | OA invariant not enforced on specific-PMIDs entry path | `SmartInput.tsx` + orchestrator |
 | [F3](#f3--doi-and-pmc-id-inputs-are-silently-dropped-from-user-defined-lists) | ✅ DONE | M | DOI / PMC IDs silently dropped from specific-papers paste-box | `SmartInput.tsx` entry |
@@ -48,6 +49,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
+| [F17](#f17--integration-mock-no-longer-matches-_run_pipeline_worker-signature) | ⬜ TODO | XS | Integration mock no longer matches `_run_pipeline_worker` signature | `test_pipeline_integration.py` |
 | [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ✅ DONE | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
 | [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
 | [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
@@ -93,6 +95,93 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 ranks above a HIGH-severity finding in a harder tier (e.g. F4 efficiency), because
 batching quick wins preserves momentum and builds confidence. Severity remains documented
 in each entry's body.
+
+---
+
+## F16 — Paywalled opt-in is silently discarded by the backend OA gate
+
+**Date:** 2026-04-25
+**Source:** Code review of `dev/cleanup` pipeline.
+**Severity:** HIGH. User can explicitly choose to include paywalled / abstract-only
+papers, but those PMIDs are still removed before analysis.
+
+### What we expected
+
+When a user enables the SmartInput "Include paywalled papers (abstract-only extraction)"
+toggle, those PMIDs should reach the pipeline with the backend configured to allow
+abstract-only processing.
+
+### What we found
+
+`SmartInput.tsx` includes paywalled PMIDs in `useValid()`, but the selection is reduced
+to a plain PMID list before `startPipeline()`. No `includePaywalled` flag is passed
+through `QueryBuilder.tsx`, `python-bridge.ts`, `run_pipeline.py`, or the orchestrator.
+The backend therefore keeps the default
+`ALLOW_PAYWALLED_SPECIFIC_PMIDS=false` and the mandatory-PMID OA gate still drops those
+PMIDs in `pipeline_orchestrator.py`.
+
+### Why it matters
+
+The UI promises an opt-in behavior that the backend cannot honor. Users can make a
+deliberate choice and still get missing papers with only an OA-gate warning in logs.
+
+### Suggested action
+
+- Add an explicit pipeline argument, e.g. `includePaywalled`, and propagate it through:
+  `SmartInput.tsx` / `QueryBuilder.tsx` → `python-bridge.ts` → `run_pipeline.py` →
+  `pipeline_orchestrator.run_complete_pipeline`.
+- In Electron, set `ALLOW_PAYWALLED_SPECIFIC_PMIDS=true` or pass a function argument
+  only for runs where the user opted in.
+- Add a regression test that toggles include-paywalled and asserts the backend does
+  not filter the selected PMID.
+
+### Implementation notes
+
+- Review finding: `app/src/renderer/components/SmartInput.tsx:235-239`.
+- Backend gate: `pipeline/modules/pipeline_orchestrator.py:811-835`.
+- Keep F2's default-OA behavior intact; this is only the explicit user override path.
+
+**Status:** ⬜ TODO. P0 tier — XS–S effort.
+
+---
+
+## F17 — Integration mock no longer matches `_run_pipeline_worker` signature
+
+**Date:** 2026-04-25
+**Source:** Code review of `dev/cleanup` pipeline.
+**Severity:** MEDIUM. CI/test signal is broken for the integration pipeline tests.
+
+### What we expected
+
+The mocked integration pipeline should continue to exercise the orchestrator without
+calling Gemini.
+
+### What we found
+
+`run_complete_pipeline()` now calls `_run_pipeline_worker` with a seventh `pmid`
+argument, but `_mock_pipeline_worker` in `pipeline/tests/test_pipeline_integration.py`
+still accepts only six parameters. The mock raises `TypeError` for every paper, so the
+pipeline extracts no rows and 11 integration assertions fail.
+
+### Why it matters
+
+The branch can pass focused unit tests while the broader mocked integration test suite
+is red, masking future regressions in orchestration and output writing.
+
+### Suggested action
+
+- Add `pmid=None` to `_mock_pipeline_worker(...)`, or update the mock to accept
+  `*args, **kwargs` and assert the PMID when useful.
+- Re-run `pipeline/.venv/bin/python -m pytest pipeline/tests/test_pipeline_integration.py`.
+
+### Implementation notes
+
+- Review finding: `pipeline/tests/test_pipeline_integration.py:367-368`.
+- Observed failure: `_mock_pipeline_worker() takes from 2 to 6 positional arguments but 7 were given`.
+- The focused orchestrator worker tests still pass; this is a stale integration test
+  double, not evidence that production worker invocation is broken.
+
+**Status:** ⬜ TODO. P1 tier — XS effort.
 
 ---
 
