@@ -260,6 +260,40 @@ def test_backfill_preserves_existing_values():
     assert "evidence_backfilled" not in row
 
 
+def test_fill_missing_statistical_and_conclusion_fields():
+    """Partially-filled LLM rows should not leave common result fields empty."""
+    paper = (
+        "IL1B expression was significantly higher in infected cells compared with mock. "
+        "These findings suggest that IL1B contributes to the inflammatory response."
+    )
+    pipeline = _make_pipeline(paper_text=paper)
+    row = {
+        "gene_name": "IL1B",
+        "variant_name": "",
+        "Disease Association": "IL1B expression changed after infection.",
+        "Disease Association Citation": "IL1B expression was significantly higher in infected cells compared with mock.",
+        "Key Finding": "IL1B expression was significantly higher in infected cells compared with mock.",
+        "Key Finding Citation": "IL1B expression was significantly higher in infected cells compared with mock.",
+        "Statistical Evidence": "",
+        "Statistical Evidence Citation": "",
+        "Conclusion": "",
+        "Conclusion Citation": "",
+    }
+    cols = {
+        "Disease Association": "Disease context",
+        "Key Finding": "Main finding",
+        "Statistical Evidence": "P-values, odds ratios, or other statistical measures",
+        "Conclusion": "Author conclusions about this gene",
+    }
+
+    pipeline._fill_missing_requested_fields([row], cols)
+
+    assert "significantly higher" in row["Statistical Evidence"]
+    assert row["Statistical Evidence Citation"] == row["Statistical Evidence"]
+    assert row["Conclusion"] == row["Key Finding"]
+    assert row["Conclusion Citation"] == row["Key Finding Citation"]
+
+
 # ---------------------------------------------------------------------------
 # 7. Peer alias match — TP53's alias "p53" flags a co-mention for OTHER.
 # ---------------------------------------------------------------------------

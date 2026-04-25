@@ -175,7 +175,7 @@ For any association you intend to report or build upon:
 
 ### Benchmark accuracy
 
-On a 12-paper gold-standard evaluation (cancer genomics, GWAS, rare disease, RNA-seq, pharmacogenomics), the full pipeline achieves F1 ≈ 0.59–0.67 on well-studied paper types and as low as 0.17 on rare disease papers with limited PubTator coverage. See `AUDIT.md § Benchmark Results` for full per-paper figures.
+On a 12-paper gold-standard evaluation (cancer genomics, GWAS, rare disease, RNA-seq, pharmacogenomics), the full pipeline achieves F1 ≈ 0.59–0.67 on well-studied paper types and as low as 0.17 on rare disease papers with limited PubTator coverage. See `docs/audit/AUDIT.md § Benchmark Results` for full per-paper figures.
 
 **False positive rate at the 0.7 confidence threshold:** precision varies from ~0.50 (GWAS, pan-cancer) to ~1.0 (classic cancer genetics). Expect 10–30% false positives on novel or multi-topic papers even after validation gating.
 
@@ -192,7 +192,7 @@ python scripts/benchmark_runner.py --all --runs 3
 python scripts/benchmark_analysis.py
 ```
 
-Results are written to `data/benchmark/benchmark_results.csv`. See `AUDIT.md § Benchmark Results` for the full evaluation.
+Results are written to `data/benchmark/benchmark_results.csv`. See `docs/audit/AUDIT.md § Benchmark Results` for the full evaluation.
 
 ---
 

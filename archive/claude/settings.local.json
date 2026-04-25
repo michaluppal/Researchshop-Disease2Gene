@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "Skill(audit-entry)",
+      "Skill(annotate-paper)",
+      "Skill(reflect)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
+    ]
+  }
+}

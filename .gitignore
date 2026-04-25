@@ -39,11 +39,17 @@ Desktop.ini
 
 # ─── Pipeline outputs (runtime) ──────────────────────
 data/output/
+pipeline/data/output/
 
 # ─── Pipeline viewer live-run artifacts (runtime only) ───
 publication/figures/pipeline-viewer/live_runs/
 
 # ─── Benchmark transient artifacts ───────────────────
+pipeline/data/benchmark/runs/
+pipeline/data/benchmark/[0-9]*/
+pipeline/data/benchmark/*_figure_on/
+pipeline/data/benchmark/*_figure_off/
+pipeline/data/benchmark/backfill/
 pipeline/data/benchmark/**/drop_debug_*.json
 pipeline/data/benchmark/**/*.pkl.gz
 pipeline/data/benchmark/**/*.xlsx
@@ -56,6 +62,7 @@ pipeline/data/benchmark/**/*_metadata.csv
 *.toc
 _minted-*/
 *.brf
+*.bbl
 *.blg
 *.fls
 *.fdb_latexmk
@@ -76,6 +83,10 @@ tmp/
 temp/
 *.tmp
 *.bak
+
+# ─── Legacy local folders (canonical roots are app/ and pipeline/) ───
+/src/
+/python/
 
 # ─── Reference PDFs (not part of the software) ──────
 publication/examples/

@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
@@ -119,6 +120,8 @@ class GeneInfoPipeline:
         self.figure_inputs = figure_inputs or []
         self.table_inputs = table_inputs or []
         self._paper_api_calls: int = 0
+        self._last_gemini_call_at: Optional[float] = None
+        self._quota_limited: bool = False
         self._context_warning: Optional[str] = None
         self._truncation_rescue_count: int = 0
 
@@ -128,6 +131,88 @@ class GeneInfoPipeline:
         self.client = genai.Client(api_key=config.GEMINI_API_KEY)
         self.gene_validator = GeneValidator()
         self.context_validator = ContextWindowValidator()
+
+    @staticmethod
+    def _is_rate_limit_error(error: Exception) -> bool:
+        err = str(error)
+        return "429" in err or "RESOURCE_EXHAUSTED" in err or "quota" in err.lower()
+
+    @staticmethod
+    def _extract_retry_delay_seconds(error: Exception) -> Optional[int]:
+        err = str(error)
+        delay_match = re.search(r"retryDelay[\"'\s:]+(\d+)s", err)
+        if delay_match:
+            return int(delay_match.group(1))
+        return None
+
+    def _can_make_gemini_call(self, purpose: str, *, optional: bool = False) -> bool:
+        max_calls = int(getattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 0) or 0)
+        if max_calls <= 0 or self._paper_api_calls < max_calls:
+            return True
+        msg = (
+            f"Gemini call budget reached for this paper "
+            f"({self._paper_api_calls}/{max_calls}); skipping {purpose}"
+        )
+        if optional:
+            logging.info(msg)
+            return False
+        raise RuntimeError(msg)
+
+    def _generate_content_text(
+        self,
+        *,
+        model_name: str,
+        contents: list,
+        generate_content_config: Any,
+        purpose: str,
+        optional: bool = False,
+    ) -> str:
+        """Call Gemini with per-paper budget and spacing guards."""
+        if not self._can_make_gemini_call(purpose, optional=optional):
+            return ""
+
+        min_delay = float(getattr(config, "GEMINI_INTER_CALL_DELAY_SECONDS", 0) or 0)
+        if self._last_gemini_call_at is not None and min_delay > 0:
+            elapsed = time.time() - self._last_gemini_call_at
+            if elapsed < min_delay:
+                time.sleep(min_delay - elapsed)
+
+        self._paper_api_calls += 1
+        self._last_gemini_call_at = time.time()
+        full_response_text = ""
+        try:
+            for chunk in self.client.models.generate_content_stream(
+                model=f"models/{model_name}",
+                contents=contents,
+                config=generate_content_config,
+            ):
+                if chunk.text:
+                    full_response_text += chunk.text
+        except Exception as e:
+            if self._is_rate_limit_error(e):
+                self._quota_limited = True
+            raise
+        return full_response_text
+
+    def _should_retry_gemini_error(self, error: Exception, attempt: int, max_retries: int) -> tuple[bool, int]:
+        """Return (should_retry, wait_seconds) for Gemini failures."""
+        if attempt >= max_retries - 1:
+            return False, 0
+
+        if not self._is_rate_limit_error(error):
+            wait = 2 ** attempt
+            return True, max(1, wait)
+
+        suggested = self._extract_retry_delay_seconds(error)
+        if suggested is None:
+            return False, 0
+        if not getattr(config, "GEMINI_RETRY_RATE_LIMIT_WITH_DELAY", True):
+            return False, 0
+        wait = min(
+            int(suggested) + 3,
+            int(getattr(config, "GEMINI_MAX_RATE_LIMIT_WAIT_SECONDS", 75)),
+        )
+        return True, max(wait, 1)
 
     @staticmethod
     def _normalize_variant_value(value: Any) -> str:
@@ -397,6 +482,144 @@ class GeneInfoPipeline:
 
         return ""
 
+    def _deterministic_gene_context_evidence(
+        self, gene: str, variant: str = ""
+    ) -> Tuple[bool, str, str]:
+        """
+        Decide whether a deterministic-only gene hit has enough paper context to
+        survive the corroboration gate.
+
+        This is intentionally stricter than ordinary grounding. A symbol simply
+        appearing in full text is not enough; the surrounding sentence/window must
+        look like biological result/pathway evidence, and not like a methods-only
+        primer, antibody, strain, catalog, or ambiguous-abbreviation mention.
+        """
+        text = self.paper_text or ""
+        if not text:
+            return False, "no_paper_text", ""
+
+        gene_upper = (gene or "").strip().upper()
+        terms = self._candidate_terms_for_row(gene, variant)
+        if not terms:
+            return False, "no_candidate_terms", ""
+
+        result_signal = re.compile(
+            r"\b("
+            r"significant(?:ly)?|differential(?:ly)?|up-?regulated|down-?regulated|"
+            r"higher|lower|increased?|decreased?|reduced|elevated|enriched|"
+            r"induced|suppressed|activated|inhibited|log2|fold(?:-|\s)?change|"
+            r"p\s*[<=>]|q\s*[<=>]|fdr|adjusted\s+p"
+            r")\b",
+            re.IGNORECASE,
+        )
+        pathway_signal = re.compile(
+            r"\b("
+            r"pathways?|signaling|signal(?:ling)?|mediated\s+by|responses?|"
+            r"interferon\s+response|immune\s+response|antiviral|transcriptomic|"
+            r"gene\s+sets?|degs?|differentially\s+expressed\s+genes"
+            r")\b",
+            re.IGNORECASE,
+        )
+        weak_context = re.compile(
+            r"\b("
+            r"primers?|forward|reverse|qPCR\s+primer|RT-?qPCR|housekeeping|"
+            r"reference\s+gene|antibod(?:y|ies)|clone|catalog|cat\.?\s*no|"
+            r"supplier|manufacturer|dilution|reagents?|kit|buffer|"
+            r"isotype|fluorochrome|plasmid|vector|transfection|"
+            r"strain|isolate|orf\d*|genome|nucleotide|amino\s+acid\s+identity"
+            r")\b",
+            re.IGNORECASE,
+        )
+        molecular_signal = re.compile(
+            r"\b(expression|expressed|mRNA|transcript|protein|cytokine|chemokine|receptor)\b",
+            re.IGNORECASE,
+        )
+
+        def _term_patterns(term: str) -> List[str]:
+            needle = str(term or "").strip()
+            if not needle:
+                return []
+            patterns = [rf"(?i)(?<![A-Za-z0-9]){re.escape(needle)}(?![A-Za-z0-9])"]
+            alnum = re.sub(r"[^A-Za-z0-9]", "", needle)
+            if len(alnum) >= 3:
+                fuzzy = r"[\s\-_\/\.\(\)]*".join(re.escape(ch) for ch in alnum)
+                patterns.append(rf"(?i)(?<![A-Za-z0-9]){fuzzy}(?![A-Za-z0-9])")
+            return patterns
+
+        def _sentence_for_match(match: re.Match) -> str:
+            left = max(
+                text.rfind(".", 0, match.start()),
+                text.rfind("!", 0, match.start()),
+                text.rfind("?", 0, match.start()),
+                text.rfind("\n", 0, match.start()),
+            )
+            start = left + 1 if left >= 0 else max(0, match.start() - 140)
+            right_candidates = [
+                pos for pos in (
+                    text.find(".", match.end()),
+                    text.find("!", match.end()),
+                    text.find("?", match.end()),
+                    text.find("\n", match.end()),
+                )
+                if pos >= 0
+            ]
+            end = min(right_candidates) + 1 if right_candidates else min(len(text), match.end() + 320)
+            sentence = re.sub(r"\s+", " ", text[start:end]).strip()
+            if len(sentence) > 500:
+                sentence = sentence[:497].rstrip() + "..."
+            return sentence
+
+        def _window_for_match(match: re.Match) -> str:
+            start = max(0, match.start() - 450)
+            end = min(len(text), match.end() + 450)
+            return re.sub(r"\s+", " ", text[start:end]).strip()
+
+        rejection_snippet = ""
+        max_scan = max(int(getattr(config, "EVIDENCE_BACKFILL_MAX_SCAN_MATCHES", 50)), 1)
+        for term in terms:
+            for pattern in _term_patterns(term):
+                scanned = 0
+                for match in re.finditer(pattern, text):
+                    if scanned >= max_scan:
+                        break
+                    scanned += 1
+
+                    sentence = _sentence_for_match(match)
+                    window = _window_for_match(match)
+                    combined = f"{sentence} {window}"
+                    snippet = sentence or window[:500]
+                    if not rejection_snippet:
+                        rejection_snippet = snippet
+
+                    if gene_upper == "PAM" and re.search(
+                        r"\b(porcine\s+alveolar\s+macrophages?|primary\s+alveolar\s+macrophages?|"
+                        r"pulmonary\s+intravascular\s+macrophages?|macrophages?|PAMs?|PIMs?)\b",
+                        combined,
+                        re.IGNORECASE,
+                    ):
+                        continue
+
+                    if gene_upper == "GP5" and re.search(
+                        r"\b(PRRSV|viral|virus|strain|isolate|ORF5|glycoprotein\s+5|genome)\b",
+                        combined,
+                        re.IGNORECASE,
+                    ):
+                        continue
+
+                    has_weak = bool(weak_context.search(combined))
+                    has_result = bool(result_signal.search(combined))
+                    has_pathway = bool(pathway_signal.search(combined))
+                    has_molecular = bool(molecular_signal.search(combined))
+
+                    if has_weak and not (has_result or has_pathway):
+                        continue
+                    if has_result and (has_molecular or has_pathway):
+                        return True, "result_context", snippet
+                    if has_pathway:
+                        return True, "pathway_context", snippet
+
+        return False, "no_strong_deterministic_context", rejection_snippet
+
     def _merge_duplicate_gene_rows(
         self, rows: List[Dict[str, Any]], column_descriptions: Dict[str, str]
     ) -> List[Dict[str, Any]]:
@@ -525,6 +748,87 @@ class GeneInfoPipeline:
         if backfilled:
             logging.info(f"Evidence backfill populated {backfilled} sparse rows")
 
+    def _find_statistical_snippet_for_gene(self, gene: str, variant: str = "") -> str:
+        """Find a gene-grounded sentence that carries statistical/result language."""
+        primary_terms = self._candidate_terms_for_row(gene, variant)
+        if not primary_terms:
+            return ""
+
+        stat_pattern = re.compile(
+            r"\b("
+            r"significant(?:ly)?|differential(?:ly)?|upregulated|downregulated|"
+            r"higher|lower|enriched|cut-?off|p\s*[<=>]|q\s*[<=>]|fdr|"
+            r"fold|log2|adjusted|confidence interval|odds ratio|figure|table"
+            r")\b",
+            re.IGNORECASE,
+        )
+
+        best = ""
+        for term in primary_terms:
+            for match in re.finditer(re.escape(term), self.paper_text, flags=re.IGNORECASE):
+                start = max(0, match.start() - 600)
+                end = min(len(self.paper_text), match.end() + 600)
+                window = self.paper_text[start:end]
+                sentences = re.split(r"(?<=[.!?])\s+", window)
+                for sentence in sentences:
+                    if not re.search(re.escape(term), sentence, flags=re.IGNORECASE):
+                        continue
+                    if not stat_pattern.search(sentence):
+                        continue
+                    cleaned = " ".join(sentence.split())
+                    if len(cleaned) < 20:
+                        continue
+                    if not best or len(cleaned) < len(best):
+                        best = cleaned[:500]
+            if best:
+                return best
+        return best
+
+    def _fill_missing_requested_fields(
+        self, extracted_info: List[Dict[str, Any]], column_descriptions: Dict[str, str]
+    ) -> None:
+        """Fill common partially-empty fields with grounded existing evidence.
+
+        Gemini often fills Disease Association/Key Finding but leaves "Conclusion"
+        blank when the paper lacks a literal conclusion sentence per gene. For
+        researcher-facing output, a supported interpretation is more useful than
+        an empty cell. Statistical Evidence gets a stricter text search so we do
+        not turn every generic key finding into a fake statistic.
+        """
+        if not extracted_info or not column_descriptions:
+            return
+
+        for row in extracted_info:
+            if not isinstance(row, dict):
+                continue
+            gene = str(row.get("gene_name") or "").strip()
+            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            if not gene:
+                continue
+
+            for column in column_descriptions:
+                if str(row.get(column, "") or "").strip():
+                    continue
+
+                lower_column = column.lower()
+                citation_col = f"{column} Citation"
+
+                if "statistical" in lower_column:
+                    snippet = self._find_statistical_snippet_for_gene(gene, variant)
+                    if snippet:
+                        row[column] = snippet
+                        row[citation_col] = snippet
+                    continue
+
+                if "conclusion" in lower_column:
+                    for source_col in ("Key Finding", "Disease Association"):
+                        value = str(row.get(source_col, "") or "").strip()
+                        citation = str(row.get(f"{source_col} Citation", "") or "").strip()
+                        if value:
+                            row[column] = value
+                            row[citation_col] = citation or value
+                            break
+
     def _apply_evidence_gate(
         self, df: pd.DataFrame, column_descriptions: Dict[str, str]
     ) -> pd.DataFrame:
@@ -630,6 +934,12 @@ class GeneInfoPipeline:
                     "validation_confidence": meta.get("validation_confidence"),
                     "validation_source": str(meta.get("validation_source") or ""),
                     "validation_outcome": str(meta.get("validation_outcome") or ""),
+                    "deterministic_context_reason": str(
+                        meta.get("deterministic_context_reason") or ""
+                    ),
+                    "deterministic_context_snippet": str(
+                        meta.get("deterministic_context_snippet") or ""
+                    ),
                 }
             )
 
@@ -638,6 +948,7 @@ class GeneInfoPipeline:
             "candidates": candidates,
             "detail_extraction_status": self.detail_extraction_status,
             "detail_extraction_error": self.detail_extraction_error,
+            "quota_limited": self._quota_limited,
             "detail_extraction_rows": self.detail_extraction_rows,
             "validation_drops": list(self.dropped_candidates),
             "strict_gate_drops": list(self.strict_gate_drops),
@@ -870,20 +1181,19 @@ class GeneInfoPipeline:
             ),
         ]
 
-        max_retries = 2  # Fewer retries for abstract (faster failure)
-        retry_delay = 3
+        max_retries = max(1, int(getattr(config, "GEMINI_OPTIONAL_MAX_RETRIES", 1)))
 
         for attempt in range(max_retries):
-            full_response_text = ""  # Reset on each attempt to avoid corrupted JSON
             try:
-                self._paper_api_calls += 1
-                for chunk in self.client.models.generate_content_stream(
-                    model=f"models/{model_name}",
+                full_response_text = self._generate_content_text(
+                    model_name=model_name,
                     contents=contents,
-                    config=generate_content_config,
-                ):
-                    if chunk.text:
-                        full_response_text += chunk.text
+                    generate_content_config=generate_content_config,
+                    purpose="abstract gene discovery",
+                    optional=True,
+                )
+                if not full_response_text:
+                    break
 
                 response_json = json.loads(full_response_text)
                 self.associations = response_json.get("associations", [])
@@ -903,13 +1213,13 @@ class GeneInfoPipeline:
                 logging.error(
                     f"Error during abstract gene extraction (attempt {attempt + 1}/{max_retries}): {e}"
                 )
-                if attempt < max_retries - 1:
-                    import time
-
-                    time.sleep(retry_delay)
+                should_retry, wait = self._should_retry_gemini_error(e, attempt, max_retries)
+                if should_retry:
+                    time.sleep(wait)
                 else:
                     logging.error("Abstract gene extraction failed after all retries")
                     self.associations = []
+                    break
 
         return self.associations
 
@@ -984,20 +1294,19 @@ Paper text:
             types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)]),
         ]
 
-        max_retries = 3
-        retry_delay = 5  # seconds
+        max_retries = max(1, int(getattr(config, "GEMINI_OPTIONAL_MAX_RETRIES", 1)))
 
         for attempt in range(max_retries):
-            full_response_text = ""  # Reset on each attempt to avoid corrupted JSON
             try:
-                self._paper_api_calls += 1
-                for chunk in self.client.models.generate_content_stream(
-                    model=f"models/{model_name}",
+                full_response_text = self._generate_content_text(
+                    model_name=model_name,
                     contents=contents,
-                    config=generate_content_config,
-                ):
-                    if chunk.text:
-                        full_response_text += chunk.text
+                    generate_content_config=generate_content_config,
+                    purpose="full-text gene discovery",
+                    optional=True,
+                )
+                if not full_response_text:
+                    break
 
                 response_json = json.loads(full_response_text)
                 parsed_associations = response_json.get("associations", [])
@@ -1010,10 +1319,7 @@ Paper text:
                     logging.warning(
                         f"Gene extraction returned 0 associations (attempt {attempt + 1}/{max_retries}), retrying..."
                     )
-                    import time
-
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+                    time.sleep(2 ** attempt)
                     continue
                 break
 
@@ -1021,15 +1327,14 @@ Paper text:
                 logging.error(
                     f"Error during gene-variant extraction (attempt {attempt + 1}/{max_retries}): {e}"
                 )
-                if attempt < max_retries - 1:
-                    logging.info(f"Retrying in {retry_delay} seconds...")
-                    import time
-
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                should_retry, wait = self._should_retry_gemini_error(e, attempt, max_retries)
+                if should_retry:
+                    logging.info(f"Retrying in {wait} seconds...")
+                    time.sleep(wait)
                 else:
                     logging.error("All retry attempts failed for gene-variant extraction")
                     self.associations = []
+                    break
 
         return self.associations
 
@@ -1256,21 +1561,19 @@ Paper text:
                 )
             ]
 
-            full_response_text = ""
-            fig_max_retries = 3
-            fig_retry_delay = 5
+            fig_max_retries = max(1, int(getattr(config, "GEMINI_OPTIONAL_MAX_RETRIES", 1)))
             fig_success = False
             for fig_attempt in range(fig_max_retries):
-                full_response_text = ""
                 try:
-                    self._paper_api_calls += 1
-                    for chunk in self.client.models.generate_content_stream(
-                        model=f"models/{model_name}",
+                    full_response_text = self._generate_content_text(
+                        model_name=model_name,
                         contents=contents,
-                        config=generate_content_config,
-                    ):
-                        if chunk.text:
-                            full_response_text += chunk.text
+                        generate_content_config=generate_content_config,
+                        purpose=f"figure analysis {idx}",
+                        optional=True,
+                    )
+                    if not full_response_text:
+                        break
 
                     response_json = json.loads(full_response_text) if full_response_text else {}
                     associations = (
@@ -1287,25 +1590,16 @@ Paper text:
                     fig_success = True
                     break
                 except Exception as e:
-                    err_str = str(e)
-                    is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-                    if is_rate_limit and fig_attempt < fig_max_retries - 1:
-                        # Extract suggested retry delay from error if present
-                        # Error string may use 'retryDelay': '53s' (single quotes, Python repr)
-                        # or "retryDelay": "53s" (double quotes, JSON string)
-                        delay_match = re.search(r"retryDelay[\"'\s:]+(\d+)s", err_str)
-                        suggested = int(delay_match.group(1)) if delay_match else 60
-                        # Add 3-second buffer: retryDelay=0s means the window just cleared
-                        # but another call immediately re-saturates it without a small pause.
-                        wait = min(max(suggested + 3, fig_retry_delay), 120)
+                    should_retry, wait = self._should_retry_gemini_error(
+                        e, fig_attempt, fig_max_retries
+                    )
+                    if should_retry:
                         logging.info(
                             f"Figure analysis rate limited for figure {idx} "
                             f"(attempt {fig_attempt + 1}/{fig_max_retries}): "
                             f"waiting {wait}s before retry"
                         )
-                        import time
                         time.sleep(wait)
-                        fig_retry_delay *= 2
                     else:
                         logging.warning(f"Figure analysis failed for figure {idx}: {e}")
                         break
@@ -1401,7 +1695,21 @@ Paper text:
         prompt_text += "- gene_name: The name of the gene. (Use exactly the gene name from the associations above)\n"
         prompt_text += "- variant_name: The associated variant, if any. (Use exactly the variant name from the associations above)\n"
         for column, description in column_descriptions.items():
-            prompt_text += f"- {column}: {description}. In the gene-only row (variant_name empty), provide gene-level facts that apply regardless of variant. In variant rows, include only variant-specific details; if none, leave empty.\n"
+            lower_column = column.lower()
+            extra_guidance = ""
+            if "statistical" in lower_column or "evidence" in lower_column:
+                extra_guidance = (
+                    " Include qualitative statistical language when exact p-values are absent, "
+                    "such as significantly upregulated/downregulated, differentially expressed, "
+                    "not significant, statistical cut-off, fold-change, figure/table references, "
+                    "or pathway enrichment statements."
+                )
+            elif "conclusion" in lower_column:
+                extra_guidance = (
+                    " If the paper has no explicit gene-specific conclusion sentence, summarize "
+                    "the authors' supported interpretation from Results or Discussion for this gene."
+                )
+            prompt_text += f"- {column}: {description}. In the gene-only row (variant_name empty), provide gene-level facts that apply regardless of variant. In variant rows, include only variant-specific details; if none, leave empty.{extra_guidance}\n"
             prompt_text += f"- {column} Citation: Direct quote or section/page reference supporting {column}. Empty if the field is empty.\n"
         prompt_text += f"\nPaper text:\n{self.paper_text}"
         if self.table_inputs and getattr(config, "ENABLE_TABLE_CITATIONS", True):
@@ -1411,20 +1719,17 @@ Paper text:
 
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])]
 
-        max_retries = 3
-        retry_delay = 5  # seconds
+        max_retries = max(1, int(getattr(config, "GEMINI_MAX_RETRIES", 1)))
 
         for attempt in range(max_retries):
-            full_response_text = ""  # Reset on each attempt to avoid corrupted JSON
             try:
-                self._paper_api_calls += 1
-                for chunk in self.client.models.generate_content_stream(
-                    model=f"models/{model_name}",
+                full_response_text = self._generate_content_text(
+                    model_name=model_name,
                     contents=contents,
-                    config=generate_content_config,
-                ):
-                    if chunk.text:
-                        full_response_text += chunk.text
+                    generate_content_config=generate_content_config,
+                    purpose="detail extraction",
+                    optional=False,
+                )
 
                 parsed = json.loads(full_response_text)
                 if isinstance(parsed, list):
@@ -1458,15 +1763,17 @@ Paper text:
                 logging.error(
                     f"Error during gene info extraction (attempt {attempt + 1}/{max_retries}): {e}"
                 )
-                if attempt < max_retries - 1:
-                    logging.info(f"Retrying in {retry_delay} seconds...")
-                    import time
-
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                should_retry, wait = self._should_retry_gemini_error(e, attempt, max_retries)
+                if should_retry:
+                    logging.info(f"Retrying in {wait} seconds...")
+                    time.sleep(wait)
                 else:
                     logging.error("All retry attempts failed for gene info extraction")
-                    self.detail_extraction_status = "fallback_after_retries"
+                    self.detail_extraction_status = (
+                        "quota_limited_fallback"
+                        if self._is_rate_limit_error(e)
+                        else "fallback_after_retries"
+                    )
                     self.detail_extraction_error = str(e)
                     # Return minimal fallback with gene/variant only — no fabricated content.
                     # F11: every fallback row is tagged extraction_mode="skeleton" and carries
@@ -1577,25 +1884,35 @@ Paper text:
                     duration_ms=(_t.time() - t0) * 1000.0,
                 )
 
-        # Step 1: Extract gene names using smaller model on full paper text
-        logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
         import time as _t
-        t0 = _t.time()
-        self.extract_gene_names()
-        pass1_count = len(self.associations)
-        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
-            pipeline_tracer.capture(
-                "fulltext_pass_greedy",
-                pmid=self.pmid,
-                inputs={
-                    "paper_text_length": len(self.paper_text or ""),
-                    "pubtator_seeds": self.pubtator_genes[:20],
-                },
-                outputs={
-                    "associations_count_after_ingest": pass1_count,
-                    "candidate_meta_size": len(self.candidate_meta),
-                },
-                duration_ms=(_t.time() - t0) * 1000.0,
+
+        # Step 1: Optional LLM gene discovery on full paper text. Free-tier
+        # defaults keep this off and rely on PubTator + deterministic seeding,
+        # saving the quota for the detail-extraction call that creates output.
+        if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False):
+            logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
+            t0 = _t.time()
+            self.extract_gene_names()
+            pass1_count = len(self.associations)
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "fulltext_pass_greedy",
+                    pmid=self.pmid,
+                    inputs={
+                        "paper_text_length": len(self.paper_text or ""),
+                        "pubtator_seeds": self.pubtator_genes[:20],
+                    },
+                    outputs={
+                        "associations_count_after_ingest": pass1_count,
+                        "candidate_meta_size": len(self.candidate_meta),
+                    },
+                    duration_ms=(_t.time() - t0) * 1000.0,
+                )
+        else:
+            pass1_count = len(self.associations)
+            logging.info(
+                "Step 1: Skipping optional full-text Gemini gene discovery "
+                "(ENABLE_LLM_GENE_DISCOVERY=false)"
             )
 
         # Step 1b: Second independent LLM pass at a higher temperature to actually diverge from
@@ -1603,33 +1920,38 @@ Paper text:
         # bit-reproducible; in practice two greedy passes often return identical token sequences.
         # Running at temperature=0.4 forces the model to sample from different completions and
         # recover genes that the greedy pass missed (e.g. cytokines in a primarily cardiac paper).
-        try:
+        if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False) and getattr(
+            config, "ENABLE_SECOND_GENE_DISCOVERY_PASS", False
+        ):
             logging.info(
                 "Step 1b: Second gene discovery pass (temperature=0.4) for recall improvement"
             )
-            t0 = _t.time()
-            self.extract_gene_names(temperature=0.4)
-            pass2_count = len(self.associations)
-            if pass2_count > pass1_count:
-                logging.info(
-                    f"Second pass added {pass2_count - pass1_count} additional genes (total: {pass2_count})"
+            try:
+                t0 = _t.time()
+                self.extract_gene_names(temperature=0.4)
+                pass2_count = len(self.associations)
+                if pass2_count > pass1_count:
+                    logging.info(
+                        f"Second pass added {pass2_count - pass1_count} additional genes (total: {pass2_count})"
+                    )
+                if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                    pipeline_tracer.capture(
+                        "fulltext_pass_recall",
+                        pmid=self.pmid,
+                        inputs={"temperature": 0.4},
+                        outputs={
+                            "pass1_count": pass1_count,
+                            "pass2_count": pass2_count,
+                            "new_from_recall": pass2_count - pass1_count,
+                        },
+                        duration_ms=(_t.time() - t0) * 1000.0,
+                    )
+            except Exception as e:
+                logging.warning(
+                    f"Second gene discovery pass failed, continuing with pass-1 results: {e}"
                 )
-            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
-                pipeline_tracer.capture(
-                    "fulltext_pass_recall",
-                    pmid=self.pmid,
-                    inputs={"temperature": 0.4},
-                    outputs={
-                        "pass1_count": pass1_count,
-                        "pass2_count": pass2_count,
-                        "new_from_recall": pass2_count - pass1_count,
-                    },
-                    duration_ms=(_t.time() - t0) * 1000.0,
-                )
-        except Exception as e:
-            logging.warning(
-                f"Second gene discovery pass failed, continuing with pass-1 results: {e}"
-            )
+        else:
+            logging.info("Step 1b: Skipping second Gemini gene discovery pass")
 
         # Step 1.1: Deterministic lexicon candidates (HGNC symbols/aliases)
         t0 = _t.time()
@@ -1722,7 +2044,7 @@ Paper text:
 
         Scope note: verifies gene presence only. Variant presence is validated later
         by the citation validator (Section 15.2) and the evidence gate (Section 15.3)
-        — see F8c in Final_Audit.md for why the function's name is narrower than it
+        — see F8c in docs/audit/final-audit.md for why the function's name is narrower than it
         appears.
         """
         if not (getattr(config, "ENABLE_GROUNDING_CHECK", True) and self.paper_text):
@@ -1844,6 +2166,35 @@ Paper text:
         logging.info("Step 2: Validating extracted genes against known databases")
         self._apply_gene_validation_heuristics()
 
+        if (
+            not self.associations
+            and pre_validation_associations
+            and getattr(config, "ENABLE_LLM_GENE_DISCOVERY_RESCUE", True)
+            and not getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False)
+        ):
+            deterministic_drops = [
+                d
+                for d in (self.dropped_candidates or [])
+                if d.get("reason") == "deterministic_uncorroborated"
+            ]
+            if deterministic_drops and self._can_make_gemini_call(
+                "rescue gene discovery", optional=True
+            ):
+                logging.info(
+                    "No deterministic-only genes survived corroboration; "
+                    "running one Gemini gene-discovery rescue pass"
+                )
+                rescue_before = len(self.associations)
+                self.extract_gene_names()
+                if (
+                    getattr(config, "ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS", True)
+                    and self._can_make_gemini_call("rescue recall gene discovery", optional=True)
+                ):
+                    self.extract_gene_names(temperature=0.4)
+                if len(self.associations) > rescue_before:
+                    self._run_grounding_check()
+                    self._apply_gene_validation_heuristics()
+
         # Reliability fallback: keep pre-validation candidates only when strict gate is disabled.
         if not self.associations and pre_validation_associations:
             if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
@@ -1936,6 +2287,7 @@ Paper text:
                 extracted_info.append(row)
 
         if extracted_info:
+            self._fill_missing_requested_fields(extracted_info, column_descriptions)
             self._backfill_sparse_row_evidence(extracted_info, column_descriptions)
 
         # ── Tracer: detail extraction outcome
@@ -2160,22 +2512,55 @@ Paper text:
             trusted_sources = {"llm_text", "llm_figure", "llm_abstract", "pubtator"}
             is_uncorroborated_lexicon_only = bool(sources) and not (sources & trusted_sources)
             if require_corroboration and not variant_norm and is_uncorroborated_lexicon_only:
-                if key in self.candidate_meta:
-                    self.candidate_meta[key]["validation_outcome"] = (
-                        "rejected_uncorroborated_deterministic"
-                    )
-                dropped.append(
-                    {
-                        "gene": gene_norm,
-                        "variant": variant_norm,
-                        "reason": "deterministic_uncorroborated",
-                        "confidence": result.confidence_score,
-                    }
+                rescue_enabled = bool(
+                    getattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", True)
                 )
-                continue
+                context_ok = False
+                context_reason = ""
+                context_snippet = ""
+                if rescue_enabled:
+                    context_ok, context_reason, context_snippet = (
+                        self._deterministic_gene_context_evidence(gene_norm, variant_norm)
+                    )
+
+                if context_ok:
+                    if key in self.candidate_meta:
+                        self.candidate_meta[key]["validation_outcome"] = (
+                            "passed_deterministic_context"
+                        )
+                        self.candidate_meta[key]["deterministic_context_reason"] = (
+                            context_reason
+                        )
+                        self.candidate_meta[key]["deterministic_context_snippet"] = (
+                            context_snippet
+                        )
+                else:
+                    if key in self.candidate_meta:
+                        self.candidate_meta[key]["validation_outcome"] = (
+                            "rejected_uncorroborated_deterministic"
+                        )
+                        self.candidate_meta[key]["deterministic_context_reason"] = (
+                            context_reason
+                        )
+                        self.candidate_meta[key]["deterministic_context_snippet"] = (
+                            context_snippet
+                        )
+                    dropped.append(
+                        {
+                            "gene": gene_norm,
+                            "variant": variant_norm,
+                            "reason": "deterministic_uncorroborated",
+                            "confidence": result.confidence_score,
+                            "context_reason": context_reason,
+                        }
+                    )
+                    continue
 
             if key in self.candidate_meta:
-                self.candidate_meta[key]["validation_outcome"] = "passed"
+                if self.candidate_meta[key].get("validation_outcome") != (
+                    "passed_deterministic_context"
+                ):
+                    self.candidate_meta[key]["validation_outcome"] = "passed"
 
             dedup_key = (gene_up, variant_up)
             if dedup_key in seen:
@@ -2252,6 +2637,8 @@ Paper text:
         df["Normalization Applied"] = ""
         df["Validation Outcome"] = ""
         df["Dropped By Gate"] = False
+        df["Deterministic Context Reason"] = ""
+        df["Deterministic Context Evidence"] = ""
 
         for i, row in df.iterrows():
             gene = (row.get("gene_name") or "").strip()
@@ -2269,6 +2656,12 @@ Paper text:
 
             df.at[i, "Normalization Applied"] = meta.get("normalization_applied", "") or ""
             df.at[i, "Validation Outcome"] = meta.get("validation_outcome", "") or ""
+            df.at[i, "Deterministic Context Reason"] = (
+                meta.get("deterministic_context_reason", "") or ""
+            )
+            df.at[i, "Deterministic Context Evidence"] = (
+                meta.get("deterministic_context_snippet", "") or ""
+            )
 
     def _add_validation_metadata(self, df: pd.DataFrame):
         """

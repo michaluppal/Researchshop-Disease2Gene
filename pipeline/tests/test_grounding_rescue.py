@@ -86,6 +86,38 @@ def _inject_candidate(pipeline, gene: str, variant: str, source: str) -> tuple:
     return key
 
 
+def test_llm_discovery_rescue_corroborates_deterministic_only_gene(monkeypatch):
+    """Free-tier mode should spend one rescue discovery call before emitting zero genes.
+
+    Deterministic-only gene-level hits are intentionally dropped unless another
+    source corroborates them. When all candidates would otherwise be dropped,
+    the rescue pass can add ``llm_text`` provenance and let real paper genes
+    proceed to detail extraction.
+    """
+    from modules import config
+
+    pipeline = _make_pipeline("IL6 expression increased after infection.")
+    key = _inject_candidate(pipeline, "IL6", "", "deterministic_lexicon")
+
+    monkeypatch.setattr(config, "ENABLE_LLM_GENE_DISCOVERY", False)
+    monkeypatch.setattr(config, "ENABLE_LLM_GENE_DISCOVERY_RESCUE", True)
+    monkeypatch.setattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", False)
+    monkeypatch.setattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 2)
+
+    def fake_extract_gene_names(*args, **kwargs):
+        pipeline.candidate_meta[key]["sources"].add("llm_text")
+        pipeline._refresh_associations_from_meta()
+        return pipeline.associations
+
+    monkeypatch.setattr(pipeline, "extract_gene_names", fake_extract_gene_names)
+
+    pipeline._run_validation_and_normalize()
+
+    assert pipeline.associations == [{"gene": "IL6", "variant": ""}]
+    assert "llm_text" in pipeline.candidate_meta[key]["sources"]
+    assert pipeline.candidate_meta[key]["validation_outcome"] == "passed"
+
+
 # ---------------------------------------------------------------------------
 # Guard: these tests assume ENABLE_GROUNDING_CHECK=True
 # ---------------------------------------------------------------------------
@@ -362,4 +394,98 @@ def test_find_evidence_snippet_param_default_unchanged():
         f"  default: {snippet_default!r}\n"
         f"  None   : {snippet_none!r}\n"
         f"  self.paper_text: {snippet_self!r}"
+    )
+
+
+def test_deterministic_context_rescue_keeps_strong_result_gene(monkeypatch):
+    """Deterministic-only HGNC hits can pass when the paper gives result evidence."""
+    from modules import config
+
+    paper_text = (
+        "Results: Pathways including IFNA and IFNG responses were shown to be "
+        "significantly upregulated in infected macrophages compared with controls."
+    )
+    pipeline = _make_pipeline(paper_text=paper_text)
+    key = _inject_candidate(pipeline, "IFNG", "", "deterministic_lexicon")
+
+    monkeypatch.setattr(config, "DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY", True)
+    monkeypatch.setattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", True)
+
+    pipeline._apply_gene_validation_heuristics()
+
+    assert pipeline.associations == [{"gene": "IFNG", "variant": ""}]
+    meta = pipeline.candidate_meta[key]
+    assert meta["validation_outcome"] == "passed_deterministic_context"
+    assert meta["deterministic_context_reason"] == "result_context"
+    assert "significantly upregulated" in meta["deterministic_context_snippet"]
+
+
+def test_deterministic_context_rescue_keeps_pathway_gene(monkeypatch):
+    """Pathway/signaling context is enough even without PubTator or LLM provenance."""
+    from modules import config
+
+    paper_text = (
+        "Discussion: The data support mitochondrial antiviral signaling pathways "
+        "mediated by MAVS and downstream RIG-I-like receptor signaling."
+    )
+    pipeline = _make_pipeline(paper_text=paper_text)
+    key = _inject_candidate(pipeline, "MAVS", "", "deterministic_lexicon")
+
+    monkeypatch.setattr(config, "DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY", True)
+    monkeypatch.setattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", True)
+
+    pipeline._apply_gene_validation_heuristics()
+
+    assert pipeline.associations == [{"gene": "MAVS", "variant": ""}]
+    meta = pipeline.candidate_meta[key]
+    assert meta["validation_outcome"] == "passed_deterministic_context"
+    assert meta["deterministic_context_reason"] == "pathway_context"
+
+
+@pytest.mark.parametrize(
+    ("gene", "paper_text"),
+    [
+        (
+            "RPS24",
+            "Methods: RPS24 F and RPS24 R primers were used as a housekeeping "
+            "reference gene for RT-qPCR normalization.",
+        ),
+        (
+            "PAM",
+            "Methods: Primary porcine alveolar macrophages (PAM) were isolated "
+            "and infected with PRRSV before RNA extraction.",
+        ),
+        (
+            "PAM",
+            "Results: Differential pathway responses were analyzed separately for "
+            "PAM and PIM samples after infection.",
+        ),
+        (
+            "GP5",
+            "Results: PRRSV strain GP5 sequences showed viral genome nucleotide "
+            "identity across isolates.",
+        ),
+    ],
+)
+def test_deterministic_context_rescue_rejects_methods_and_abbreviation_noise(
+    monkeypatch, gene, paper_text
+):
+    """Primer, macrophage-abbreviation, and viral strain/protein hits stay filtered."""
+    from modules import config
+
+    pipeline = _make_pipeline(paper_text=paper_text)
+    key = _inject_candidate(pipeline, gene, "", "deterministic_lexicon")
+
+    monkeypatch.setattr(config, "DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY", True)
+    monkeypatch.setattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", True)
+
+    pipeline._apply_gene_validation_heuristics()
+
+    assert pipeline.associations == []
+    assert pipeline.candidate_meta[key]["validation_outcome"] == (
+        "rejected_uncorroborated_deterministic"
+    )
+    assert any(
+        drop["gene"] == gene and drop["reason"] == "deterministic_uncorroborated"
+        for drop in pipeline.dropped_candidates
     )

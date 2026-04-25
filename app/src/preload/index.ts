@@ -25,7 +25,7 @@ export interface ElectronAPI {
     onProgress: (
       callback: (data: { stage: string; percent: number; stats: Record<string, number> }) => void
     ) => () => void
-    onResult: (callback: (data: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; error?: string }) => void) => () => void
+    onResult: (callback: (data: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string }) => void) => () => void
     onLog: (callback: (text: string) => void) => () => void
     onStructuredLog: (
       callback: (data: { type: 'log'; level: string; msg: string; detail: string | null; timestamp: string }) => void
@@ -68,7 +68,7 @@ export interface ElectronAPI {
   }
   pubmed: {
     search: (query: string, retmax?: number) => Promise<{ count: number; pmids: string[]; error?: string }>
-    fetchDetails: (pmids: string[]) => Promise<Record<string, { title: string; journal: string; authors: string[]; pubYear: string; doi?: string; pmc?: string; url: string; publicationTypes: string[] }>>
+    fetchDetails: (pmids: string[]) => Promise<Record<string, { title: string; journal: string; authors: string[]; pubYear: string; doi?: string; pmc?: string; issn?: string; url: string; publicationTypes: string[] }>>
     fetchAbstracts: (pmids: string[]) => Promise<{ abstracts: Record<string, string>; error: string | null }>
     count: (query: string) => Promise<{ count: number }>
     expandQuery: (query: string) => Promise<{ expandedQuery?: string; changes?: string; error?: string }>

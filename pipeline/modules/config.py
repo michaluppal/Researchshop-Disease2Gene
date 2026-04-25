@@ -46,9 +46,24 @@ EXCLUDED_PUBLICATION_TYPES = [
 ENABLE_ABSTRACT_SCREENING = os.getenv("ENABLE_ABSTRACT_SCREENING", "true").lower() == "true"
 ABSTRACT_SCREENING_THRESHOLD = int(os.getenv("ABSTRACT_SCREENING_THRESHOLD", "5"))  # Minimum score to proceed
 
-# FIX #5 (Revised): Two-Stage Gemini Pipeline (Est. 50% additional reduction)
-# Use Flash on abstracts for gene discovery, then Pro on full text for extraction
-ENABLE_ABSTRACT_GENE_DISCOVERY = os.getenv("ENABLE_ABSTRACT_GENE_DISCOVERY", "true").lower() == "true"
+# Gemini API usage profile. "free" keeps the default pipeline to roughly one
+# required Gemini call per analyzed paper; paid/debug profiles can opt into the
+# optional recall paths below via environment variables.
+GEMINI_USAGE_PROFILE = os.getenv("GEMINI_USAGE_PROFILE", "free").lower()
+
+# FIX #5 (Revised): optional LLM candidate discovery.
+# Free-tier default OFF: PubTator + deterministic HGNC scanning seed candidate
+# genes, and Gemini is reserved for the detail-extraction call. This avoids
+# spending 2-4 calls per paper before the output-producing step even starts.
+ENABLE_ABSTRACT_GENE_DISCOVERY = os.getenv("ENABLE_ABSTRACT_GENE_DISCOVERY", "false").lower() == "true"
+ENABLE_LLM_GENE_DISCOVERY = os.getenv("ENABLE_LLM_GENE_DISCOVERY", "false").lower() == "true"
+ENABLE_SECOND_GENE_DISCOVERY_PASS = os.getenv("ENABLE_SECOND_GENE_DISCOVERY_PASS", "false").lower() == "true"
+ENABLE_LLM_GENE_DISCOVERY_RESCUE = (
+    os.getenv("ENABLE_LLM_GENE_DISCOVERY_RESCUE", "true").lower() == "true"
+)
+ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS = (
+    os.getenv("ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS", "true").lower() == "true"
+)
 
 # Grounding check: drop candidate genes not found in the fetched paper text before Stage 3.
 # Prevents hallucinated genes (recalled from training knowledge, not from the text) from
@@ -78,8 +93,8 @@ SUPPLEMENTARY_MAX_CHARS = int(os.getenv("SUPPLEMENTARY_MAX_CHARS", "200000"))
 
 # Figure extraction / vision analysis
 # Phase 1: PMC figure metadata extraction + Gemini multimodal gene discovery
-ENABLE_FIGURE_ANALYSIS = os.getenv("ENABLE_FIGURE_ANALYSIS", "true").lower() == "true"
-FIGURE_MAX_IMAGES_PER_PAPER = int(os.getenv("FIGURE_MAX_IMAGES_PER_PAPER", "3"))
+ENABLE_FIGURE_ANALYSIS = os.getenv("ENABLE_FIGURE_ANALYSIS", "false").lower() == "true"
+FIGURE_MAX_IMAGES_PER_PAPER = int(os.getenv("FIGURE_MAX_IMAGES_PER_PAPER", "1"))
 FIGURE_IMAGE_MAX_BYTES = int(os.getenv("FIGURE_IMAGE_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
 
 # --- PDF Extraction ---
@@ -90,10 +105,23 @@ PDFM_LINE_MARGIN = float(os.getenv("PDFM_LINE_MARGIN", "0.5"))
 PDFM_WORD_MARGIN = float(os.getenv("PDFM_WORD_MARGIN", "0.1"))
 
 GEMINI_CONFIG = {
-    'gene_extraction_model': os.getenv("GEMINI_GENE_EXTRACTION_MODEL", "gemini-3-flash-preview"),
-    'data_extraction_model': os.getenv("GEMINI_DATA_EXTRACTION_MODEL", "gemini-3-flash-preview"),
+    'gene_extraction_model': os.getenv("GEMINI_GENE_EXTRACTION_MODEL", "gemini-2.5-flash-lite"),
+    'data_extraction_model': os.getenv("GEMINI_DATA_EXTRACTION_MODEL", "gemini-2.5-flash-lite"),
     'temperature': 0.0
 }
+
+# --- Gemini quota guards ---
+# Defaults target the public free tier, where limits are model-dependent and can
+# be as low as 5-15 RPM plus daily request/token caps. Keep retry/call budgets
+# low so quota exhaustion is surfaced quickly instead of burning minutes.
+GEMINI_MAX_CALLS_PER_PAPER = int(os.getenv("GEMINI_MAX_CALLS_PER_PAPER", "3"))
+GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "1"))
+GEMINI_OPTIONAL_MAX_RETRIES = int(os.getenv("GEMINI_OPTIONAL_MAX_RETRIES", "1"))
+GEMINI_INTER_CALL_DELAY_SECONDS = float(os.getenv("GEMINI_INTER_CALL_DELAY_SECONDS", "6"))
+GEMINI_RETRY_RATE_LIMIT_WITH_DELAY = (
+    os.getenv("GEMINI_RETRY_RATE_LIMIT_WITH_DELAY", "true").lower() == "true"
+)
+GEMINI_MAX_RATE_LIMIT_WAIT_SECONDS = int(os.getenv("GEMINI_MAX_RATE_LIMIT_WAIT_SECONDS", "75"))
 
 # --- Additional Limits ---
 MAX_MANDATORY = 50  # Hard cap on total mandatory PMIDs to prevent overload
@@ -117,6 +145,9 @@ ENABLE_DETERMINISTIC_CANDIDATES = os.getenv("ENABLE_DETERMINISTIC_CANDIDATES", "
 DETERMINISTIC_MAX_CANDIDATES = int(os.getenv("DETERMINISTIC_MAX_CANDIDATES", "120"))
 DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY = os.getenv(
     "DETERMINISTIC_REQUIRE_CORROBORATION_FOR_GENE_ONLY", "true"
+).lower() == "true"
+ENABLE_DETERMINISTIC_CONTEXT_RESCUE = os.getenv(
+    "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", "true"
 ).lower() == "true"
 ENABLE_BIOMARKER_NORMALIZATION = os.getenv("ENABLE_BIOMARKER_NORMALIZATION", "true").lower() == "true"
 ENABLE_STRICT_VALIDATION_GATE = os.getenv("ENABLE_STRICT_VALIDATION_GATE", "true").lower() == "true"

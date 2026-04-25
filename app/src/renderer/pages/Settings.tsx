@@ -232,7 +232,8 @@ export default function Settings() {
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               Analyze multiple papers simultaneously using your existing worker pool.
               Recommended for paid Gemini API keys with higher rate limits. Free-tier keys
-              (15 RPM) may experience rate-limit errors with this enabled.
+              use conservative defaults and may still hit model-specific request or token limits
+              with this enabled.
             </p>
           </div>
 

@@ -225,11 +225,19 @@ def summarise(obj: Any, *, max_items: int = 10, max_str: int = 200) -> Any:
     try:
         import pandas as pd  # type: ignore
         if isinstance(obj, pd.DataFrame):
+            preview = obj.head(3).copy()
+            seen_counts: dict[str, int] = {}
+            preview_cols = []
+            for col in preview.columns:
+                count = seen_counts.get(str(col), 0)
+                preview_cols.append(str(col) if count == 0 else f"{col} ({count + 1})")
+                seen_counts[str(col)] = count + 1
+            preview.columns = preview_cols
             return {
                 "__type__": "DataFrame",
                 "rows": int(len(obj)),
                 "cols": list(obj.columns)[:20],
-                "head": obj.head(3).to_dict(orient="records") if len(obj) else [],
+                "head": preview.to_dict(orient="records") if len(obj) else [],
             }
     except Exception:
         pass
