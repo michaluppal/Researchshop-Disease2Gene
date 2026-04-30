@@ -25,7 +25,7 @@ export interface ElectronAPI {
     onProgress: (
       callback: (data: { stage: string; percent: number; stats: Record<string, number> }) => void
     ) => () => void
-    onResult: (callback: (data: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string }) => void) => () => void
+    onResult: (callback: (data: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; candidate_audit_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string }) => void) => () => void
     onLog: (callback: (text: string) => void) => () => void
     onStructuredLog: (
       callback: (data: { type: 'log'; level: string; msg: string; detail: string | null; timestamp: string }) => void
@@ -51,6 +51,7 @@ export interface ElectronAPI {
         metadata_path: string | null
         excel_path: string | null
         json_path: string | null
+        candidate_audit_path: string | null
         stats: string | null
         error: string | null
       }>

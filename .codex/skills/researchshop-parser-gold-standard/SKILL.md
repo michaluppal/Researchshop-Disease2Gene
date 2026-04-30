@@ -23,10 +23,16 @@ Use this skill to evaluate whether ResearchShop's current PMC extraction still m
      --output docs/pipeline/reports/figure-download-validation.md
    ```
 
+   The maintained fixture must include at least one figure-rich PMID. Keep
+   `41169353` in the run set unless replacing it with another manually verified
+   multi-figure PMC article.
+
 3. Use the Codex Browser / Browser Use skill for visual validation:
 
    - Open representative `resolved_url` values from `docs/pipeline/reports/figure-download-validation.md`.
    - Confirm the URL renders an actual scientific figure, not HTML, an error page, a placeholder, or a broken image.
+   - Inspect at least one figure from the figure-rich PMID and record whether
+     the image is readable enough for visual evidence review.
    - Capture what was inspected in the report or final summary.
 
 4. If browser ground truth needs refreshing:
@@ -47,7 +53,9 @@ Use this skill to evaluate whether ResearchShop's current PMC extraction still m
 - Figure/table count deltas should be `0` for the maintained gold-standard PMIDs unless the fixture is intentionally updated.
 - Parser text can be shorter than browser text because ResearchShop feeds cleaner article content to the LLM.
 - Figure URLs must download as `image/*` content and produce non-empty bytes.
-- Browser figure spot checks should prioritize one complex multi-panel figure and one small/simple figure.
+- Browser figure spot checks should prioritize one complex multi-panel figure,
+  one small/simple figure, and at least one figure from the maintained
+  figure-rich PMID (`41169353` at the time of writing).
 - Treat `pubmed_parser` as a parser/enrichment dependency, not as a new paper source.
 
 ## Core Artifacts

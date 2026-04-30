@@ -10,6 +10,19 @@ from .. import config
 
 
 class EvidenceMixin:
+    def _is_compound_prefix_match(self, gene_symbol: str, text: str, match: re.Match) -> bool:
+        """Reject narrow biochemical-prefix false positives without blocklisting a gene."""
+        if str(gene_symbol or "").strip().upper() != "F2":
+            return False
+        right_context = text[match.end(): match.end() + 40]
+        return bool(
+            re.match(
+                r"^\s*(?:[-‐‑‒–—]|\s)\s*(?:isoprostanes?|isops?)(?:\b|[()s])",
+                right_context,
+                re.IGNORECASE,
+            )
+        )
+
     def _row_has_user_evidence(
         self, row: Dict[str, Any], column_descriptions: Dict[str, str]
     ) -> bool:
@@ -122,6 +135,8 @@ class EvidenceMixin:
                     if scanned >= max_scan:
                         break
                     scanned += 1
+                    if self._is_compound_prefix_match(needle, text, match):
+                        continue
                     snippet = _build_snippet(match)
                     if not snippet:
                         continue
@@ -167,20 +182,20 @@ class EvidenceMixin:
                 patterns.append(rf"(?i)(?<![A-Za-z0-9]){fuzzy}(?![A-Za-z0-9])")
 
             for pattern in patterns:
-                match = re.search(pattern, text)
-                if not match:
-                    continue
-                # Try to start at the nearest sentence boundary before the match
-                # so snippets don't begin mid-sentence (e.g. "in, while highest...")
-                raw_start = max(0, match.start() - 80)
-                # Look for a sentence-ending punctuation followed by a space/newline
-                boundary = re.search(r"(?<=[.!?])\s+", text[raw_start : match.start()])
-                start = raw_start + boundary.end() if boundary else raw_start
-                end = min(len(text), match.end() + 220)
-                snippet = re.sub(r"\s+", " ", text[start:end]).strip()
-                if len(snippet) > max_chars:
-                    snippet = snippet[: max_chars - 3].rstrip() + "..."
-                return snippet
+                for match in re.finditer(pattern, text):
+                    if self._is_compound_prefix_match(needle, text, match):
+                        continue
+                    # Try to start at the nearest sentence boundary before the match
+                    # so snippets don't begin mid-sentence (e.g. "in, while highest...")
+                    raw_start = max(0, match.start() - 80)
+                    # Look for a sentence-ending punctuation followed by a space/newline
+                    boundary = re.search(r"(?<=[.!?])\s+", text[raw_start : match.start()])
+                    start = raw_start + boundary.end() if boundary else raw_start
+                    end = min(len(text), match.end() + 220)
+                    snippet = re.sub(r"\s+", " ", text[start:end]).strip()
+                    if len(snippet) > max_chars:
+                        snippet = snippet[: max_chars - 3].rstrip() + "..."
+                    return snippet
 
         return ""
 
@@ -285,6 +300,8 @@ class EvidenceMixin:
                     if scanned >= max_scan:
                         break
                     scanned += 1
+                    if self._is_compound_prefix_match(gene_upper, text, match):
+                        continue
 
                     sentence = _sentence_for_match(match)
                     window = _window_for_match(match)
@@ -495,7 +512,7 @@ class EvidenceMixin:
         blank when the paper lacks a literal conclusion sentence per gene. For
         researcher-facing output, a supported interpretation is more useful than
         an empty cell. Statistical Evidence gets a stricter text search so we do
-        not turn every generic key finding into a fake statistic.
+        not turn every generic key finding into an unsupported statistic.
         """
         if not extracted_info or not column_descriptions:
             return
@@ -584,6 +601,8 @@ class EvidenceMixin:
                         "gene": str(row_dict.get("gene_name") or "").strip(),
                         "variant": self._normalize_variant_value(row_dict.get("variant_name", "")),
                         "reason": "insufficient_user_evidence",
+                        "association_type": str(row_dict.get("Association Type") or ""),
+                        "association_group": str(row_dict.get("Association Group") or ""),
                         "evidence_cells": int(evidence_cells),
                         "source_tier": source_tier,
                         "min_required": int(min_cells),

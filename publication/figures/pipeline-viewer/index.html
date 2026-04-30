@@ -169,6 +169,7 @@
   #fnList .fn-row .fn-event { width: 56px; flex-shrink: 0; font-weight: 600; font-size: 10px; padding: 1px 6px; border-radius: 3px; text-align: center; }
   #fnList .fn-row .fn-event.call { background: var(--state-run); color: #7c5700; }
   #fnList .fn-row .fn-event.return { background: var(--state-done); color: #0b5f1b; }
+  #fnList .fn-row .fn-stage { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--accent); background: #e8f1ff; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
   #fnList .fn-row .fn-module { color: var(--muted); }
   #fnList .fn-row .fn-name { color: var(--ink); font-weight: 500; }
   #fnList .fn-row .fn-duration { color: var(--accent); margin-left: auto; font-size: 10px; }
@@ -418,24 +419,24 @@ const NODES = {
   },
 
   // LANE 2 — Candidate sourcing (LLM + deterministic)
-  abstract_pass: { lane: 2, row: 0, label: "Abstract pass (Step 0.5)", stage_id: "extract_gene_names_from_abstract", laneClass: "lane-llm",
-    desc: "Gemini Flash on abstract + title only. Discovery of gene candidates with clinical-vs-molecular disambiguation clause. ~500 tokens in.",
+  abstract_pass: { lane: 2, row: 0, label: "Optional abstract LLM pass (0.5)", stage_id: "extract_gene_names_from_abstract", laneClass: "lane-llm",
+    desc: "Optional Gemini Flash call on abstract + title only. Enabled by config when extra recall is worth the API call.",
     inputs: ["abstract", "title"],
     outputs: ["associations[] tagged llm_abstract"],
     config: ["ENABLE_ABSTRACT_GENE_DISCOVERY", "GEMINI_CONFIG.temperature"],
     docs: "§8 The Abstract Pass",
     audit: []
   },
-  fulltext_pass_greedy: { lane: 2, row: 1, label: "Full-text pass (Step 1)", stage_id: "extract_gene_names(temp=0)", laneClass: "lane-llm",
-    desc: "Gemini Flash on full paper text, greedy. PubTator genes (first 20) injected as soft seeds. 3 retries with exp backoff.",
+  fulltext_pass_greedy: { lane: 2, row: 1, label: "Optional full-text LLM pass (1)", stage_id: "extract_gene_names(temp=0)", laneClass: "lane-llm",
+    desc: "Optional Gemini Flash call on full paper text. Free-tier defaults keep this off and reserve quota for detail extraction.",
     inputs: ["paper_text", "pubtator_genes[:20]"],
     outputs: ["associations[] tagged llm_text"],
     config: ["GEMINI_CONFIG.gene_extraction_model"],
     docs: "§9.2 Full-text pass",
     audit: []
   },
-  fulltext_pass_recall: { lane: 2, row: 2, label: "Recall retry (Step 1b)", stage_id: "extract_gene_names(temp=0.4)", laneClass: "lane-llm",
-    desc: "Same call at temperature 0.4 to force divergent sampling. Catches cytokines and other genes pass-1 missed.",
+  fulltext_pass_recall: { lane: 2, row: 2, label: "Optional recall retry (1b)", stage_id: "extract_gene_names(temp=0.4)", laneClass: "lane-llm",
+    desc: "Optional second full-text Gemini call at temperature 0.4. Useful for recall experiments, expensive for free-tier runs.",
     inputs: ["paper_text", "pubtator_genes[:20]"],
     outputs: ["associations[] tagged llm_text"],
     config: ["(fixed 0.4 temp)"],
@@ -443,15 +444,15 @@ const NODES = {
     audit: ["Passes don't corroborate each other (Section 9.6b)"]
   },
   deterministic_scan: { lane: 2, row: 3, label: "Deterministic scan (1.1)", stage_id: "extract_deterministic_candidates", laneClass: "lane-llm",
-    desc: "Regex match against canonical HGNC symbols. No alias expansion (C9). Token shape filter + 120-candidate cap.",
+    desc: "Regex match against canonical HGNC symbols. Candidate metadata materializes aliases/search terms for later gates. Token shape filter + 120-candidate cap.",
     inputs: ["paper_text", "local HGNC DB"],
     outputs: ["associations[] tagged deterministic_lexicon"],
     config: ["ENABLE_DETERMINISTIC_CANDIDATES", "DETERMINISTIC_MAX_CANDIDATES"],
     docs: "§10 Deterministic Lexicon Scan",
     audit: ["F9: Can't distinguish table-only genes from biomarker FPs"]
   },
-  figure_analysis: { lane: 2, row: 4, label: "Figure analysis (1.25)", stage_id: "extract_gene_names_from_figures", laneClass: "lane-llm",
-    desc: "Multimodal Gemini on PMC figure images. 3 images/paper cap. 4s inter-call delay. retryDelay parsed from 429s.",
+  figure_analysis: { lane: 2, row: 4, label: "Optional figure LLM analysis (1.25)", stage_id: "extract_gene_names_from_figures", laneClass: "lane-llm",
+    desc: "Optional multimodal Gemini on PMC figure images. Figure URLs/downloads are always available to the fetcher; this node is the extra AI pass.",
     inputs: ["figure_inputs[]"],
     outputs: ["associations[] tagged llm_figure"],
     config: ["ENABLE_FIGURE_ANALYSIS", "FIGURE_MAX_IMAGES_PER_PAPER"],
@@ -593,9 +594,9 @@ const NODES = {
     audit: []
   },
   output_writer: { lane: 7, row: 4, label: "Output writer", stage_id: "_write_split_output", laneClass: "lane-output",
-    desc: "Writes 4 artefacts: primary CSV (researcher-facing), metadata CSV (full transparency), Excel (colour-coded), JSON (records).",
+    desc: "Writes primary CSV, metadata CSV, Excel, JSON, drop-debug JSON, and stable candidate-audit JSON.",
     inputs: ["reordered DataFrame"],
-    outputs: ["final.csv / _metadata.csv / .xlsx / .json / drop_debug.json"],
+    outputs: ["final.csv / _metadata.csv / .xlsx / .json / candidate_audit.json / drop_debug.json"],
     config: ["(all always written)"],
     docs: "§18 Output",
     audit: []
@@ -1489,6 +1490,9 @@ function buildFnRow(evt, idx) {
   const durSuffix = (evt.type === "fn_call" && evt._duration_ms !== undefined)
     ? `<span class="fn-duration">${evt._duration_ms.toFixed(1)}ms</span>`
     : "";
+  const stageChip = evt.stage_id
+    ? `<span class="fn-stage" title="Semantic stage">${escapeHtml(evt.stage_id)}</span>`
+    : "";
   // Eye icon marks rows where we captured actual arg/return values — click to inspect.
   const hasValues = (evt.arg_values && Object.keys(evt.arg_values).length)
                  || evt.return_value !== undefined;
@@ -1499,6 +1503,7 @@ function buildFnRow(evt, idx) {
     <span class="fn-ts">${escapeHtml(ts)}</span>
     <span class="fn-indent">${indent}</span>
     <span class="fn-event ${kind}">${kind}</span>
+    ${stageChip}
     <span class="fn-module">${escapeHtml(evt.module || "")}.</span><span class="fn-name">${escapeHtml(evt.function || "")}</span>
     ${valueMarker}
     ${durSuffix}
@@ -1545,6 +1550,7 @@ function renderFnDetail(evt) {
   let html = `<div class="panel-section">
     <div class="kv">
       <span class="k">type</span><span class="v">${escapeHtml(evt.type)}</span>
+      ${evt.stage_id ? `<span class="k">stage</span><span class="v">${escapeHtml(evt.stage_id)}</span>` : ""}
       <span class="k">module</span><span class="v">${escapeHtml(evt.module || "")}</span>
       <span class="k">function</span><span class="v">${escapeHtml(evt.function || "")}</span>
       <span class="k">depth</span><span class="v">${evt.depth || 0}</span>

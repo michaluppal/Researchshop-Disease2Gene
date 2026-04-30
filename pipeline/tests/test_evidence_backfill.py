@@ -6,16 +6,16 @@ Exercises:
   - _backfill_sparse_row_evidence (peer-aware row backfill)
   - pipeline_orchestrator._compute_row_confidence co-mention note suffix
 
-All tests are offline — no real API calls. The Gemini client is mocked; only
+All tests are offline — no real API calls. An explicit offline client is used; only
 deterministic helpers that touch paper_text directly are exercised.
 """
 
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
 
 import pytest
+import pandas as pd
 
 _PYTHON_ROOT = Path(__file__).parent.parent
 if str(_PYTHON_ROOT) not in sys.path:
@@ -24,33 +24,24 @@ if str(_PYTHON_ROOT) not in sys.path:
 
 # ---------------------------------------------------------------------------
 # Helper: build a minimal GeneInfoPipeline without a real Gemini key.
-# Mirrors the pattern in test_figure_extraction.py (same module patching).
 # ---------------------------------------------------------------------------
 
 
+class OfflineGeminiClient:
+    pass
+
+
 def _make_pipeline(paper_text: str = ""):
-    """Return a GeneInfoPipeline instance with the Gemini client mocked out."""
-    from modules import config as _config
+    """Return a GeneInfoPipeline instance with no live Gemini dependency."""
+    from modules.gemini_extractor import GeneInfoPipeline
 
-    original_key = _config.GEMINI_API_KEY
-    _config.GEMINI_API_KEY = "fake-api-key-for-testing"
-
-    try:
-        with patch("modules.gemini_extractor.config.GEMINI_API_KEY", "fake-api-key-for-testing"):
-            with patch("google.genai.Client") as mock_client_cls:
-                mock_client_cls.return_value = MagicMock()
-                from modules.gemini_extractor import GeneInfoPipeline
-
-                pipeline = GeneInfoPipeline(
-                    paper_text=paper_text,
-                    abstract_text="",
-                    pubtator_genes=[],
-                    figure_inputs=[],
-                )
-    finally:
-        _config.GEMINI_API_KEY = original_key
-
-    return pipeline
+    return GeneInfoPipeline(
+        paper_text=paper_text,
+        abstract_text="",
+        pubtator_genes=[],
+        figure_inputs=[],
+        client=OfflineGeminiClient(),
+    )
 
 
 def _empty_row(gene: str, variant: str = "") -> Dict[str, Any]:
@@ -64,6 +55,72 @@ def _empty_row(gene: str, variant: str = "") -> Dict[str, Any]:
 
 
 COLS = {"Key Finding": "primary finding about the gene"}
+
+
+def test_candidate_cache_materializes_terms_and_association_type():
+    pipeline = _make_pipeline()
+    key = pipeline._assoc_key("CARD9", "")
+    pipeline.candidate_meta[key] = {
+        "gene": "CARD9",
+        "variant": "",
+        "sources": {"deterministic_lexicon"},
+        "raw_gene_labels": {"CARD9"},
+        "deterministic_context_reason": "pathway_context",
+    }
+    pipeline.gene_validator._local_gene_db = {
+        "CARD9": {
+            "alias_symbol": ["CARD9A"],
+            "prev_symbol": ["CARD9OLD"],
+        }
+    }
+
+    pipeline._refresh_candidate_cache(key)
+
+    assert pipeline.candidate_meta[key]["association_type"] == "mechanistic_pathway_gene"
+    assert pipeline._candidate_terms_for_row("CARD9", "") == ["CARD9", "CARD9A", "CARD9OLD"]
+    assert pipeline._hgnc_alias_cache["CARD9"] == ["CARD9A", "CARD9OLD"]
+
+
+def test_f2_isoprostane_prefix_does_not_ground_gene():
+    pipeline = _make_pipeline(
+        "Lipid peroxidation products including F2-isoprostanes were elevated. "
+        "No coagulation factor gene was discussed."
+    )
+
+    assert pipeline._find_evidence_snippet(["F2"]) == ""
+    ok, reason, _ = pipeline._deterministic_gene_context_evidence("F2")
+    assert ok is False
+    assert reason == "no_strong_deterministic_context"
+
+
+def test_real_f2_gene_mention_still_grounds():
+    pipeline = _make_pipeline(
+        "The F2 gene showed increased expression in vascular tissue. "
+        "Coagulation factor II (F2) expression remained elevated."
+    )
+
+    assert "F2 gene showed increased expression" in pipeline._find_evidence_snippet(["F2"])
+    ok, reason, snippet = pipeline._deterministic_gene_context_evidence("F2")
+    assert ok is True
+    assert reason == "result_context"
+    assert "F2 gene" in snippet
+
+
+def test_row_classifier_preserves_variant_association_over_broad_keywords():
+    pipeline = _make_pipeline()
+    row = pd.Series({
+        "Gene/Group": "MAPK1",
+        "Variant Name": "rs123",
+        "Study Title": "Mouse model MAPK1 pathway paper",
+        "Key Finding": "The polymorphism was associated with disease susceptibility.",
+    })
+
+    association_type = pipeline._infer_row_association_type(
+        row,
+        {"association_type": "variant_association"},
+    )
+
+    assert association_type == "variant_association"
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +320,7 @@ def test_backfill_preserves_existing_values():
 def test_fill_missing_statistical_and_conclusion_fields():
     """Partially-filled LLM rows should not leave common result fields empty."""
     paper = (
-        "IL1B expression was significantly higher in infected cells compared with mock. "
+        "IL1B expression was significantly higher in infected cells compared with controls. "
         "These findings suggest that IL1B contributes to the inflammatory response."
     )
     pipeline = _make_pipeline(paper_text=paper)
@@ -271,9 +328,9 @@ def test_fill_missing_statistical_and_conclusion_fields():
         "gene_name": "IL1B",
         "variant_name": "",
         "Disease Association": "IL1B expression changed after infection.",
-        "Disease Association Citation": "IL1B expression was significantly higher in infected cells compared with mock.",
-        "Key Finding": "IL1B expression was significantly higher in infected cells compared with mock.",
-        "Key Finding Citation": "IL1B expression was significantly higher in infected cells compared with mock.",
+        "Disease Association Citation": "IL1B expression was significantly higher in infected cells compared with controls.",
+        "Key Finding": "IL1B expression was significantly higher in infected cells compared with controls.",
+        "Key Finding Citation": "IL1B expression was significantly higher in infected cells compared with controls.",
         "Statistical Evidence": "",
         "Statistical Evidence Citation": "",
         "Conclusion": "",
@@ -316,8 +373,12 @@ def test_peer_with_alias_match():
 
     rows = [_empty_row("TP53"), _empty_row("OTHER")]
 
-    with patch.object(pipeline, "_get_hgnc_aliases_for_gene", side_effect=_aliases):
+    original_alias_lookup = pipeline._get_hgnc_aliases_for_gene
+    pipeline._get_hgnc_aliases_for_gene = _aliases
+    try:
         pipeline._backfill_sparse_row_evidence(rows, COLS)
+    finally:
+        pipeline._get_hgnc_aliases_for_gene = original_alias_lookup
 
     # OTHER should be tagged co_mention with TP53 listed.
     other_row = rows[1]

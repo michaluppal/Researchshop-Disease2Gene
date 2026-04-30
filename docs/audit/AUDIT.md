@@ -30,6 +30,23 @@ The `## Tool Knowledge Base` section at the bottom of this file is the primary r
 
 ---
 
+## Session Context (Apr 26, 2026)
+
+### C31. SoftwareX publication hardening without benchmark expansion
+
+Context: project decision is to prioritise SoftwareX submission as a software description and reproducibility paper. Benchmark expansion and inter-rater reliability are deferred rather than treated as submission blockers.
+
+Implemented in this pass:
+- Removed hardcoded Gemini API keys and personal email from `pipeline/scripts/run_figure_benchmark.sh`; benchmark scripts now require secrets via environment variables.
+- Updated README installation, release-build, validation-status, reproducibility, and citation guidance for the current repo layout.
+- Replaced manuscript placeholders with "ResearchShop Desktop" and removed benchmark-dependent headline claims from the abstract, examples, impact, and conclusions sections.
+- Added explicit manuscript limitations for open-access-only full text, LLM stochasticity, clinical-vs-molecular ambiguity, search quality, batch workflow, and expert-review requirements.
+- Added `docs/planning/SOFTWAREX_RELEASE_CHECKLIST.md` to track release, secret-scan, build, DOI, and manuscript checks.
+
+Release note: macOS Apple Silicon DMG was regenerated locally with `npm run package:mac:local` and mounted successfully (`dist/researchshop-desktop-1.0.0.dmg`, 101 MB). Windows and Linux packaging still need final artifact generation and smoke testing on target platforms before submission.
+
+Follow-up macOS test: launching the app directly from the mounted read-only DMG initially failed because first-launch Python setup tried to create `.venv` inside `ResearchShop.app/Contents/Resources/pipeline`. The packaged app now creates its Python environment under Electron `userData` and keeps bundled pipeline code read-only. Rebuilt DMG smoke test passed from the mounted image: Query, Paper Analysis, Settings, History, app version, PubMed metadata IPC, PubMed count IPC, and Gemini usage IPC all worked with no renderer console errors.
+
 ## Fixed
 
 ### F1. LLM response corruption across retries
@@ -925,7 +942,7 @@ values are read from config at runtime. Fix: read config values once at method t
 
 **High priority before submission (T1):**
 
-- [x] **[TEST] Citation smoke test** — `test_citation_smoke_verbatim_match` added to `python/tests/test_gene_validator.py`. Calls real `_citation_exists_in_paper` with verbatim TCF7L2/T2D prose, asserts `exists is True`. Failure simulation confirmed it catches the C19 silent-False regression. Also fixed 15 pre-existing broken tests (function rename, column renames, macOS multiprocessing mock fix). 65/65 passing. Fixed 2026-03-09. (`AGENTS.md` common agent mistake #5)
+- [x] **[TEST] Citation smoke test** — `test_citation_smoke_verbatim_match` added to `python/tests/test_gene_validator.py`. Calls real `_citation_exists_in_paper` with verbatim TCF7L2/T2D prose, asserts `exists is True`. Failure-path validation confirmed it catches the C19 silent-False regression. Also fixed 15 pre-existing broken tests (function rename, column renames, macOS multiprocessing test-harness fix). 65/65 passing. Fixed 2026-03-09. (`AGENTS.md` common agent mistake #5)
 - [ ] **[PAPER] Document Elicit-identified limitations** — add to paper Section 6: (a) no search quality eval pipeline, (b) benchmark underpowered vs Elicit's 58+, (c) single-shot batch vs interactive workspace, (d) hardcoded gene-relevance vs user-defined screening criteria. Owner: Michal. Low effort. (Elicit competitive analysis, 2026-03-09)
 
 **Delegated to co-authors (T1, tracked in MEETING_NOTES):**
@@ -2173,3 +2190,29 @@ audit trail in this file shows systematic hardening rather than ad-hoc fixes.
 
 *Audit conducted 2026-02-26. Branch: `audit/fda-inspection-2026-02-26`.
 All findings are based on static code inspection only — no live API calls or runtime testing.*
+
+---
+
+## Implementation Note — Trace, Candidate Policy, and NCBI Cleanup (2026-04-26)
+
+**Context:** Live traced run on PMID `41017238` showed useful Stage 5 visibility but also
+three quality issues: CLI function tracing required a manually supplied live file,
+`animal_model_gene` rows were grouped as miscellaneous candidates, and NCBI enrichment
+could still hit 429s because request pacing happened per symbol rather than per EUtils call.
+
+**Changes planned/implemented on `codex/optimise`:**
+
+- CLI `--trace-functions` now writes a default `live_events.jsonl`, while persisted
+  traces keep stage nodes and add compact function-event summaries plus a sibling
+  `trace_<pmid>_functions.jsonl`.
+- `animal_model_gene` is treated as a distinct `Animal Model Signal` group so mouse,
+  murine, and knockout evidence is visible but not conflated with direct human genetics.
+- Candidate audit final rows are derived from emitted output rows instead of stale
+  pre-row association snapshots.
+- A narrow match-context guard rejects `F2` only when it is acting as a biochemical
+  compound prefix such as `F2-isoprostanes`; valid `F2` gene mentions remain eligible.
+- NCBI Gene enrichment uses request-level throttling/backoff and memory-only caches.
+
+**Scientific tradeoff:** These changes are intended to improve interpretability and reduce
+known false-positive/noisy operational paths without lowering validation thresholds or
+disabling grounding/evidence gates.

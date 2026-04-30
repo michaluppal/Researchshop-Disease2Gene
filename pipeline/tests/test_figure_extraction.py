@@ -15,7 +15,6 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -43,38 +42,57 @@ def validator():
 
 # ---------------------------------------------------------------------------
 # Helper: build a minimal GeneInfoPipeline without a real Gemini key.
-#
-# GeneInfoPipeline.__init__ imports google.genai and calls genai.Client() on
-# startup, which requires a live API key.  We patch both to construct an
-# instance that is valid for testing internal methods (grounding check,
-# _ingest_associations) without touching any external service.
 # ---------------------------------------------------------------------------
 
 
-def _make_pipeline(paper_text: str = ""):
-    """Return a GeneInfoPipeline instance with the Gemini client mocked out."""
-    from modules import config as _config
+class StreamChunkFixture:
+    def __init__(self, text: str):
+        self.text = text
 
-    # Temporarily set a fake key so the __init__ guard passes.
-    original_key = _config.GEMINI_API_KEY
-    _config.GEMINI_API_KEY = "fake-api-key-for-testing"
 
-    try:
-        with patch("modules.gemini_extractor.config.GEMINI_API_KEY", "fake-api-key-for-testing"):
-            with patch("google.genai.Client") as mock_client_cls:
-                mock_client_cls.return_value = MagicMock()
-                from modules.gemini_extractor import GeneInfoPipeline
+class OfflineGeminiModels:
+    def __init__(self, stream_texts: List[str] | None = None):
+        self.stream_texts = list(stream_texts or [])
 
-                pipeline = GeneInfoPipeline(
-                    paper_text=paper_text,
-                    abstract_text="",
-                    pubtator_genes=[],
-                    figure_inputs=[],
-                )
-    finally:
-        _config.GEMINI_API_KEY = original_key
+    def generate_content_stream(self, *_args, **_kwargs):
+        text = self.stream_texts.pop(0) if self.stream_texts else ""
+        return iter([StreamChunkFixture(text)])
 
-    return pipeline
+
+class OfflineGeminiClient:
+    def __init__(self, stream_texts: List[str] | None = None):
+        self.models = OfflineGeminiModels(stream_texts)
+
+
+class ResponseFixture:
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        headers: Dict[str, str] | None = None,
+        chunks: List[bytes] | None = None,
+        text: str = "",
+    ):
+        self.status_code = status_code
+        self.headers = headers or {}
+        self._chunks = chunks or []
+        self.text = text
+
+    def iter_content(self, chunk_size=65536):  # noqa: ARG002
+        return iter(self._chunks)
+
+
+def _make_pipeline(paper_text: str = "", stream_texts: List[str] | None = None):
+    """Return a GeneInfoPipeline instance with no live Gemini dependency."""
+    from modules.gemini_extractor import GeneInfoPipeline
+
+    return GeneInfoPipeline(
+        paper_text=paper_text,
+        abstract_text="",
+        pubtator_genes=[],
+        figure_inputs=[],
+        client=OfflineGeminiClient(stream_texts),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +234,11 @@ class TestImageDownloadFailureHandledGracefully:
         pipeline = _make_pipeline(paper_text="KRAS BRAF mutations were detected.")
         pipeline.figure_inputs = figure_inputs
 
-        with patch("requests.get", side_effect=requests.ConnectionError("Network unreachable")):
-            result = pipeline.extract_gene_names_from_figures()
+        def raise_connection_error(*_args, **_kwargs):
+            raise requests.ConnectionError("Network unreachable")
+
+        pipeline._figure_http_get = raise_connection_error
+        result = pipeline.extract_gene_names_from_figures()
 
         assert isinstance(result, list), (
             "extract_gene_names_from_figures must return a list even on download failure"
@@ -241,8 +262,11 @@ class TestImageDownloadFailureHandledGracefully:
         pipeline = _make_pipeline(paper_text="BRCA1 was studied.")
         pipeline.figure_inputs = figure_inputs
 
-        with patch("requests.get", side_effect=requests.Timeout("Request timed out")):
-            result = pipeline.extract_gene_names_from_figures()
+        def raise_timeout(*_args, **_kwargs):
+            raise requests.Timeout("Request timed out")
+
+        pipeline._figure_http_get = raise_timeout
+        result = pipeline.extract_gene_names_from_figures()
 
         assert isinstance(result, list)
         assert result == [], (
@@ -261,18 +285,13 @@ class TestImageDownloadFailureHandledGracefully:
         }
         cdn_url = "https://cdn.ncbi.nlm.nih.gov/pmc/blobs/x/123456/y/fig1.jpg"
 
-        failed_article_response = MagicMock()
-        failed_article_response.status_code = 503
-        ok_article_response = MagicMock()
-        ok_article_response.status_code = 200
-        ok_article_response.text = f'<img src="{cdn_url}">'
-        failed_image_response = MagicMock()
-        failed_image_response.status_code = 404
-        ok_image_response = MagicMock()
-        ok_image_response.status_code = 200
-        ok_image_response.headers = {"Content-Type": "image/jpeg", "Content-Length": "104"}
-        ok_image_response.iter_content = MagicMock(
-            return_value=iter([b"\xFF\xD8\xFF\xE0" + b"\x00" * 100])
+        failed_article_response = ResponseFixture(503)
+        ok_article_response = ResponseFixture(200, text=f'<img src="{cdn_url}">')
+        failed_image_response = ResponseFixture(404)
+        ok_image_response = ResponseFixture(
+            200,
+            headers={"Content-Type": "image/jpeg", "Content-Length": "104"},
+            chunks=[b"\xFF\xD8\xFF\xE0" + b"\x00" * 100],
         )
 
         responses = iter([
@@ -283,9 +302,9 @@ class TestImageDownloadFailureHandledGracefully:
             ok_image_response,
         ])
 
-        with patch("requests.get", side_effect=lambda *_args, **_kwargs: next(responses)):
-            assert pipeline._fetch_figure_image(figure) is None
-            assert pipeline._fetch_figure_image(figure)["url"] == cdn_url
+        pipeline._figure_http_get = lambda *_args, **_kwargs: next(responses)
+        assert pipeline._fetch_figure_image(figure) is None
+        assert pipeline._fetch_figure_image(figure)["url"] == cdn_url
 
 
 # ---------------------------------------------------------------------------
@@ -294,12 +313,6 @@ class TestImageDownloadFailureHandledGracefully:
 
 
 class TestMalformedJsonFigureResponse:
-    def _make_mock_stream_chunk(self, text: str):
-        """Return a mock streaming chunk with a .text attribute."""
-        chunk = MagicMock()
-        chunk.text = text
-        return chunk
-
     def test_non_json_gemini_response_does_not_raise(self):
         """When Gemini returns a prose string instead of JSON for a figure query
         (e.g. 'Sure! The genes are: BRCA1, TP53'), the parser must not raise an
@@ -320,33 +333,28 @@ class TestMalformedJsonFigureResponse:
             }
         ]
 
-        # Mock a successful image download so the code reaches the Gemini call.
-        fake_image_bytes = b"\xFF\xD8\xFF\xE0" + b"\x00" * 100  # minimal JPEG header
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"Content-Type": "image/jpeg", "Content-Length": "104"}
-        mock_response.iter_content = MagicMock(return_value=iter([fake_image_bytes]))
+        # Use a local image response so the code reaches the Gemini call.
+        image_bytes = b"\xFF\xD8\xFF\xE0" + b"\x00" * 100  # minimal JPEG header
+        image_response = ResponseFixture(
+            200,
+            headers={"Content-Type": "image/jpeg", "Content-Length": "104"},
+            chunks=[image_bytes],
+        )
 
-        pipeline = _make_pipeline(paper_text="BRCA1 expression was quantified.")
+        pipeline = _make_pipeline(
+            paper_text="BRCA1 expression was quantified.",
+            stream_texts=[malformed_response_text],
+        )
         pipeline.figure_inputs = figure_inputs
+        pipeline._figure_http_get = lambda *_args, **_kwargs: image_response
 
-        # Mock the streaming response from Gemini to return malformed prose.
-        mock_stream_chunk = self._make_mock_stream_chunk(malformed_response_text)
-
-        with patch("requests.get", return_value=mock_response):
-            with patch.object(
-                pipeline.client.models,
-                "generate_content_stream",
-                return_value=iter([mock_stream_chunk]),
-            ):
-                # Should not raise, even though JSON parsing of prose text fails.
-                try:
-                    result = pipeline.extract_gene_names_from_figures()
-                except Exception as exc:  # noqa: BLE001
-                    pytest.fail(
-                        f"extract_gene_names_from_figures raised {type(exc).__name__} "
-                        f"on malformed Gemini response: {exc}"
-                    )
+        try:
+            result = pipeline.extract_gene_names_from_figures()
+        except Exception as exc:  # noqa: BLE001
+            pytest.fail(
+                f"extract_gene_names_from_figures raised {type(exc).__name__} "
+                f"on malformed Gemini response: {exc}"
+            )
 
         assert isinstance(result, list), (
             "Must return a list even when Gemini response is not valid JSON"
@@ -366,26 +374,21 @@ class TestMalformedJsonFigureResponse:
             }
         ]
 
-        fake_image_bytes = b"\xFF\xD8\xFF\xE0" + b"\x00" * 100
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.headers = {"Content-Type": "image/jpeg", "Content-Length": "104"}
-        mock_response.iter_content = MagicMock(return_value=iter([fake_image_bytes]))
+        image_bytes = b"\xFF\xD8\xFF\xE0" + b"\x00" * 100
+        image_response = ResponseFixture(
+            200,
+            headers={"Content-Type": "image/jpeg", "Content-Length": "104"},
+            chunks=[image_bytes],
+        )
 
-        pipeline = _make_pipeline(paper_text="EGFR was measured by Western blot.")
+        pipeline = _make_pipeline(
+            paper_text="EGFR was measured by Western blot.",
+            stream_texts=[""],
+        )
         pipeline.figure_inputs = figure_inputs
+        pipeline._figure_http_get = lambda *_args, **_kwargs: image_response
 
-        # Empty chunk — simulates a completely empty response body.
-        empty_chunk = MagicMock()
-        empty_chunk.text = ""
-
-        with patch("requests.get", return_value=mock_response):
-            with patch.object(
-                pipeline.client.models,
-                "generate_content_stream",
-                return_value=iter([empty_chunk]),
-            ):
-                result = pipeline.extract_gene_names_from_figures()
+        result = pipeline.extract_gene_names_from_figures()
 
         assert result == [], (
             "Empty Gemini response should yield an empty association list"
@@ -400,7 +403,7 @@ class TestMalformedJsonFigureResponse:
 class TestPanelDeduplicationPreservesMultiPanel:
     def _build_multi_panel_xml(self) -> ET.Element:
         """Build a minimal JATS XML root with 3 <fig> elements that share a
-        common parent caption text (simulating panels 1A, 1B, 1C) but each
+        common parent caption text (matching panels 1A, 1B, 1C) but each
         has a distinct <graphic xlink:href> URL.
 
         This exercises the deduplication fix: the `seen` set is keyed on the

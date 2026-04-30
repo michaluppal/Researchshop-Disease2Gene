@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from .. import config, pipeline_tracer
+from ..content_preparation import PreparedPaperContent
 from ..gene_validator import ContextWindowValidator, GeneValidator
 from .candidates import CandidateMixin
 from .context import ContextMixin
@@ -32,13 +33,20 @@ class Stage5Pipeline(
         figure_inputs: List[Dict[str, Any]] = None,
         table_inputs: List[Dict[str, Any]] = None,
         pmid: Optional[str] = None,
+        prepared_content: Optional[PreparedPaperContent] = None,
+        client: Optional[Any] = None,
     ):
-        if not config.GEMINI_API_KEY:
+        if client is None and not config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set in the configuration.")
         self.pmid = pmid  # used only for the pipeline tracer
-        self.paper_text = paper_text
+        self.prepared_content = prepared_content or PreparedPaperContent.from_raw(
+            paper_text=paper_text,
+            abstract_text=abstract_text,
+            table_inputs=table_inputs or [],
+        )
+        self.paper_text = self.prepared_content.raw_text
         self.abstract_text = abstract_text  # Store abstract separately
-        self.original_paper_text = paper_text  # Keep original for reference
+        self.original_paper_text = self.prepared_content.raw_text  # Keep original for reference
         self.associations = []
         self.validated_associations = []
         self.validation_results = []
@@ -50,21 +58,30 @@ class Stage5Pipeline(
         self.detail_extraction_error: str = ""
         self.detail_extraction_rows: int = 0
         self.candidate_meta: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._hgnc_alias_cache: Dict[str, List[str]] = {}
+        self._candidate_terms_cache: Dict[Tuple[str, str], List[str]] = {}
+        self._citation_paper_text_cache: Optional[str] = (
+            self.prepared_content.citation_text_normalized
+        )
 
         # Hybrid pipeline: PubTator genes passed in from orchestrator
         self.pubtator_genes = pubtator_genes or []
         self.figure_inputs = figure_inputs or []
-        self.table_inputs = table_inputs or []
+        self.table_inputs = self.prepared_content.table_inputs
+        self.table_citation_index = self.prepared_content.table_citation_index
         self._paper_api_calls: int = 0
         self._last_gemini_call_at: Optional[float] = None
         self._quota_limited: bool = False
         self._context_warning: Optional[str] = None
         self._truncation_rescue_count: int = 0
 
-        # Lazy import to avoid top-level import failures
-        from google import genai  # type: ignore
+        if client is None:
+            # Lazy import to avoid top-level import failures
+            from google import genai  # type: ignore
 
-        self.client = genai.Client(api_key=config.GEMINI_API_KEY)
+            self.client = genai.Client(api_key=config.GEMINI_API_KEY)
+        else:
+            self.client = client
         self.gene_validator = GeneValidator()
         self.context_validator = ContextWindowValidator()
 
@@ -82,7 +99,8 @@ class Stage5Pipeline(
         """
         # Step 0: Validate and prepare paper text for context windows
         logging.info("Step 0: Validating paper text against model context limits")
-        context_validation = self._validate_and_prepare_paper_text()
+        with pipeline_tracer.stage("context_validation"):
+            context_validation = self._validate_and_prepare_paper_text()
 
         if context_validation["failed"]:
             logging.error("Context validation failed - cannot proceed with pipeline")
@@ -92,13 +110,16 @@ class Stage5Pipeline(
         self._run_candidate_discovery()
 
         # Step 1.6: Grounding check
-        self._run_grounding_check()
+        with pipeline_tracer.stage("grounding_check"):
+            self._run_grounding_check()
 
         # Step 2: Gene validation + normalization
-        self._run_validation_and_normalize()
+        with pipeline_tracer.stage("hgnc_validation"):
+            self._run_validation_and_normalize()
 
         # Step 3: Detail extraction
-        extracted_info = self._run_detail_extraction(column_descriptions)
+        with pipeline_tracer.stage("detail_extraction"):
+            extracted_info = self._run_detail_extraction(column_descriptions)
         if not extracted_info:
             return pd.DataFrame()
 
@@ -118,7 +139,9 @@ class Stage5Pipeline(
 
     def _run_candidate_discovery(self) -> None:
         """Steps 0.5–1.5: Discover gene candidates from all sources."""
-        # Reset candidate tracking for this run.
+        # Reset candidate tracking for this paper. Stage 5 owns candidate-level
+        # gene/variant normalization and HGNC alias caches; paper-level citation
+        # normalization lives in PreparedPaperContent upstream.
         self.candidate_meta = {}
         self.dropped_candidates = []
         self.strict_gate_drops = []
@@ -127,13 +150,16 @@ class Stage5Pipeline(
         self.detail_extraction_error = ""
         self.detail_extraction_rows = 0
         self.associations = []
+        self._candidate_terms_cache = {}
+        self._citation_paper_text_cache = self.prepared_content.citation_text_normalized
 
         # Step 0.5: Abstract gene discovery (independent pass, catches natural-language gene refs)
         # e.g. abstract says "IL-6" / "IFN-γ" while full text says "interleukin-6" / "interferon-gamma"
         if getattr(config, "ENABLE_ABSTRACT_GENE_DISCOVERY", True) and self.abstract_text:
             logging.info("Step 0.5: Extracting gene-variant associations from abstract")
             t0 = time.time()
-            abstract_associations = self.extract_gene_names_from_abstract()
+            with pipeline_tracer.stage("abstract_pass"):
+                abstract_associations = self.extract_gene_names_from_abstract()
             if abstract_associations:
                 added = self._ingest_associations(abstract_associations, "llm_abstract")
                 logging.info(f"Abstract gene discovery added {added} candidate genes")
@@ -158,7 +184,8 @@ class Stage5Pipeline(
         if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False):
             logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
             t0 = time.time()
-            self.extract_gene_names()
+            with pipeline_tracer.stage("fulltext_pass_greedy"):
+                self.extract_gene_names()
             pass1_count = len(self.associations)
             if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
                 pipeline_tracer.capture(
@@ -194,7 +221,8 @@ class Stage5Pipeline(
             )
             try:
                 t0 = time.time()
-                self.extract_gene_names(temperature=0.4)
+                with pipeline_tracer.stage("fulltext_pass_recall"):
+                    self.extract_gene_names(temperature=0.4)
                 pass2_count = len(self.associations)
                 if pass2_count > pass1_count:
                     logging.info(
@@ -221,7 +249,8 @@ class Stage5Pipeline(
 
         # Step 1.1: Deterministic lexicon candidates (HGNC symbols/aliases)
         t0 = time.time()
-        deterministic_candidates = self.extract_deterministic_candidates()
+        with pipeline_tracer.stage("deterministic_scan"):
+            deterministic_candidates = self.extract_deterministic_candidates()
         if deterministic_candidates:
             added = self._ingest_associations(deterministic_candidates, "deterministic_lexicon")
             logging.info(f"Deterministic candidate extraction added {added} genes")
@@ -242,7 +271,8 @@ class Stage5Pipeline(
         if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
             logging.info("Step 1.25: Extracting gene-variant associations from figures")
             t0 = time.time()
-            figure_associations = self.extract_gene_names_from_figures()
+            with pipeline_tracer.stage("figure_analysis"):
+                figure_associations = self.extract_gene_names_from_figures()
             if figure_associations:
                 added = self._ingest_associations(figure_associations, "llm_figure")
                 logging.info(f"Merged {added} figure-derived associations")
@@ -259,9 +289,10 @@ class Stage5Pipeline(
 
         # Step 1.5: HYBRID PIPELINE - Merge PubTator genes (ensures union)
         if self.pubtator_genes:
-            pre_merge_size = len(self.candidate_meta)
-            pt_associations = [{"gene": g, "variant": ""} for g in self.pubtator_genes if g]
-            added_count = self._ingest_associations(pt_associations, "pubtator")
+            with pipeline_tracer.stage("pubtator_merge"):
+                pre_merge_size = len(self.candidate_meta)
+                pt_associations = [{"gene": g, "variant": ""} for g in self.pubtator_genes if g]
+                added_count = self._ingest_associations(pt_associations, "pubtator")
             if added_count > 0:
                 logging.info(
                     f"Hybrid pipeline: Added {added_count} PubTator genes missed by Gemini"
@@ -519,7 +550,8 @@ class Stage5Pipeline(
         # fields filled (e.g. one row has Disease Association, another has Statistical Evidence).
         # Consolidate into one row per (gene_name, variant_name).
         if extracted_info and len(extracted_info) > 1:
-            extracted_info = self._merge_duplicate_gene_rows(extracted_info, column_descriptions)
+            with pipeline_tracer.stage("row_merge"):
+                extracted_info = self._merge_duplicate_gene_rows(extracted_info, column_descriptions)
 
         if not extracted_info and self.associations:
             logging.warning(
@@ -556,7 +588,8 @@ class Stage5Pipeline(
 
         if extracted_info:
             self._fill_missing_requested_fields(extracted_info, column_descriptions)
-            self._backfill_sparse_row_evidence(extracted_info, column_descriptions)
+            with pipeline_tracer.stage("evidence_backfill"):
+                self._backfill_sparse_row_evidence(extracted_info, column_descriptions)
 
         # ── Tracer: detail extraction outcome
         if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
@@ -574,16 +607,18 @@ class Stage5Pipeline(
                 },
                 duration_ms=(time.time() - _t0) * 1000.0,
             )
-            pipeline_tracer.capture(
-                "row_merge",
-                pmid=self.pmid,
-                outputs={"rows_after_merge": len(extracted_info or [])},
-            )
-            pipeline_tracer.capture(
-                "evidence_backfill",
-                pmid=self.pmid,
-                outputs={"rows_after_backfill": len(extracted_info or [])},
-            )
+            with pipeline_tracer.stage("row_merge"):
+                pipeline_tracer.capture(
+                    "row_merge",
+                    pmid=self.pmid,
+                    outputs={"rows_after_merge": len(extracted_info or [])},
+                )
+            with pipeline_tracer.stage("evidence_backfill"):
+                pipeline_tracer.capture(
+                    "evidence_backfill",
+                    pmid=self.pmid,
+                    outputs={"rows_after_backfill": len(extracted_info or [])},
+                )
 
         return extracted_info
 
@@ -597,14 +632,41 @@ class Stage5Pipeline(
         self._add_validation_metadata(df)
         self._add_candidate_provenance_metadata(df)
 
-        if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
-            min_final_conf = float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7))
-            if "validation_confidence" in df.columns:
-                before = len(df)
-                conf_mask = df["validation_confidence"].astype(float) >= min_final_conf
-                dropped_df = df[~conf_mask]
-                if not dropped_df.empty:
-                    for _, row in dropped_df.iterrows():
+        with pipeline_tracer.stage("strict_gate"):
+            if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
+                min_final_conf = float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7))
+                if "validation_confidence" in df.columns:
+                    before = len(df)
+                    conf_mask = df["validation_confidence"].astype(float) >= min_final_conf
+                    dropped_df = df[~conf_mask]
+                    if not dropped_df.empty:
+                        for _, row in dropped_df.iterrows():
+                            row_dict = row.to_dict()
+                            self.strict_gate_drops.append(
+                                {
+                                    "gene": str(row_dict.get("gene_name") or "").strip(),
+                                    "variant": self._normalize_variant_value(
+                                        row_dict.get("variant_name", "")
+                                    ),
+                                    "reason": "below_final_validation_threshold",
+                                    "association_type": str(row_dict.get("Association Type") or ""),
+                                    "association_group": str(row_dict.get("Association Group") or ""),
+                                    "validation_confidence": row_dict.get("validation_confidence"),
+                                    "threshold": min_final_conf,
+                                }
+                            )
+                    df = df[conf_mask].reset_index(drop=True)
+                    dropped = before - len(df)
+                    if dropped > 0:
+                        logging.warning(
+                            f"Strict validation gate dropped {dropped}/{before} rows below confidence {min_final_conf:.2f}"
+                        )
+                else:
+                    # Defensive default: if confidence metadata missing, don't emit untrusted rows.
+                    logging.warning(
+                        "Strict validation gate active but validation_confidence missing; dropping all rows"
+                    )
+                    for _, row in df.iterrows():
                         row_dict = row.to_dict()
                         self.strict_gate_drops.append(
                             {
@@ -612,51 +674,30 @@ class Stage5Pipeline(
                                 "variant": self._normalize_variant_value(
                                     row_dict.get("variant_name", "")
                                 ),
-                                "reason": "below_final_validation_threshold",
-                                "validation_confidence": row_dict.get("validation_confidence"),
-                                "threshold": min_final_conf,
+                                "reason": "missing_validation_confidence",
+                                "association_type": str(row_dict.get("Association Type") or ""),
+                                "association_group": str(row_dict.get("Association Group") or ""),
                             }
                         )
-                df = df[conf_mask].reset_index(drop=True)
-                dropped = before - len(df)
-                if dropped > 0:
-                    logging.warning(
-                        f"Strict validation gate dropped {dropped}/{before} rows below confidence {min_final_conf:.2f}"
-                    )
-            else:
-                # Defensive default: if confidence metadata missing, don't emit untrusted rows.
-                logging.warning(
-                    "Strict validation gate active but validation_confidence missing; dropping all rows"
-                )
-                for _, row in df.iterrows():
-                    row_dict = row.to_dict()
-                    self.strict_gate_drops.append(
-                        {
-                            "gene": str(row_dict.get("gene_name") or "").strip(),
-                            "variant": self._normalize_variant_value(
-                                row_dict.get("variant_name", "")
-                            ),
-                            "reason": "missing_validation_confidence",
-                        }
-                    )
-                df = pd.DataFrame()
+                    df = pd.DataFrame()
 
-        # ── Tracer: strict gate outcome
-        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
-            pipeline_tracer.capture(
-                "strict_gate",
-                pmid=self.pmid,
-                outputs={
-                    "rows_after": len(df),
-                    "dropped_count": len(self.strict_gate_drops),
-                    "threshold": float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7)),
-                    "dropped": pipeline_tracer.summarise(self.strict_gate_drops),
-                },
-            )
+            # ── Tracer: strict gate outcome
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "strict_gate",
+                    pmid=self.pmid,
+                    outputs={
+                        "rows_after": len(df),
+                        "dropped_count": len(self.strict_gate_drops),
+                        "threshold": float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7)),
+                        "dropped": pipeline_tracer.summarise(self.strict_gate_drops),
+                    },
+                )
 
         # Only add citation validation if enabled
         if not df.empty and config.ENABLE_CITATION_VALIDATION:
-            self._add_citation_validation_metadata(df)
+            with pipeline_tracer.stage("citation_validation"):
+                self._add_citation_validation_metadata(df)
             if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
                 valid_counts = {}
                 for col in df.columns:
@@ -676,7 +717,8 @@ class Stage5Pipeline(
                 )
 
         rows_before_evidence = len(df)
-        df = self._apply_evidence_gate(df, column_descriptions)
+        with pipeline_tracer.stage("evidence_gate"):
+            df = self._apply_evidence_gate(df, column_descriptions)
         if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
             pipeline_tracer.capture(
                 "evidence_gate",
@@ -779,9 +821,10 @@ class Stage5Pipeline(
                 context_reason = ""
                 context_snippet = ""
                 if rescue_enabled:
-                    context_ok, context_reason, context_snippet = (
-                        self._deterministic_gene_context_evidence(gene_norm, variant_norm)
-                    )
+                    with pipeline_tracer.stage("corroboration_gate"):
+                        context_ok, context_reason, context_snippet = (
+                            self._deterministic_gene_context_evidence(gene_norm, variant_norm)
+                        )
 
                 if context_ok:
                     if key in self.candidate_meta:
@@ -830,6 +873,7 @@ class Stage5Pipeline(
 
         self.validated_associations = kept_associations
         self.dropped_candidates = dropped
+        self._refresh_all_candidate_caches()
 
         total_associations = len(self.associations)
         validated_count = len(self.validated_associations)
@@ -867,21 +911,23 @@ class Stage5Pipeline(
                     ),
                 },
             )
-            pipeline_tracer.capture(
-                "low_confidence_gate",
-                pmid=self.pmid,
-                outputs={
-                    "dropped_count": len(low_conf),
-                    "dropped": pipeline_tracer.summarise(low_conf),
-                    "threshold": min_confidence,
-                },
-            )
-            pipeline_tracer.capture(
-                "corroboration_gate",
-                pmid=self.pmid,
-                outputs={
-                    "dropped_count": len(corrob),
-                    "dropped": pipeline_tracer.summarise(corrob),
-                    "survivors": validated_count,
-                },
-            )
+            with pipeline_tracer.stage("low_confidence_gate"):
+                pipeline_tracer.capture(
+                    "low_confidence_gate",
+                    pmid=self.pmid,
+                    outputs={
+                        "dropped_count": len(low_conf),
+                        "dropped": pipeline_tracer.summarise(low_conf),
+                        "threshold": min_confidence,
+                    },
+                )
+            with pipeline_tracer.stage("corroboration_gate"):
+                pipeline_tracer.capture(
+                    "corroboration_gate",
+                    pmid=self.pmid,
+                    outputs={
+                        "dropped_count": len(corrob),
+                        "dropped": pipeline_tracer.summarise(corrob),
+                        "survivors": validated_count,
+                    },
+                )

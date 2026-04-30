@@ -11,6 +11,7 @@ export interface Job {
   metadata_path: string | null
   excel_path: string | null
   json_path: string | null
+  candidate_audit_path: string | null
   stats: string | null
   error: string | null
 }

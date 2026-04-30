@@ -9,6 +9,22 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 
+def _configure_trace_env(args):
+    """Configure trace env vars before importing pipeline modules."""
+    if args.trace_functions and not args.trace_pmid:
+        raise ValueError('--trace-functions requires --trace-pmid')
+
+    if args.trace_pmid:
+        os.makedirs(args.output_dir, exist_ok=True)
+        os.environ['TRACE_PMID'] = str(args.trace_pmid).strip()
+        os.environ['TRACE_OUT_DIR'] = os.path.join(args.output_dir, '.trace_partials')
+    if args.trace_functions:
+        os.environ['TRACE_FUNCTIONS'] = '1'
+        os.environ.setdefault('TRACE_LIVE_FILE', os.path.join(args.output_dir, 'live_events.jsonl'))
+        with open(os.environ['TRACE_LIVE_FILE'], 'w', encoding='utf-8'):
+            pass
+
+
 def main():
     parser = argparse.ArgumentParser(description='ResearchShop Pipeline')
     parser.add_argument('--query', type=str, default='')
@@ -27,10 +43,10 @@ def main():
 
     # Enable tracer early so any import that reads the flag sees it.
     # The tracer is inert unless TRACE_PMID is set.
-    if args.trace_pmid:
-        os.environ['TRACE_PMID'] = str(args.trace_pmid).strip()
-    if args.trace_functions:
-        os.environ['TRACE_FUNCTIONS'] = '1'
+    try:
+        _configure_trace_env(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # Secrets are passed via environment variables, never CLI args (visible in ps aux).
     # GEMINI_API_KEY and ENTREZ_EMAIL must be set in the process environment by the caller.

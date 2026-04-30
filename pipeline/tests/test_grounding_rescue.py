@@ -16,7 +16,6 @@ self.associations, and self.candidate_meta directly.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -28,36 +27,25 @@ if str(_PYTHON_ROOT) not in sys.path:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline factory (mirrors test_figure_extraction._make_pipeline)
+# Pipeline factory
 # ---------------------------------------------------------------------------
 
 
+class OfflineGeminiClient:
+    pass
+
+
 def _make_pipeline(paper_text: str = ""):
-    """Return a GeneInfoPipeline instance with the Gemini client mocked out."""
-    from modules import config as _config
+    """Return a GeneInfoPipeline instance with no live Gemini dependency."""
+    from modules.gemini_extractor import GeneInfoPipeline
 
-    original_key = _config.GEMINI_API_KEY
-    _config.GEMINI_API_KEY = "fake-api-key-for-testing"
-
-    try:
-        with patch(
-            "modules.gemini_extractor.config.GEMINI_API_KEY",
-            "fake-api-key-for-testing",
-        ):
-            with patch("google.genai.Client") as mock_client_cls:
-                mock_client_cls.return_value = MagicMock()
-                from modules.gemini_extractor import GeneInfoPipeline
-
-                pipeline = GeneInfoPipeline(
-                    paper_text=paper_text,
-                    abstract_text="",
-                    pubtator_genes=[],
-                    figure_inputs=[],
-                )
-    finally:
-        _config.GEMINI_API_KEY = original_key
-
-    return pipeline
+    return GeneInfoPipeline(
+        paper_text=paper_text,
+        abstract_text="",
+        pubtator_genes=[],
+        figure_inputs=[],
+        client=OfflineGeminiClient(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -104,12 +92,12 @@ def test_llm_discovery_rescue_corroborates_deterministic_only_gene(monkeypatch):
     monkeypatch.setattr(config, "ENABLE_DETERMINISTIC_CONTEXT_RESCUE", False)
     monkeypatch.setattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 2)
 
-    def fake_extract_gene_names(*args, **kwargs):
+    def fixture_extract_gene_names(*args, **kwargs):
         pipeline.candidate_meta[key]["sources"].add("llm_text")
         pipeline._refresh_associations_from_meta()
         return pipeline.associations
 
-    monkeypatch.setattr(pipeline, "extract_gene_names", fake_extract_gene_names)
+    monkeypatch.setattr(pipeline, "extract_gene_names", fixture_extract_gene_names)
 
     pipeline._run_validation_and_normalize()
 
@@ -151,7 +139,7 @@ def test_no_truncation_no_rescue():
         "Results: High mutation frequency was observed in codon 12."
     )
     pipeline = _make_pipeline(paper_text=paper_text)
-    # Simulate "no truncation happened" — both handles point at the same string.
+    # No truncation: both handles point at the same string.
     pipeline.original_paper_text = paper_text
     pipeline.paper_text = paper_text
 
@@ -225,7 +213,7 @@ def test_no_rescue_when_gene_absent_from_both():
     pipeline.original_paper_text = original
     pipeline.paper_text = truncated
     assert pipeline.paper_text != pipeline.original_paper_text, (
-        "test setup invariant: truncation must be simulated"
+        "test setup invariant: truncation branch requires distinct text handles"
     )
 
     key = _inject_candidate(pipeline, "ZNF123", "", "llm_text")
@@ -286,7 +274,7 @@ def test_no_rescue_when_gene_in_retained_section():
 def test_figure_branch_unaffected_by_rescue():
     """A candidate sourced exclusively from llm_figure takes the figure branch
     (caption/label check) and early-continues before the rescue code path.
-    Even with truncation simulated, the rescue counter must stay 0 and the
+    Even with distinct truncated/original text handles, the rescue counter must stay 0 and the
     meta must not carry the truncation_rescued flag.
     """
     truncated = "No mention of the gene in this short prose snippet."

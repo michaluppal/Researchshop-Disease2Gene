@@ -10,7 +10,8 @@ Citation existence checks are purely string-matching (difflib + regex) — no ne
 import pytest
 
 from modules import config
-from modules.gene_validator import GeneValidator, _citation_exists_in_paper
+from modules.content_preparation import PreparedPaperContent, TableCitationIndex
+from modules.gene_validator import GeneValidator, _citation_exists_in_paper, validate_table_citation
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +53,57 @@ class TestGeneValidatorLocalResolution:
         assert len(validator._local_gene_db) > 10_000, (
             "Expected bundled HGNC DB to have >10,000 genes"
         )
+
+
+def test_prepared_content_builds_normalized_text_and_table_index():
+    tables = [
+        {
+            "label": "Table 1",
+            "rows": [["Gene", "Value"], ["BRCA1", "45 patients"]],
+        }
+    ]
+    prepared = PreparedPaperContent.from_raw(
+        "BRCA1 carriers had suscep-\ntibility.",
+        abstract_text="BRCA1 abstract",
+        table_inputs=tables,
+    )
+
+    assert "susceptibility" in prepared.citation_text_normalized
+    assert prepared.normalization_notes["table_rows_indexed"] == 2
+    assert prepared.table_citation_index.rows_for_gene("BRCA1")
+
+
+def test_table_citation_index_matches_legacy_table_validation():
+    tables = [
+        {
+            "label": "Table 2",
+            "rows": [["Gene", "Patients"], ["BRCA1", "45"]],
+        }
+    ]
+    citation = "BRCA1 was found in 45 patients"
+    table_index = TableCitationIndex.from_tables(tables)
+
+    legacy = validate_table_citation(citation, tables, "BRCA1")
+    indexed = validate_table_citation(citation, tables, "BRCA1", table_index=table_index)
+
+    assert legacy is not None
+    assert indexed is not None
+    assert indexed.confidence_score == legacy.confidence_score
+    assert indexed.table_label == legacy.table_label
+
+
+def test_table_citation_index_uses_gene_boundaries():
+    tables = [
+        {
+            "label": "Table 1",
+            "rows": [["Gene", "Value"], ["IL10", "45"], ["CATALASE", "12"]],
+        }
+    ]
+    table_index = TableCitationIndex.from_tables(tables)
+
+    assert table_index.rows_for_gene("IL1") == []
+    assert table_index.rows_for_gene("CAT") == []
+    assert table_index.rows_for_gene("IL10")
 
 
 # ---------------------------------------------------------------------------

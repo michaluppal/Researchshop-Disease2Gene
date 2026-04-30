@@ -23,7 +23,7 @@ module.exports = {
         danger: '#ef4444',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       keyframes: {

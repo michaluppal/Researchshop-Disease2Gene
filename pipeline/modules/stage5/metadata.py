@@ -1,11 +1,13 @@
 """DataFrame metadata annotation for Stage 5 output rows."""
 
 import logging
+import re
 from typing import Any, Dict, List
 
 import pandas as pd
 
 from .. import config
+from ..association_policy import association_group_for_type
 
 
 class MetadataMixin:
@@ -21,6 +23,11 @@ class MetadataMixin:
                     "variant": self._normalize_variant_value(meta.get("variant", "")),
                     "sources": self._as_sorted_strings(meta.get("sources")),
                     "raw_gene_labels": self._as_sorted_strings(meta.get("raw_gene_labels")),
+                    "candidate_terms": list(meta.get("candidate_terms") or []),
+                    "association_type": str(meta.get("association_type") or ""),
+                    "association_group": association_group_for_type(
+                        str(meta.get("association_type") or "")
+                    ),
                     "normalization_applied": str(meta.get("normalization_applied") or ""),
                     "validation_confidence": meta.get("validation_confidence"),
                     "validation_source": str(meta.get("validation_source") or ""),
@@ -59,6 +66,14 @@ class MetadataMixin:
                         if isinstance(assoc, dict)
                         else (assoc[1] if len(assoc) > 1 else "")
                     ),
+                    "association_type": str(assoc.get("association_type", ""))
+                    if isinstance(assoc, dict)
+                    else "",
+                    "association_group": association_group_for_type(
+                        str(assoc.get("association_type", ""))
+                        if isinstance(assoc, dict)
+                        else ""
+                    ),
                 }
                 for assoc in (self.associations or [])
             ],
@@ -74,6 +89,8 @@ class MetadataMixin:
         df["Candidate Source"] = ""
         df["Normalization Applied"] = ""
         df["Validation Outcome"] = ""
+        df["Association Type"] = ""
+        df["Association Group"] = ""
         df["Dropped By Gate"] = False
         df["Deterministic Context Reason"] = ""
         df["Deterministic Context Evidence"] = ""
@@ -92,6 +109,9 @@ class MetadataMixin:
 
             df.at[i, "Normalization Applied"] = meta.get("normalization_applied", "") or ""
             df.at[i, "Validation Outcome"] = meta.get("validation_outcome", "") or ""
+            association_type = self._infer_row_association_type(row, meta)
+            df.at[i, "Association Type"] = association_type
+            df.at[i, "Association Group"] = association_group_for_type(association_type)
             df.at[i, "Deterministic Context Reason"] = (
                 meta.get("deterministic_context_reason", "") or ""
             )
@@ -115,36 +135,27 @@ class MetadataMixin:
         df["validation_suggestions"] = ""
         df["Gene Biotype"] = "unknown"
 
-        # Map results back to DataFrame rows (normalize case and variant placeholders)
-        def _norm_gene(g: str) -> str:
-            return (g or "").strip().upper()
-
-        def _norm_variant(v: str) -> str:
-            v = (v or "").strip()
-            if v.upper() in {"N/A", "NA", "NONE"}:
-                return ""
-            return v
+        validation_by_key = {
+            self._assoc_key(result.gene, self._normalize_variant_value(result.variant)): result
+            for result in self.validation_results
+        }
 
         for i, row in df.iterrows():
-            gene_name = _norm_gene(row.get("gene_name", ""))
-            variant_name = _norm_variant(row.get("variant_name", ""))
+            gene_name = str(row.get("gene_name", "") or "").strip().upper()
+            variant_name = self._normalize_variant_value(row.get("variant_name", ""))
+            key = self._assoc_key(gene_name, variant_name)
 
             # Look up gene biotype from local HGNC database
             if gene_name:
                 df.at[i, "Gene Biotype"] = self.gene_validator.get_gene_biotype(gene_name)
 
-            # Find matching validation result
-            for result in self.validation_results:
-                if (
-                    _norm_gene(result.gene) == gene_name
-                    and _norm_variant(result.variant) == variant_name
-                ):
-                    df.at[i, "validation_confidence"] = result.confidence_score
-                    df.at[i, "validation_source"] = result.validation_source
-                    df.at[i, "validation_suggestions"] = (
-                        "; ".join(result.suggestions) if result.suggestions else ""
-                    )
-                    break
+            result = validation_by_key.get(key)
+            if result:
+                df.at[i, "validation_confidence"] = result.confidence_score
+                df.at[i, "validation_source"] = result.validation_source
+                df.at[i, "validation_suggestions"] = (
+                    "; ".join(result.suggestions) if result.suggestions else ""
+                )
 
         logging.info(f"Added validation metadata to {len(df)} result rows")
 
@@ -171,7 +182,12 @@ class MetadataMixin:
         if not getattr(self, "paper_text", None):
             return
 
-        from .gene_validator import _calculate_citation_confidence, _citation_exists_in_paper
+        from ..gene_validator import (
+            _calculate_citation_confidence,
+            _citation_exists_in_paper,
+            _normalize_citation_drift,
+            _normalize_unicode_slashes,
+        )
 
         excluded_cols = {
             "gene_name",
@@ -212,6 +228,8 @@ class MetadataMixin:
             "Candidate Source",
             "Normalization Applied",
             "Validation Outcome",
+            "Association Type",
+            "Association Group",
             "Dropped By Gate",
         }
 
@@ -243,6 +261,12 @@ class MetadataMixin:
 
         total_validated = 0
         total_found = 0
+        if not getattr(self, "_citation_paper_text_cache", None):
+            self._citation_paper_text_cache = _normalize_citation_drift(
+                _normalize_unicode_slashes(self.paper_text)
+            )
+        normalized_paper_text = self._citation_paper_text_cache
+        citation_cache: Dict[tuple, tuple] = {}
 
         for i, row in df.iterrows():
             gene_symbol = str(row.get("gene_name", row.get("Gene/Group", "")))
@@ -264,13 +288,27 @@ class MetadataMixin:
                     continue
 
                 try:
-                    exists, ratio, reason = _citation_exists_in_paper(
-                        citation_text, self.paper_text, gene_symbol, gene_aliases=raw_labels,
-                        tables=self.table_inputs
+                    cache_key = (
+                        citation_text,
+                        gene_symbol.upper(),
+                        tuple(raw_labels),
                     )
-                    confidence = _calculate_citation_confidence(
-                        citation_text, self.paper_text, exists, ratio
-                    )
+                    if cache_key in citation_cache:
+                        exists, ratio, reason, confidence = citation_cache[cache_key]
+                    else:
+                        exists, ratio, reason = _citation_exists_in_paper(
+                            citation_text,
+                            normalized_paper_text,
+                            gene_symbol,
+                            gene_aliases=raw_labels,
+                            tables=self.table_inputs,
+                            paper_text_pre_normalized=True,
+                            table_index=getattr(self, "table_citation_index", None),
+                        )
+                        confidence = _calculate_citation_confidence(
+                            citation_text, normalized_paper_text, exists, ratio
+                        )
+                        citation_cache[cache_key] = (exists, ratio, reason, confidence)
                     is_valid = exists and confidence >= config.CITATION_MIN_CONFIDENCE
 
                     # Write results to both the content column and its Citation sibling
@@ -295,7 +333,54 @@ class MetadataMixin:
             f"Citation validation metadata added to {len(df)} rows ({len(pairs)} field pairs)"
         )
 
-    def _add_context_metadata(self, df: pd.DataFrame, context_validation: Dict[str, any]):
+    def _infer_row_association_type(self, row: pd.Series, meta: Dict[str, Any]) -> str:
+        """Classify row intent for reviewer-friendly output filtering."""
+        base_type = str(meta.get("association_type") or "")
+        if base_type in {"variant_association", "susceptibility_gene", "figure_derived_gene"}:
+            return base_type
+
+        excluded_columns = {
+            "Gene/Group",
+            "Variant Name",
+            "PMID",
+            "DOI",
+            "Study Title",
+            "Authors",
+            "Publication Year",
+            "Journal Name",
+            "Author Affiliations",
+            "Citations",
+            "Abstract",
+            "Candidate Source",
+            "Normalization Applied",
+            "Validation Outcome",
+            "Association Type",
+            "Association Group",
+        }
+        text = " ".join(
+            str(row.get(col, "") or "")
+            for col in row.index
+            if not str(col).endswith("_citation_valid")
+            and col not in excluded_columns
+            and not str(col).startswith(("validation_", "context_"))
+        ).lower()
+
+        if "genome wide association" in text or "susceptibility" in text or "polymorphism" in text:
+            return "susceptibility_gene"
+        if "knockout" in text or " ko " in f" {text} " or "murine model" in text or "mouse model" in text:
+            return "animal_model_gene"
+        if "biomarker" in text or "serum level" in text or "diagnos" in text:
+            return "biomarker_response_gene"
+        if (
+            "pathway" in text
+            or "signaling" in text
+            or "nf kappab" in text
+            or re.search(r"\bmapk\b", text)
+        ):
+            return "mechanistic_pathway_gene"
+        return base_type or self._infer_candidate_association_type(meta)
+
+    def _add_context_metadata(self, df: pd.DataFrame, context_validation: Dict[str, Any]):
         """
         Add context window validation metadata to the results DataFrame.
 

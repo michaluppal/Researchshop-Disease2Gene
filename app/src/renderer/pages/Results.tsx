@@ -210,7 +210,7 @@ function ExportDropdown({ csvPath, excelPath, jsonPath }: { csvPath: string; exc
 // ── Metadata column picker ──────────────────────────────────────────────────
 
 const META_GROUPS = [
-  { label: 'Pipeline',     matchers: ['Gene Source', 'Candidate Source', 'Normalization Applied', 'Validation Outcome', 'Dropped By Gate', 'validation_confidence', 'validation_source', 'validation_suggestions'] },
+  { label: 'Pipeline',     matchers: ['Association Group', 'Association Type', 'Gene Source', 'Candidate Source', 'Normalization Applied', 'Validation Outcome', 'Dropped By Gate', 'validation_confidence', 'validation_source', 'validation_suggestions'] },
   { label: 'Citations',    matchers: ['_citation_valid', '_citation_confidence', '_citation_details', ' Citation'] },
   { label: 'Gene Details', matchers: ['NCBI Gene ID', 'Gene Full Name', 'Gene Aliases', 'Chromosome'] },
   { label: 'Context',      matchers: ['context_', 'Figure Count', 'Figure Analysis Enabled', 'Metadata'] },
@@ -314,6 +314,169 @@ interface SortConfig {
   direction: SortDirection
 }
 
+type AssociationGroupFilter = 'All' | 'Primary Genetic Association' | 'Biomarker/Response Signal' | 'Mechanistic/Pathway Signal' | 'Figure-Derived Signal' | 'Other Candidate Signal' | 'Review Needed'
+
+const ASSOCIATION_GROUP_FILTERS: AssociationGroupFilter[] = [
+  'All',
+  'Primary Genetic Association',
+  'Biomarker/Response Signal',
+  'Mechanistic/Pathway Signal',
+  'Figure-Derived Signal',
+  'Other Candidate Signal',
+  'Review Needed',
+]
+
+interface CandidateAuditCandidate {
+  gene?: string
+  variant?: string
+  sources?: string[]
+  association_type?: string
+  association_group?: string
+  validation_outcome?: string
+  validation_confidence?: number
+  deterministic_context_reason?: string
+}
+
+interface CandidateAuditPaper {
+  pmid?: string
+  status?: string
+  reason?: string
+  candidate_count?: number
+  emitted_rows?: number
+  candidates?: CandidateAuditCandidate[]
+  validation_drops?: unknown[]
+  strict_gate_drops?: unknown[]
+  evidence_gate_drops?: unknown[]
+  association_group_counts?: Record<string, number>
+}
+
+interface CandidateAuditPayload {
+  schema_version?: string
+  summary?: {
+    papers?: number
+    total_candidates?: number
+    total_emitted_rows?: number
+    association_group_counts?: Record<string, number>
+  }
+  papers?: CandidateAuditPaper[]
+}
+
+function CandidateAuditPanel({
+  audit,
+  loading,
+  error,
+  path,
+}: {
+  audit: CandidateAuditPayload | null
+  loading: boolean
+  error: string | null
+  path: string
+}) {
+  if (loading) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-4 text-sm text-slate-500 flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading candidate audit…
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 text-sm text-red-700">
+        {error}
+      </div>
+    )
+  }
+
+  if (!audit) return null
+
+  const papers = audit.papers || []
+  const groupCounts = audit.summary?.association_group_counts || {}
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-4">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Candidate Audit</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            {audit.schema_version || 'legacy audit'} · {papers.length} paper{papers.length !== 1 ? 's' : ''} · {audit.summary?.total_candidates ?? 0} candidates
+          </p>
+        </div>
+        <button
+          onClick={() => window.api.shell.openPath(path)}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors"
+        >
+          <FileText className="w-3.5 h-3.5" />
+          Raw JSON
+        </button>
+      </div>
+
+      {Object.keys(groupCounts).length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-4">
+          {Object.entries(groupCounts).map(([group, count]) => (
+            <div key={group} className="rounded-lg border border-slate-200 p-3">
+              <div className="text-[11px] text-slate-500">{group}</div>
+              <div className="text-lg font-semibold text-slate-900">{count}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+        {papers.map((paper, paperIdx) => {
+          const candidates = paper.candidates || []
+          const drops = (paper.validation_drops?.length || 0) + (paper.strict_gate_drops?.length || 0) + (paper.evidence_gate_drops?.length || 0)
+          return (
+            <div key={`${paper.pmid || paperIdx}`} className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
+                <div className="text-sm font-medium text-slate-800">
+                  PMID {paper.pmid || 'unknown'}
+                  <span className="ml-2 text-xs font-normal text-slate-500">{paper.status || 'unknown'}</span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  {paper.candidate_count ?? candidates.length} candidates · {paper.emitted_rows ?? 0} emitted · {drops} dropped
+                </div>
+              </div>
+              {candidates.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-left text-slate-500 border-b border-slate-100">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Gene</th>
+                        <th className="px-3 py-2 font-medium">Source</th>
+                        <th className="px-3 py-2 font-medium">Group</th>
+                        <th className="px-3 py-2 font-medium">Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {candidates.slice(0, 80).map((candidate, idx) => (
+                        <tr key={`${candidate.gene || idx}-${idx}`}>
+                          <td className="px-3 py-2 text-slate-800 font-medium">
+                            {candidate.gene || ''}
+                            {candidate.variant ? <span className="text-slate-500 font-normal"> · {candidate.variant}</span> : null}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{(candidate.sources || []).join(', ')}</td>
+                          <td className="px-3 py-2 text-slate-600">{candidate.association_group || candidate.association_type || ''}</td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {candidate.validation_outcome || ''}
+                            {candidate.validation_confidence != null ? ` (${candidate.validation_confidence})` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="px-3 py-3 text-xs text-slate-500">{paper.reason || 'No candidate details recorded.'}</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Results table (with Confidence badge rendering + metadata merge) ─────────
 
 function ResultsTable({
@@ -412,6 +575,7 @@ export default function Results() {
   const excelPath = searchParams.get('excel') || ''
   const metaPath  = searchParams.get('meta')  || ''
   const jsonPath  = searchParams.get('json')  || ''
+  const candidateAuditPath = searchParams.get('candidateAudit') || ''
   const runWarning = searchParams.get('warning') || ''
   // F10b: strict-gate drop surfacing. Both params are optional — banner hides when count <= 0.
   const dropDebugPath   = searchParams.get('dropDebug') || ''
@@ -432,9 +596,14 @@ export default function Results() {
   const [strictGateBannerDismissed, setStrictGateBannerDismissed] = useState(false)
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false)
   const [emptyGeneBannerDismissed, setEmptyGeneBannerDismissed] = useState(false)
+  const [showAuditPanel, setShowAuditPanel] = useState(false)
+  const [candidateAudit, setCandidateAudit] = useState<CandidateAuditPayload | null>(null)
+  const [candidateAuditLoading, setCandidateAuditLoading] = useState(false)
+  const [candidateAuditError, setCandidateAuditError] = useState<string | null>(null)
 
   // Search, sort, pagination state
   const [searchQuery, setSearchQuery] = useState('')
+  const [associationGroupFilter, setAssociationGroupFilter] = useState<AssociationGroupFilter>('All')
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(25)
@@ -480,6 +649,27 @@ export default function Results() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (metaPath) loadMeta() }, [metaPath])
 
+  useEffect(() => {
+    if (!candidateAuditPath) return
+    setCandidateAuditLoading(true)
+    setCandidateAuditError(null)
+    window.api.results.load(candidateAuditPath).then((res) => {
+      if (res.error || !res.content) {
+        setCandidateAuditError(res.error || 'Failed to load candidate audit')
+        setCandidateAudit(null)
+        setCandidateAuditLoading(false)
+        return
+      }
+      try {
+        setCandidateAudit(JSON.parse(res.content) as CandidateAuditPayload)
+      } catch {
+        setCandidateAuditError('Candidate audit JSON could not be parsed')
+        setCandidateAudit(null)
+      }
+      setCandidateAuditLoading(false)
+    })
+  }, [candidateAuditPath])
+
   // Auto-select context_modifications and context_truncated columns once metadata loads
   useEffect(() => {
     if (!metaLoaded) return
@@ -501,6 +691,16 @@ export default function Results() {
       genes:  geneIdx >= 0 ? new Set(rows.map((r) => r[geneIdx]).filter(Boolean)).size : 0,
       papers: pmidIdx >= 0 ? new Set(rows.map((r) => r[pmidIdx]).filter(Boolean)).size : 0,
     }
+  }, [headers, rows])
+
+  const associationGroupCounts = useMemo(() => {
+    const groupIdx = headers.indexOf('Association Group')
+    if (groupIdx < 0) return {}
+    return rows.reduce<Record<string, number>>((acc, row) => {
+      const group = row[groupIdx] || 'Other Candidate Signal'
+      acc[group] = (acc[group] || 0) + 1
+      return acc
+    }, {})
   }, [headers, rows])
 
   // Count gene rows from paywalled / abstract-only papers
@@ -538,10 +738,14 @@ export default function Results() {
 
   // Filtered rows (search)
   const filteredRows = useMemo(() => {
-    if (!searchQuery.trim()) return rows
+    const groupIdx = headers.indexOf('Association Group')
+    const groupFiltered = associationGroupFilter === 'All' || groupIdx < 0
+      ? rows
+      : rows.filter(row => (row[groupIdx] || '') === associationGroupFilter)
+    if (!searchQuery.trim()) return groupFiltered
     const q = searchQuery.toLowerCase()
-    return rows.filter(row => row.some(cell => cell.toLowerCase().includes(q)))
-  }, [rows, searchQuery])
+    return groupFiltered.filter(row => row.some(cell => cell.toLowerCase().includes(q)))
+  }, [headers, rows, searchQuery, associationGroupFilter])
 
   // Sorted rows
   const sortedRows = useMemo(() => {
@@ -584,7 +788,7 @@ export default function Results() {
   }, [sortedRows, rows, metaRows, currentPage, rowsPerPage, sortConfig, searchQuery])
 
   // Reset page when search or sort changes
-  useEffect(() => { setCurrentPage(1) }, [searchQuery, sortConfig, rowsPerPage])
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, associationGroupFilter, sortConfig, rowsPerPage])
 
   const handleSort = (colIdx: number) => {
     setSortConfig(prev => {
@@ -655,6 +859,19 @@ export default function Results() {
             >
               <Settings2 className="w-4 h-4" />
               {selectedMetaCols.size > 0 ? `Metadata (${selectedMetaCols.size})` : '+ Metadata'}
+            </button>
+          )}
+          {candidateAuditPath && (
+            <button
+              onClick={() => setShowAuditPanel((v) => !v)}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                showAuditPanel
+                  ? 'border-brand-500 bg-brand-50 text-brand-700'
+                  : 'border-slate-300 hover:bg-slate-50 text-slate-700'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              Candidate Audit
             </button>
           )}
           <ExportDropdown csvPath={filePath} excelPath={excelPath} jsonPath={jsonPath} />
@@ -778,6 +995,42 @@ export default function Results() {
             onClose={() => setShowMetaPicker(false)}
           />
         )
+      )}
+
+      {showAuditPanel && candidateAuditPath && (
+        <CandidateAuditPanel
+          audit={candidateAudit}
+          loading={candidateAuditLoading}
+          error={candidateAuditError}
+          path={candidateAuditPath}
+        />
+      )}
+
+      {/* Search bar + row count */}
+      {Object.keys(associationGroupCounts).length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {ASSOCIATION_GROUP_FILTERS.map((group) => {
+            const count = group === 'All'
+              ? rows.length
+              : (associationGroupCounts[group] || 0)
+            if (group !== 'All' && count === 0) return null
+            const active = associationGroupFilter === group
+            return (
+              <button
+                key={group}
+                onClick={() => setAssociationGroupFilter(group)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                  active
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {group === 'All' ? 'All' : group}
+                <span className="ml-1 text-slate-400">{count}</span>
+              </button>
+            )
+          })}
+        </div>
       )}
 
       {/* Search bar + row count */}

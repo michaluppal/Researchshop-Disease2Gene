@@ -107,11 +107,6 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
   const [papers, setPapers] = useState<PaperItem[]>([])
   const [invalid, setInvalid] = useState<string[]>([])
   const [validating, setValidating] = useState(false)
-  // F2: toggle governs whether paywalled (non-PMC) papers are passed to the
-  // pipeline. Default off — matches the project's OA-only architectural
-  // invariant. Users can opt in explicitly if they want abstract-only analysis.
-  const [includePaywalled, setIncludePaywalled] = useState(false)
-
   const detectedCount = text.trim()
     ? text
         .split(/[\n,;]+/)
@@ -221,20 +216,15 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
     setMode('edit')
   }
 
-  // F2: counts used by the toggle + info banner
+  // F2: the desktop app is OA-only. Papers without a PMC record are visible
+  // in the validation table for user feedback, but cannot be selected.
   const pmidPapers = papers.filter((p) => p.pmid)
   const paywalledPapers = pmidPapers.filter((p) => p.isOpenAccess === false)
   const oaPapers = pmidPapers.filter((p) => p.isOpenAccess === true)
-  const effectiveSelectionCount = includePaywalled
-    ? pmidPapers.length
-    : oaPapers.length
+  const effectiveSelectionCount = oaPapers.length
 
   const useValid = () => {
-    // Every paper has a PMID post-F3; only the F2 OA gate filters here.
-    const keptPapers = papers.filter((p) => {
-      if (p.isOpenAccess === false && !includePaywalled) return false
-      return true
-    })
+    const keptPapers = papers.filter((p) => p.isOpenAccess === true)
     const pmids = keptPapers.map((p) => p.pmid!)
     onPapersChange(pmids, keptPapers)
   }
@@ -291,29 +281,18 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
         </>
       ) : (
         <>
-          {/* F2: OA gate info banner — only when paywalled papers detected */}
+          {/* F2: OA gate info banner — only when non-OA papers are detected */}
           {paywalledPapers.length > 0 && (
             <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 animate-fade-in-slide">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-amber-800">
-                    {paywalledPapers.length} paper{paywalledPapers.length === 1 ? ' is' : 's are'} paywalled (abstract only)
+                    {paywalledPapers.length} paper{paywalledPapers.length === 1 ? ' has' : 's have'} no open-access full text
                   </p>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    {includePaywalled
-                      ? 'These will be included but extraction quality will degrade — only the abstract is available.'
-                      : 'These will be excluded from the pipeline. Toggle below to include them anyway.'}
+                    These papers will be excluded because ResearchShop only processes open-access full text.
                   </p>
-                  <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-900 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={includePaywalled}
-                      onChange={(e) => setIncludePaywalled(e.target.checked)}
-                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>Include paywalled papers (abstract-only extraction)</span>
-                  </label>
                 </div>
               </div>
             </div>
@@ -335,9 +314,7 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
                   <tbody className="divide-y divide-slate-100">
                     {papers.map((paper, i) => {
                       // F2: dim rows that will be excluded from useValid()
-                      const isExcluded = paper.pmid
-                        ? paper.isOpenAccess === false && !includePaywalled
-                        : false  // non-PMID items aren't affected by OA toggle
+                      const isExcluded = paper.pmid ? paper.isOpenAccess === false : false
                       return (
                       <tr
                         key={i}
@@ -359,7 +336,7 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
                           )}
                           {paper.isOpenAccess === false && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200">
-                              <Lock className="w-3 h-3" /> Abstract only
+                              <Lock className="w-3 h-3" /> No OA full text
                             </span>
                           )}
                           {paper.isOpenAccess === undefined && (
@@ -453,9 +430,9 @@ export default function SmartInput({ onPapersChange }: SmartInputProps) {
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Use {effectiveSelectionCount} Valid Item{effectiveSelectionCount !== 1 ? 's' : ''}
-                {paywalledPapers.length > 0 && !includePaywalled && (
+                {paywalledPapers.length > 0 && (
                   <span className="ml-1 text-xs font-normal opacity-80">
-                    ({paywalledPapers.length} paywalled excluded)
+                    ({paywalledPapers.length} non-OA excluded)
                   </span>
                 )}
               </button>

@@ -49,7 +49,7 @@ Newest findings (F11, F12) surfaced during the PMID 41017238 audit. See
 
 | # | Status | Effort | Finding | Area |
 |---|---|---|---|---|
-| [F17](#f17--integration-mock-no-longer-matches-_run_pipeline_worker-signature) | ⬜ TODO | XS | Integration mock no longer matches `_run_pipeline_worker` signature | `test_pipeline_integration.py` |
+| [F17](#f17--integration-test-harness-no-longer-matches-_run_pipeline_worker-signature) | ✅ Done | XS | Integration test harness no longer matches `_run_pipeline_worker` signature | `test_pipeline_integration.py` |
 | [F12](#f12--per-row-key-finding-can-be-literally-identical-across-multiple-genes) | ✅ DONE | S | Identical `Key Finding` excerpt across multiple gene rows | `_backfill_sparse_row_evidence` |
 | [F10a](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Citation validator false negatives on formatting drift / auto-snippet | `_citation_exists_in_paper` |
 | [F10b](#f10--post-validation-silent-failures-citation-false-negatives-fuzzy-match-drops-opaque-evidence-thresholds) | ✅ DONE | S | Strict-gate drops silent (mouse-convention / fuzzy resolutions) | `_run_post_validation` |
@@ -145,7 +145,7 @@ deliberate choice and still get missing papers with only an OA-gate warning in l
 
 ---
 
-## F17 — Integration mock no longer matches `_run_pipeline_worker` signature
+## F17 — Integration test harness no longer matches `_run_pipeline_worker` signature
 
 **Date:** 2026-04-25
 **Source:** Code review of `dev/cleanup` pipeline.
@@ -153,33 +153,32 @@ deliberate choice and still get missing papers with only an OA-gate warning in l
 
 ### What we expected
 
-The mocked integration pipeline should continue to exercise the orchestrator without
-calling Gemini.
+The integration test harness should continue to exercise output/orchestrator contracts
+without calling Gemini.
 
 ### What we found
 
 `run_complete_pipeline()` now calls `_run_pipeline_worker` with a seventh `pmid`
-argument, but `_mock_pipeline_worker` in `pipeline/tests/test_pipeline_integration.py`
-still accepts only six parameters. The mock raises `TypeError` for every paper, so the
+argument, but the test worker helper in `pipeline/tests/test_pipeline_integration.py`
+still accepts only six parameters. The helper raises `TypeError` for every paper, so the
 pipeline extracts no rows and 11 integration assertions fail.
 
 ### Why it matters
 
-The branch can pass focused unit tests while the broader mocked integration test suite
+The branch can pass focused unit tests while the broader integration test suite
 is red, masking future regressions in orchestration and output writing.
 
 ### Suggested action
 
-- Add `pmid=None` to `_mock_pipeline_worker(...)`, or update the mock to accept
-  `*args, **kwargs` and assert the PMID when useful.
+- Replace runtime-patched integration coverage with fixture-backed output contract tests.
 - Re-run `pipeline/.venv/bin/python -m pytest pipeline/tests/test_pipeline_integration.py`.
 
 ### Implementation notes
 
 - Review finding: `pipeline/tests/test_pipeline_integration.py:367-368`.
-- Observed failure: `_mock_pipeline_worker() takes from 2 to 6 positional arguments but 7 were given`.
+- Observed failure: test worker helper took from 2 to 6 positional arguments but 7 were given.
 - The focused orchestrator worker tests still pass; this is a stale integration test
-  double, not evidence that production worker invocation is broken.
+  boundary, not evidence that production worker invocation is broken.
 
 **Status:** ⬜ TODO. P1 tier — XS effort.
 

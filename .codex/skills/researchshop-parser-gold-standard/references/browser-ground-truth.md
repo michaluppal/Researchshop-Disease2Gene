@@ -26,6 +26,9 @@ include:
 - `browser_reference.table_count`: Visible article table count.
 - `notes`: Any caveat, such as using an official printable page because the
   normal page showed a browser check.
+- `figure_rich`: Optional boolean marker for a maintained multi-figure article.
+  Keep at least one figure-rich PMID in the fixture; `41169353` currently serves
+  that role with six browser-visible figures.
 
 ## Browser Method
 
@@ -42,11 +45,17 @@ For figure quality checks, open direct `resolved_url` values from the figure
 download report. Record whether representative figures render as actual
 readable scientific images.
 
+The figure spot-check set should include one complex multi-panel figure, one
+small/simple figure, and at least one figure from the maintained figure-rich
+PMID (`41169353` unless the fixture is intentionally updated).
+
 ## Acceptance Criteria
 
 - Current figure and table counts should match browser counts for the maintained
   PMIDs.
 - All extracted figures for maintained figure-containing PMIDs should resolve
   to downloadable `image/*` bytes.
+- At least one maintained figure-rich PMID should remain in the fixture and its
+  resolved image URLs should be visually inspected after parser or CDN changes.
 - Reports should distinguish browser-visible article text from ResearchShop's
   cleaned LLM input text.

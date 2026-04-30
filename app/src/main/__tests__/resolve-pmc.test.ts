@@ -1,48 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-
-// Same electron/module stubs as resolve-doi.test.ts
-vi.mock('electron', () => ({
-  ipcMain: { handle: vi.fn() },
-  dialog: {},
-  shell: {},
-  app: { getVersion: () => '0.0.0-test', getPath: () => '/tmp' },
-  BrowserWindow: class {},
-}))
-vi.mock('../settings-store', () => ({
-  getSettings: () => ({ outputDirectory: '/tmp' }),
-  setSetting: vi.fn(),
-  getDefaultOutputDir: () => '/tmp',
-  SettingsSchema: {},
-}))
-vi.mock('../job-store', () => ({
-  createJob: vi.fn(),
-  getJob: vi.fn(),
-  updateJob: vi.fn(),
-  listJobs: vi.fn(() => []),
-  deleteJob: vi.fn(),
-}))
-vi.mock('../python-bridge', () => ({
-  startPipeline: vi.fn(),
-  cancelPipeline: vi.fn(),
-  isPipelineRunning: vi.fn(() => false),
-}))
-vi.mock('../usage-store', () => ({
-  getGeminiDailyUsage: vi.fn(),
-  addGeminiApiCalls: vi.fn(),
-}))
-vi.mock('../updater', () => ({
-  downloadUpdate: vi.fn(),
-  installUpdate: vi.fn(),
-}))
-
-import { resolvePmcsToPmids } from '../ipc-handlers'
-
-type FetchMock = ReturnType<typeof vi.fn>
+import { describe, it, expect } from 'vitest'
+import { resolvePmcsToPmids, type FetchJson, type FetchJsonResponse } from '../pubmed-resolvers'
 
 function elinkResponse(
   pairs: Array<{ pmcDigit: string; pmid: string | null }>,
   ok = true
-): Response {
+): FetchJsonResponse {
   const linksets = pairs.map(({ pmcDigit, pmid }) => ({
     ids: [pmcDigit],
     linksetdbs:
@@ -53,56 +15,54 @@ function elinkResponse(
   return {
     ok,
     json: async () => ({ linksets }),
-  } as unknown as Response
+  }
+}
+
+function sequenceFetch(responses: Array<FetchJsonResponse | Error>): { fetcher: FetchJson; calls: string[] } {
+  const calls: string[] = []
+  const fetcher: FetchJson = async (url) => {
+    calls.push(url)
+    const next = responses.shift()
+    if (next instanceof Error) throw next
+    return next ?? elinkResponse([])
+  }
+  return { fetcher, calls }
 }
 
 describe('resolvePmcsToPmids', () => {
-  let fetchMock: FetchMock
+  it('T_C1: single valid PMC -> one elink fetch, correct URL, resolved PMID', async () => {
+    const { fetcher, calls } = sequenceFetch([
+      elinkResponse([{ pmcDigit: '9035072', pmid: '35152405' }]),
+    ])
+    const result = await resolvePmcsToPmids(['PMC9035072'], fetcher)
 
-  beforeEach(() => {
-    fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('T_C1: single valid PMC → one elink fetch, correct URL, resolved PMID', async () => {
-    fetchMock.mockResolvedValueOnce(
-      elinkResponse([{ pmcDigit: '9035072', pmid: '35152405' }])
-    )
-    const result = await resolvePmcsToPmids(['PMC9035072'])
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const calledUrl = fetchMock.mock.calls[0][0] as string
-    expect(calledUrl).toContain('elink.fcgi')
-    expect(calledUrl).toContain('dbfrom=pmc')
-    expect(calledUrl).toContain('db=pubmed')
-    // digits only, no PMC prefix in the id= param
-    expect(calledUrl).toContain('id=9035072')
-    expect(calledUrl).not.toContain('id=PMC')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('elink.fcgi')
+    expect(calls[0]).toContain('dbfrom=pmc')
+    expect(calls[0]).toContain('db=pubmed')
+    expect(calls[0]).toContain('id=9035072')
+    expect(calls[0]).not.toContain('id=PMC')
     expect(result).toEqual({ PMC9035072: '35152405' })
   })
 
-  it('T_C2: empty array → no fetch, empty result', async () => {
-    const result = await resolvePmcsToPmids([])
-    expect(fetchMock).not.toHaveBeenCalled()
+  it('T_C2: empty array -> no fetch, empty result', async () => {
+    const { fetcher, calls } = sequenceFetch([])
+    const result = await resolvePmcsToPmids([], fetcher)
+    expect(calls).toHaveLength(0)
     expect(result).toEqual({})
   })
 
-  it('T_C3: multiple PMCs → ONE batched fetch, all resolved', async () => {
-    fetchMock.mockResolvedValueOnce(
+  it('T_C3: multiple PMCs -> one batched fetch, all resolved', async () => {
+    const { fetcher, calls } = sequenceFetch([
       elinkResponse([
         { pmcDigit: '1111', pmid: '111' },
         { pmcDigit: '2222', pmid: '222' },
         { pmcDigit: '3333', pmid: '333' },
-      ])
-    )
-    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222', 'PMC3333'])
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const calledUrl = fetchMock.mock.calls[0][0] as string
-    expect(calledUrl).toContain('id=1111,2222,3333')
+      ]),
+    ])
+    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222', 'PMC3333'], fetcher)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('id=1111,2222,3333')
     expect(result).toEqual({
       PMC1111: '111',
       PMC2222: '222',
@@ -110,41 +70,38 @@ describe('resolvePmcsToPmids', () => {
     })
   })
 
-  it('T_C4: invalid PMC IDs → filtered out, mapped to null', async () => {
-    // "PMC" alone and "PMCabc" are invalid; only PMC9035072 is valid.
-    fetchMock.mockResolvedValueOnce(
-      elinkResponse([{ pmcDigit: '9035072', pmid: '35152405' }])
-    )
-    const result = await resolvePmcsToPmids(['PMC', 'PMCabc', 'PMC9035072'])
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const calledUrl = fetchMock.mock.calls[0][0] as string
-    expect(calledUrl).toContain('id=9035072')
+  it('T_C4: invalid PMC IDs -> filtered out, mapped to null', async () => {
+    const { fetcher, calls } = sequenceFetch([
+      elinkResponse([{ pmcDigit: '9035072', pmid: '35152405' }]),
+    ])
+    const result = await resolvePmcsToPmids(['PMC', 'PMCabc', 'PMC9035072'], fetcher)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('id=9035072')
     expect(result.PMC).toBeNull()
     expect(result.PMCabc).toBeNull()
     expect(result.PMC9035072).toBe('35152405')
   })
 
-  it('T_C5: linksetdbs missing for one PMC → that one is null', async () => {
-    fetchMock.mockResolvedValueOnce(
+  it('T_C5: linksetdbs missing for one PMC -> that one is null', async () => {
+    const { fetcher } = sequenceFetch([
       elinkResponse([
         { pmcDigit: '1111', pmid: '111' },
-        { pmcDigit: '2222', pmid: null }, // no linksetdbs
-      ])
-    )
-    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222'])
+        { pmcDigit: '2222', pmid: null },
+      ]),
+    ])
+    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222'], fetcher)
     expect(result).toEqual({ PMC1111: '111', PMC2222: null })
   })
 
   it('T_C6: linksets returned in different order from input', async () => {
-    fetchMock.mockResolvedValueOnce(
+    const { fetcher } = sequenceFetch([
       elinkResponse([
-        // Reversed from input order
         { pmcDigit: '3333', pmid: '333' },
         { pmcDigit: '1111', pmid: '111' },
         { pmcDigit: '2222', pmid: '222' },
-      ])
-    )
-    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222', 'PMC3333'])
+      ]),
+    ])
+    const result = await resolvePmcsToPmids(['PMC1111', 'PMC2222', 'PMC3333'], fetcher)
     expect(result).toEqual({
       PMC1111: '111',
       PMC2222: '222',

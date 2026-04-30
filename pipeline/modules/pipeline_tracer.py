@@ -30,8 +30,9 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 from typing import Any, Dict, Iterable, Optional
 
 
@@ -40,6 +41,8 @@ _events: list[Dict[str, Any]] = []
 _lock = Lock()
 _out_dir: Optional[Path] = None
 _live_file: Optional[str] = os.environ.get("TRACE_LIVE_FILE") or None
+_stage_state = local()
+_paper_state = local()
 
 
 def is_enabled() -> bool:
@@ -103,6 +106,7 @@ def capture(
         return
     event = {
         "node_id": node_id,
+        "stage_id": current_stage() or node_id,
         "captured_at": time.time(),
     }
     if inputs is not None:
@@ -133,6 +137,18 @@ def set_output_dir(path: os.PathLike) -> None:
     global _out_dir
     _out_dir = Path(path)
     _out_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["TRACE_OUT_DIR"] = str(_out_dir)
+
+
+def _resolved_output_dir() -> Optional[Path]:
+    if _out_dir is not None:
+        return _out_dir
+    env_dir = os.environ.get("TRACE_OUT_DIR")
+    if env_dir:
+        out_dir = Path(env_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+    return None
 
 
 def flush_worker_partial() -> Optional[Path]:
@@ -143,12 +159,11 @@ def flush_worker_partial() -> Optional[Path]:
     """
     if not is_enabled() or not _events:
         return None
-    if _out_dir is None:
+    out_dir = _resolved_output_dir()
+    if out_dir is None:
         # Fall back to tmp if orchestrator didn't set one
         out_dir = Path(os.environ.get("TMPDIR", "/tmp")) / "rs_trace"
         out_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        out_dir = _out_dir
     pmid = _target_pmid or "unknown"
     path = out_dir / f"trace_{pmid}_pid{os.getpid()}.jsonl"
     with _lock:
@@ -169,17 +184,27 @@ def collect_and_write(pmid: str, output_path: os.PathLike) -> Optional[Path]:
     """
     if not is_enabled():
         return None
-    if _out_dir is None:
+    out_dir = _resolved_output_dir()
+    if out_dir is None:
         return None
-    partials = sorted(_out_dir.glob(f"trace_{pmid}_pid*.jsonl"))
+    partials = sorted(out_dir.glob(f"trace_{pmid}_pid*.jsonl"))
     # Also include events still in this process's buffer
     flush_worker_partial()
-    partials = sorted(_out_dir.glob(f"trace_{pmid}_pid*.jsonl"))
-    if not partials:
+    partials = sorted(out_dir.glob(f"trace_{pmid}_pid*.jsonl"))
+
+    live_file = Path(_live_file) if _live_file else None
+    sources = list(partials)
+    if live_file and live_file.exists():
+        sources.append(live_file)
+
+    if not sources:
         return None
 
     nodes: Dict[str, Dict[str, Any]] = {}
-    for p in partials:
+    function_events: list[Dict[str, Any]] = []
+    function_counts_by_stage: Dict[str, int] = {}
+    function_counts_by_name: Dict[str, int] = {}
+    for p in sources:
         with open(p, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -189,19 +214,53 @@ def collect_and_write(pmid: str, output_path: os.PathLike) -> Optional[Path]:
                     ev = json.loads(line)
                 except Exception:
                     continue
+                event_type = ev.get("type")
+                if event_type in {"fn_call", "fn_return"}:
+                    event_pmid = str(ev.get("pmid") or "").strip()
+                    if event_pmid and event_pmid != str(pmid).strip():
+                        continue
+                    function_events.append(ev)
+                    stage = str(ev.get("stage_id") or "unscoped")
+                    name = ".".join(
+                        part
+                        for part in [
+                            str(ev.get("module") or "").strip(),
+                            str(ev.get("function") or "").strip(),
+                        ]
+                        if part
+                    ) or "unknown"
+                    function_counts_by_stage[stage] = function_counts_by_stage.get(stage, 0) + 1
+                    function_counts_by_name[name] = function_counts_by_name.get(name, 0) + 1
+                    continue
+
                 nid = ev.get("node_id")
                 if not nid:
                     continue
                 # Last-write-wins for same node_id (re-runs within same PMID are rare)
                 nodes[nid] = ev
 
+    out_path = Path(output_path)
+    function_trace_path = out_path.with_name(f"{out_path.stem}_functions.jsonl")
+    if function_events:
+        function_trace_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(function_trace_path, "w", encoding="utf-8") as f:
+            for ev in function_events:
+                f.write(json.dumps(ev, ensure_ascii=False, default=str) + "\n")
+
     out = {
         "pmid": pmid,
         "generated_at": time.time(),
         "node_count": len(nodes),
         "nodes": nodes,
+        "function_event_count": len(function_events),
+        "function_trace_path": str(function_trace_path) if function_events else "",
+        "function_counts_by_stage": dict(
+            sorted(function_counts_by_stage.items(), key=lambda item: (-item[1], item[0]))
+        ),
+        "function_counts_by_name": dict(
+            sorted(function_counts_by_name.items(), key=lambda item: (-item[1], item[0]))[:200]
+        ),
     }
-    out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, ensure_ascii=False, default=str)
@@ -214,6 +273,46 @@ def collect_and_write(pmid: str, output_path: os.PathLike) -> Optional[Path]:
             pass
 
     return out_path
+
+
+def current_stage() -> Optional[str]:
+    stack = getattr(_stage_state, "stack", None)
+    if not stack:
+        return None
+    return stack[-1]
+
+
+def current_pmid() -> Optional[str]:
+    return getattr(_paper_state, "pmid", None)
+
+
+@contextmanager
+def paper(pmid: Optional[str]):
+    """Tag nested function-trace events with the active PMID."""
+    previous = getattr(_paper_state, "pmid", None)
+    _paper_state.pmid = str(pmid).strip() if pmid else None
+    try:
+        yield
+    finally:
+        _paper_state.pmid = previous
+
+
+@contextmanager
+def stage(stage_id: str):
+    """Tag nested function-trace events with the active semantic pipeline stage."""
+    if not is_enabled():
+        yield
+        return
+    stack = getattr(_stage_state, "stack", None)
+    if stack is None:
+        stack = []
+        _stage_state.stack = stack
+    stack.append(stage_id)
+    try:
+        yield
+    finally:
+        if stack:
+            stack.pop()
 
 
 def summarise(obj: Any, *, max_items: int = 10, max_str: int = 200) -> Any:
@@ -390,9 +489,6 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_validate_and_prepare_paper_text",         # context truncation
     "_split_paper_into_named_sections",
     "_find_evidence_snippet",                   # grounding check interior
-    "_candidate_terms_for_row",
-    "_normalize_gene_symbol",
-    "_get_hgnc_aliases_for_gene",
     "_build_gemini_image_part",
 
     # ── HGNC / MyGene validation ──────────────────────────────────────────
@@ -438,12 +534,10 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "_get_citation_record",                     # PMID → iCite/SemanticScholar record
     "_write_split_output",                      # returns 4 output paths tuple
     "_run_pipeline_worker",                     # orchestrator↔worker handoff
-    "get_gene_source",                          # nested closure in _finalize_paper_result
-    "get_ncbi_id",                              # nested closure
-    "get_full_name",                            # nested closure
-    "get_aliases",                              # nested closure
-    "get_chromosome",                           # nested closure
+    "_apply_pubtator_row_enrichment",           # per-paper Gene Source / PubTator IDs
+    "_apply_ncbi_metadata_columns",             # batched NCBI metadata column fill
     "_agg_variants",                            # variant-string joiner used in dedup
+    "write_candidate_audit_artifact",           # stable candidate lifecycle artifact
     "write_drop_debug_artifact",
 })
 
@@ -458,6 +552,13 @@ _FN_TRACER_NOISE = frozenset({
     # Per-token normalisation helpers (called inside tight loops)
     "_norm_token",
     "_assoc_key",
+    "_as_string_set",
+    "_as_sorted_strings",
+    "_candidate_terms_for_row",
+    "_gene_key",
+    "_get_hgnc_aliases_for_gene",
+    "_normalize_empty_placeholder",
+    "_normalize_gene_symbol",
     "_normalize_variant_value",
     # Poll-loop helpers — invoked every 200ms while workers run, drowns the trace
     "check_cancellation",
@@ -524,6 +625,8 @@ def install_function_tracer(max_events: int = 5000) -> None:
                 "type": "fn_call",
                 "module": module,
                 "function": func,
+                "pmid": current_pmid(),
+                "stage_id": current_stage(),
                 "depth": _fn_call_depth,
                 "line": frame.f_code.co_firstlineno,
                 "file": frame.f_code.co_filename.replace(os.sep + "pipeline" + os.sep, "/"),
@@ -564,6 +667,8 @@ def install_function_tracer(max_events: int = 5000) -> None:
                 "type": "fn_return",
                 "module": module,
                 "function": func,
+                "pmid": current_pmid(),
+                "stage_id": current_stage(),
                 "depth": _fn_call_depth,
                 "return_type": type(arg).__name__ if arg is not None else "None",
                 "ts": time.time(),

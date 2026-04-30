@@ -157,6 +157,7 @@ export default function History() {
     if (job.excel_path) params.set('excel', job.excel_path)
     if (job.metadata_path) params.set('meta', job.metadata_path)
     if (job.json_path) params.set('json', job.json_path)
+    if (job.candidate_audit_path) params.set('candidateAudit', job.candidate_audit_path)
     navigate(`/results?${params.toString()}`)
   }
 

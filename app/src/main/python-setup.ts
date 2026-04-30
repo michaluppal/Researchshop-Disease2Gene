@@ -12,11 +12,18 @@ function getPythonDir(): string {
   return join(__dirname, '../../pipeline')
 }
 
-function getVenvPython(pythonDir: string): string {
-  if (process.platform === 'win32') {
-    return join(pythonDir, '.venv', 'Scripts', 'python.exe')
+function getVenvDir(pythonDir: string): string {
+  if (app.isPackaged) {
+    return join(app.getPath('userData'), 'python', '.venv')
   }
-  return join(pythonDir, '.venv', 'bin', 'python3')
+  return join(pythonDir, '.venv')
+}
+
+function getVenvPython(venvDir: string): string {
+  if (process.platform === 'win32') {
+    return join(venvDir, 'Scripts', 'python.exe')
+  }
+  return join(venvDir, 'bin', 'python3')
 }
 
 function send(channel: string, data: unknown): void {
@@ -123,7 +130,8 @@ function runSpawn(command: string, args: string[], cwd: string): Promise<void> {
 export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: string }> {
   try {
     const pythonDir = getPythonDir()
-    const venvPython = getVenvPython(pythonDir)
+    const venvDir = getVenvDir(pythonDir)
+    const venvPython = getVenvPython(venvDir)
     const requirementsPath = join(pythonDir, 'requirements.txt')
 
     sendLog('ResearchShop Python Environment Setup')
@@ -177,7 +185,7 @@ export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: strin
       if (!existsSync(venvPython)) {
         sendProgress('creating-venv', 'Creating virtual environment...')
         sendLog('[venv] Creating isolated virtual environment...')
-        await runSpawn(systemPython, ['-m', 'venv', join(pythonDir, '.venv')], pythonDir)
+        await runSpawn(systemPython, ['-m', 'venv', venvDir], pythonDir)
         sendLog('[venv] Virtual environment created ✓')
         sendLog('')
       }

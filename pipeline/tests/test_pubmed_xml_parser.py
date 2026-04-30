@@ -17,9 +17,9 @@ from modules import config, pubmed_xml_parser
 XLINK = "http://www.w3.org/1999/xlink"
 
 
-class _FakeTemporaryNxml:
+class TemporaryNxmlFixture:
     def __enter__(self):
-        return "/tmp/fake.nxml"
+        return "/tmp/fixture.nxml"
 
     def __exit__(self, *_args):
         return False
@@ -116,10 +116,10 @@ def test_pubmed_parser_generic_non_image_graphic_ref_is_skipped(monkeypatch):
     monkeypatch.setattr(
         pubmed_xml_parser,
         "_temporary_nxml",
-        lambda _xml: _FakeTemporaryNxml(),
+        lambda _xml: TemporaryNxmlFixture(),
     )
 
-    class FakePubmedParser:
+    class PubmedParserFixture:
         @staticmethod
         def parse_pubmed_caption(_path):
             return [{
@@ -129,7 +129,7 @@ def test_pubmed_parser_generic_non_image_graphic_ref_is_skipped(monkeypatch):
                 "graphic_ref": "float",
             }]
 
-    monkeypatch.setitem(sys.modules, "pubmed_parser", FakePubmedParser)
+    monkeypatch.setitem(sys.modules, "pubmed_parser", PubmedParserFixture)
 
     figures = pubmed_xml_parser.parse_pubmed_parser_figures(
         b"<article />",

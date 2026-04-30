@@ -8,12 +8,11 @@
 #      subset filter (`ENABLE_OA_FILTER=True`, default). Results are pre-filtered
 #      to papers with freely available full text.
 #   2. Paste-box runs (SmartInput.tsx in the renderer) — surfaces a green
-#      "Full text" / amber "Abstract only" badge per pasted PMID and, by default,
-#      excludes paywalled PMIDs via an "Include paywalled papers" toggle
-#      (off by default).
+#      "Full text" / amber "No OA full text" badge per pasted PMID and excludes
+#      PMIDs without an open-access full-text record.
 #   3. CLI / scripted invocations — `pipeline_orchestrator.run_complete_pipeline`
-#      applies the same gate for `specific_pmids` + author-search PMIDs unless
-#      `ALLOW_PAYWALLED_SPECIFIC_PMIDS=True`. Backstop for users who bypass the UI.
+#      applies the same OA gate for `specific_pmids` + author-search PMIDs.
+#      Backstop for users who bypass the UI.
 #
 # Fetch strategy (OA APIs only — no scraping, no browser automation):
 #
@@ -22,11 +21,11 @@
 #
 # Playwright browser automation, Trafilatura web scraping, paywall detection,
 # and publisher-specific DOM selectors were removed in F5 of docs/audit/AUDIT.md.
-# If any of the layers above is disabled AND a paywalled PMID reaches this
+# If any legacy call path bypasses the layers above AND a paywalled PMID reaches this
 # module, `_fetch_pmc_efetch` returns `extraction_method="no_oa_full_text"`
 # and the paper continues through the pipeline with abstract-only content.
-# Graceful degradation is intentional — it's not the blanket OA guarantee
-# this comment previously claimed.
+# That fallback is retained for downstream compatibility, not as a supported
+# user-facing mode.
 
 import csv
 import dataclasses
