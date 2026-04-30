@@ -98,6 +98,7 @@ export default function Pipeline() {
       if (result.excel_path) params.set('excel', result.excel_path)
       if (result.metadata_path) params.set('meta', result.metadata_path)
       if (result.json_path) params.set('json', result.json_path)
+      if (result.candidate_audit_path) params.set('candidateAudit', result.candidate_audit_path)
       if (result.warning) params.set('warning', result.warning)
       // F10b: surface strict-gate drops to the Results banner
       const dropPath = result.drop_debug_path || result.debug_path

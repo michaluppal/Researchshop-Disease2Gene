@@ -19,7 +19,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 
@@ -33,6 +33,10 @@ PUBTATOR_EXPORT_ENDPOINT = f"{PUBTATOR_API_BASE}/publications/export/biocjson"
 
 # NCBI Gene API
 NCBI_GENE_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+
+class NCBIRateLimitError(Exception):
+    """Raised when NCBI keeps returning 429 after bounded retries."""
 
 
 @dataclass
@@ -317,6 +321,51 @@ class NCBIGeneTool:
             "User-Agent": "ResearchShop/1.0 (gene-metadata-extraction)"
         })
         self._cache: Dict[str, NCBIGeneMetadata] = {}
+        self._gene_id_negative_cache: Set[str] = set()
+        self._symbol_cache: Dict[str, Optional[NCBIGeneMetadata]] = {}
+        self._symbol_negative_cache: Set[str] = set()
+        self._last_request_at = 0.0
+        self._request_interval_seconds = 0.11 if self.api_key else 0.34
+
+    def _throttle_request(self) -> None:
+        elapsed = time.time() - self._last_request_at
+        delay = self._request_interval_seconds - elapsed
+        if delay > 0:
+            time.sleep(delay)
+
+    def _request_json(
+        self,
+        endpoint: str,
+        params: Dict[str, Any],
+        *,
+        max_retries: int = 2,
+    ) -> Dict[str, Any]:
+        """Call NCBI EUtils with request-level throttling and bounded 429 backoff."""
+        params = dict(params)
+        if self.api_key:
+            params["api_key"] = self.api_key
+
+        url = f"{NCBI_GENE_API}/{endpoint}"
+        for attempt in range(max_retries + 1):
+            self._throttle_request()
+            response = self._session.get(url, params=params, timeout=30)
+            self._last_request_at = time.time()
+
+            if response.status_code == 429 and attempt < max_retries:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = float(retry_after) if retry_after else 0.5 * (2 ** attempt)
+                except (TypeError, ValueError):
+                    delay = 0.5 * (2 ** attempt)
+                time.sleep(min(max(delay, self._request_interval_seconds), 5.0))
+                continue
+            if response.status_code == 429:
+                raise NCBIRateLimitError("NCBI Gene API rate limited after retries")
+
+            response.raise_for_status()
+            return response.json()
+
+        return {}
 
     def get_gene_metadata(self, gene_id: str) -> Optional[NCBIGeneMetadata]:
         """
@@ -331,6 +380,8 @@ class NCBIGeneTool:
         # Check cache first
         if gene_id in self._cache:
             return self._cache[gene_id]
+        if gene_id in self._gene_id_negative_cache:
+            return None
 
         try:
             # Use ESummary for basic info
@@ -339,22 +390,17 @@ class NCBIGeneTool:
                 "id": gene_id,
                 "retmode": "json"
             }
-            if self.api_key:
-                params["api_key"] = self.api_key
-
-            url = f"{NCBI_GENE_API}/esummary.fcgi"
-            response = self._session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
+            data = self._request_json("esummary.fcgi", params)
 
             if "result" not in data or gene_id not in data["result"]:
+                self._gene_id_negative_cache.add(gene_id)
                 return None
 
             gene_data = data["result"][gene_id]
 
             # Check for errors in response
             if "error" in gene_data:
+                self._gene_id_negative_cache.add(gene_id)
                 return None
 
             # Extract aliases
@@ -380,6 +426,9 @@ class NCBIGeneTool:
             self._cache[gene_id] = metadata
             return metadata
 
+        except NCBIRateLimitError as e:
+            logger.warning(f"NCBI Gene API rate limited for ID {gene_id}: {e}")
+            return None
         except Exception as e:
             logger.warning(f"NCBI Gene API error for ID {gene_id}: {e}")
             return None
@@ -394,9 +443,18 @@ class NCBIGeneTool:
         Returns:
             NCBIGeneMetadata or None if not found
         """
+        symbol_key = str(symbol or "").strip().upper()
+        if not symbol_key:
+            return None
+        if symbol_key in self._symbol_cache:
+            return self._symbol_cache[symbol_key]
+        if symbol_key in self._symbol_negative_cache:
+            return None
+
         # Check cache by symbol
         for cached in self._cache.values():
-            if cached.symbol.upper() == symbol.upper():
+            if cached.symbol.upper() == symbol_key:
+                self._symbol_cache[symbol_key] = cached
                 return cached
 
         try:
@@ -406,21 +464,23 @@ class NCBIGeneTool:
                 "term": f"{symbol}[Gene Name] AND Homo sapiens[Organism]",
                 "retmode": "json"
             }
-            if self.api_key:
-                params["api_key"] = self.api_key
-
-            url = f"{NCBI_GENE_API}/esearch.fcgi"
-            response = self._session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
+            data = self._request_json("esearch.fcgi", params)
 
             if "esearchresult" not in data or not data["esearchresult"].get("idlist"):
+                self._symbol_cache[symbol_key] = None
+                self._symbol_negative_cache.add(symbol_key)
                 return None
 
             gene_id = data["esearchresult"]["idlist"][0]
-            return self.get_gene_metadata(gene_id)
+            meta = self.get_gene_metadata(gene_id)
+            self._symbol_cache[symbol_key] = meta
+            if meta is None:
+                self._symbol_negative_cache.add(symbol_key)
+            return meta
 
+        except NCBIRateLimitError as e:
+            logger.warning(f"NCBI Gene search rate limited for symbol {symbol}: {e}")
+            return None
         except Exception as e:
             logger.warning(f"NCBI Gene search error for symbol {symbol}: {e}")
             return None
@@ -448,12 +508,13 @@ class NCBIGeneTool:
             if meta:
                 metadata[gene.symbol] = meta
 
-            # Rate limiting
-            time.sleep(0.1)
-
         return metadata
 
-    def enrich_gene_symbols(self, symbols: List[str]) -> Dict[str, NCBIGeneMetadata]:
+    def enrich_gene_symbols(
+        self,
+        symbols: List[str],
+        symbol_gene_ids: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, NCBIGeneMetadata]:
         """
         Enrich a list of gene symbols with NCBI Gene metadata.
 
@@ -464,14 +525,25 @@ class NCBIGeneTool:
             Dict mapping symbol -> NCBIGeneMetadata
         """
         metadata = {}
+        symbol_gene_ids_norm = {
+            str(symbol or "").strip().upper(): str(gene_id or "").strip()
+            for symbol, gene_id in (symbol_gene_ids or {}).items()
+            if str(symbol or "").strip() and str(gene_id or "").strip()
+        }
 
         for symbol in symbols:
-            meta = self.get_gene_by_symbol(symbol)
+            symbol_key = str(symbol or "").strip().upper()
+            gene_id = symbol_gene_ids_norm.get(symbol_key)
+            if gene_id and ";" not in gene_id:
+                meta = self.get_gene_metadata(gene_id)
+                if meta is not None:
+                    self._symbol_cache[symbol_key] = meta
+                else:
+                    meta = self.get_gene_by_symbol(symbol)
+            else:
+                meta = self.get_gene_by_symbol(symbol)
             if meta:
                 metadata[symbol] = meta
-
-            # Rate limiting
-            time.sleep(0.1)
 
         return metadata
 
@@ -617,4 +689,3 @@ if __name__ == "__main__":
     if meta:
         print(f"\n  BRCA1: {meta.full_name}")
         print(f"  Gene ID: {meta.gene_id}")
-

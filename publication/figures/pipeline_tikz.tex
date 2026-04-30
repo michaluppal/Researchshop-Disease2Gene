@@ -30,20 +30,20 @@
 % ============================================================
 %  ROW 1: ELECTRON UI
 % ============================================================
-\node[stagebox=blue!50] (query) {
+\node[stagebox=blue] (query) {
     \textbf{\footnotesize Stage 1}\\[-1pt]
     Query \& Schema};
 
-\node[stagebox=blue!50, right=of query] (relevance) {
+\node[stagebox=blue, right=of query] (relevance) {
     \textbf{\footnotesize Stage 2}\\[-1pt]
     Gene Relevance\\[-2pt]
     Scoring};
 
-\node[box=gray!50, right=of relevance, minimum width=2.0cm,
+\node[box=gray, right=of relevance, minimum width=2.0cm,
       dashed, minimum height=0.9cm, font=\sffamily\scriptsize] (ipc) {
     IPC Bridge};
 
-\node[stagebox=blue!50, right=4.5cm of relevance] (results) {
+\node[stagebox=blue, right=4.5cm of relevance] (results) {
     \textbf{\footnotesize Output}\\[-1pt]
     Results Explorer};
 
@@ -67,22 +67,22 @@
 % ============================================================
 %  ROW 2: PYTHON PIPELINE
 % ============================================================
-\node[stagebox=gray!60, below=1.4cm of query] (fulltext) {
+\node[stagebox=gray, below=1.4cm of query] (fulltext) {
     \textbf{\footnotesize Stage 3}\\[-1pt]
     Full-Text\\[-2pt]
     Acquisition};
 
-\node[stagebox=orange!60, right=of fulltext] (pubtator) {
+\node[stagebox=orange, right=of fulltext] (pubtator) {
     \textbf{\footnotesize Stage 4}\\[-1pt]
     PubTator3 NER\\[-2pt]
     {\tiny precision floor}};
 
-\node[widestagebox=violet!50, right=of pubtator] (gemini) {
+\node[widestagebox=violet, right=of pubtator] (gemini) {
     \textbf{\footnotesize Stage 5: LLM Extraction}\\[-1pt]
     {\scriptsize A: Abstract $\to$ B: Full-text}\\[-2pt]
     {\scriptsize + Figure analysis}};
 
-\node[box=gray!50, right=of gemini, minimum width=2.0cm,
+\node[box=gray, right=of gemini, minimum width=2.0cm,
       dashed, minimum height=0.9cm, font=\sffamily\scriptsize] (orch) {
     Worker Pool\\[-2pt]
     {\tiny 2--4 processes}};
@@ -90,8 +90,8 @@
 % File labels - Pipeline
 \node[filelabel, below=1pt of fulltext] {full\_text\_fetcher.py};
 \node[filelabel, below=1pt of pubtator] {pubtator\_tool.py};
-\node[filelabel, below=1pt of gemini] {gemini\_extractor.py};
-\node[filelabel, below=1pt of orch] {orchestrator.py};
+\node[filelabel, below=1pt of gemini] {modules/stage5/};
+\node[filelabel, below=1pt of orch] {pipeline\_orchestrator.py};
 
 % API pills above pipeline boxes
 \node[smallpill, above=3pt of fulltext] {PMC OA \quad Europe PMC};
@@ -119,22 +119,22 @@
 % ============================================================
 %  ROW 3: VALIDATION FRAMEWORK
 % ============================================================
-\node[stagebox=green!50!black, below=1.4cm of fulltext] (geneval) {
+\node[stagebox=green, below=1.4cm of fulltext] (geneval) {
     \textbf{\footnotesize Stage 6a}\\[-1pt]
     Gene Validation\\[-2pt]
     {\tiny HGNC (44,943 genes)}};
 
-\node[stagebox=green!50!black, right=of geneval] (citeval) {
+\node[stagebox=green, right=of geneval] (citeval) {
     \textbf{\footnotesize Stage 6b}\\[-1pt]
     Citation\\[-2pt]
     Cross-Reference};
 
-\node[stagebox=green!50!black, right=of citeval] (vareval) {
+\node[stagebox=green, right=of citeval] (vareval) {
     \textbf{\footnotesize Stage 6c}\\[-1pt]
     Variant\\[-2pt]
     Matching};
 
-\node[box=red!60, right=of vareval, minimum width=2.0cm] (gate) {
+\node[box=red, right=of vareval, minimum width=2.0cm] (gate) {
     \textbf{\footnotesize Strict Gate}\\[-1pt]
     Confidence $\geq$ 0.7};
 

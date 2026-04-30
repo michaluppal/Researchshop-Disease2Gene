@@ -34,7 +34,7 @@
 
 \begin{frontmatter}
 
-\title{\textcolor{red}{\textbf{tool name}}: A Desktop Application for Validated Gene-Disease Association Extraction from Biomedical Literature Using Hybrid NER-LLM Architecture}
+\title{ResearchShop Desktop: A Desktop Application for Auditable Gene and Variant Extraction from Biomedical Literature Using Hybrid NER--LLM Architecture}
 
 \author{Micha{\l} Bujniewicz-Uppal\corref{mycorrespondingauthor}}
 \ead{m.bujniewiczuppal@uw.edu.pl}
@@ -48,9 +48,9 @@
 \address{Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland}
 
 \begin{abstract}
-We present \textcolor{red}{\textbf{tool name}}, a free, open-source desktop application that automates the extraction of gene-disease associations from full-text biomedical literature. The system employs a hybrid architecture combining Named Entity Recognition (PubTator3) with Large Language Model extraction (Google Gemini Flash) to achieve high recall while maintaining precision through a multi-layer validation framework. This framework includes gene symbol verification against the HGNC database (44,943 genes), grounding checks that verify extracted genes appear in source text, HGVS-compliant variant validation, and citation cross-referencing using dense sequence matching. The application runs entirely on consumer hardware with no server infrastructure; users provide their own Gemini API key.
+We present ResearchShop Desktop, a free, open-source desktop application that assists biomedical researchers with structured extraction of gene and variant associations from PubMed literature. The system combines PubTator3 Named Entity Recognition, open-access full-text parsing from PubMed Central and Europe PMC, and Google Gemini Flash extraction behind a validation-oriented pipeline. Its safeguards include HGNC gene symbol verification, source-text grounding checks, HGVS-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no server infrastructure; users provide their own Gemini API key and NCBI Entrez email.
 
-Evaluated on 12 papers spanning five study types (GWAS, cancer genomics, RNA-seq, rare disease, and pharmacogenomics) across three repeated runs each, the pipeline achieves macro F1 scores of 0.668 (cancer genomics), 0.611 (GWAS), and 0.600 (RNA-seq) on open-access full-text papers. Gene-set extraction is perfectly reproducible across runs (Jaccard similarity = 1.0 on all 12 papers). A controlled 36-run experiment further demonstrates that multimodal figure analysis raises F1 from 0.167 to 1.000 on comprehensive genomics papers in which primary findings are encoded in figures rather than prose.
+The contribution of ResearchShop is a reproducible desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and CSV/XLSX export. The software is packaged for macOS, Windows, and Linux, includes an offline test suite for core parser and validation behavior, and persists audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; extracted associations require expert review before use in publications, systematic reviews, or clinical contexts.
 \end{abstract}
 
 \begin{keyword}

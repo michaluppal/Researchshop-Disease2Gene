@@ -105,6 +105,12 @@ immediately with one dict lookup.
 - **Live mode only** — when `TRACE_LIVE_FILE` is also set (by `serve.py`), every
   `capture()` additionally appends a JSON line to that single shared file. The
   server tails it and forwards each line as an SSE event to the browser.
+- The final merge also reads the live file as a safety net, so worker stage
+  events seen by the browser are preserved in the persisted trace even if a
+  worker could not inherit the orchestrator's in-memory output directory.
+- Function tracing (`Trace fns`) emits `fn_call` and `fn_return` events with a
+  `stage_id` when a semantic stage context is active. The function view shows
+  that stage chip so noisy Stage 5 helper calls can be grouped by pipeline step.
 
 Only one paper can be traced per run. Trace data values go through `summarise()`
 which caps string lengths and list sizes — the trace file stays readable.
@@ -115,6 +121,8 @@ Already emitting trace events:
 
 - `user_selection` · `pubmed_metadata` · `full_text_fetch` · `text_cleaning`
 - `pubtator_ner` · `citation_fetch`
+- `context_validation` (function events via `stage_id`; compact stage event is
+  still schema-only unless a capture call is added)
 - `abstract_pass` · `fulltext_pass_greedy` · `fulltext_pass_recall`
 - `deterministic_scan` · `figure_analysis` · `pubtator_merge` · `candidate_meta`
 - `grounding_check` · `hgnc_validation` · `low_confidence_gate` · `corroboration_gate`
@@ -123,7 +131,7 @@ Already emitting trace events:
 
 Not yet instrumented (nodes display schema only, no trace data):
 
-- `abstract_screening` (forensic, pass-through) · `context_validation`
+- `abstract_screening` (forensic, pass-through)
 - `ncbi_enrichment` · `topn_policy` · `dedup` · `column_reorder` · `output_writer`
 
 Add more by calling `pipeline_tracer.capture(node_id, pmid=pmid, inputs=..., outputs=...)`

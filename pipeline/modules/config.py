@@ -22,17 +22,6 @@ PUBMED_RELEVANT_COUNT = int(os.getenv("PUBMED_RELEVANT_COUNT", "200"))
 # Open-access full text filter: restricts PubMed results to papers with free full text
 ENABLE_OA_FILTER = os.getenv("ENABLE_OA_FILTER", "true").lower() == "true"
 
-# F2: defence-in-depth backup gate for the specific-PMIDs / author-search entry paths.
-# When True, PMIDs without a PMC record (paywalled) are kept in the run even though
-# full text is unavailable — abstract-only analyses become possible. When False
-# (default), the orchestrator filters mandatory_pmids down to OA papers before the
-# full-text fetch stage, mirroring the UI's SmartInput gate for CLI/scripted users.
-# Does not affect query-mode runs (already filtered via PubMed's `loattrfull text[sb]`
-# subset filter).
-ALLOW_PAYWALLED_SPECIFIC_PMIDS = (
-    os.getenv("ALLOW_PAYWALLED_SPECIFIC_PMIDS", "false").lower() == "true"
-)
-
 # FIX #1: Publication Type Filtering (Est. 40% waste reduction)
 ENABLE_PUBLICATION_TYPE_FILTER = os.getenv("ENABLE_PUBLICATION_TYPE_FILTER", "true").lower() == "true"
 EXCLUDED_PUBLICATION_TYPES = [

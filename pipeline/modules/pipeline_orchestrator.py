@@ -14,6 +14,12 @@ from tqdm import tqdm
 
 from . import config, full_text_fetcher, pipeline_tracer, pubmed_data_collector
 from .abstract_screener import has_genetic_content
+from .association_policy import (
+    ASSOCIATION_GROUP_ORDER,
+    association_group_for_type,
+    count_association_groups,
+)
+from .content_preparation import PreparedPaperContent
 from .pubtator_tool import HybridExtractionResult, NCBIGeneTool, PubTatorTool
 from .stage5.pipeline import Stage5Pipeline
 
@@ -139,7 +145,17 @@ logging.basicConfig(
 )
 
 
-def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, abstract_text=None, table_inputs=None, pmid=None):
+def _run_pipeline_worker(
+    text,
+    cols,
+    pubtator_genes=None,
+    figure_inputs=None,
+    abstract_text=None,
+    table_inputs=None,
+    pmid=None,
+    prepared_content=None,
+    pipeline_factory=Stage5Pipeline,
+):
     """Top-level worker function for multiprocessing pool (must be picklable).
 
     Returns the result dict directly; mp.Pool.apply_async transmits it back to
@@ -154,6 +170,7 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
         table_inputs: Optional list of structured table dicts for table-cell citation validation
         pmid: Optional PMID — used only by the pipeline tracer to decide whether
               to record detailed per-stage events for this paper.
+        prepared_content: Optional PreparedPaperContent with normalized text/table indexes.
     """
     # Install the function-level tracer INSIDE the worker process too.
     # Without this, the live-stream function trace goes silent for the whole
@@ -162,37 +179,47 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
     # processes that don't inherit the parent's sys.setprofile hook.
     # install_function_tracer is idempotent and no-op when env vars are unset,
     # so this is free in untraced runs.
+    trace_this_paper = pipeline_tracer.matches(pmid)
     try:
-        pipeline_tracer.install_function_tracer()
+        if trace_this_paper:
+            pipeline_tracer.install_function_tracer()
     except Exception:
         pass
 
     try:
-        inst = Stage5Pipeline(
-            text,
-            abstract_text=abstract_text or "",
-            pubtator_genes=pubtator_genes,
-            figure_inputs=figure_inputs,
-            table_inputs=table_inputs,
-            pmid=pmid,
-        )
-        df = inst.run_pipeline(cols)
-        df = _ensure_unique_columns(df)
-        # Flush any tracer events this worker recorded before returning.
-        try:
-            pipeline_tracer.flush_worker_partial()
-        except Exception:
-            pass
-        return {
-            "records": df.to_dict(orient="records"),
-            "debug": inst._collect_debug_artifact(),
-            "gemini_api_calls": inst._paper_api_calls,
-        }
+        with pipeline_tracer.paper(pmid if trace_this_paper else None):
+            inst = pipeline_factory(
+                text,
+                abstract_text=abstract_text or "",
+                pubtator_genes=pubtator_genes,
+                figure_inputs=figure_inputs,
+                table_inputs=table_inputs,
+                pmid=pmid,
+                prepared_content=prepared_content,
+            )
+            df = inst.run_pipeline(cols)
+            df = _ensure_unique_columns(df)
+            return {
+                "records": df.to_dict(orient="records"),
+                "debug": inst._collect_debug_artifact(),
+                "gemini_api_calls": inst._paper_api_calls,
+            }
     except Exception as e:
         import traceback
 
         logging.error(f"Pipeline worker error: {e}\n{traceback.format_exc()}")
         return {"error": str(e)}
+    finally:
+        # Flush any tracer events this worker recorded before returning, even
+        # when Stage 5 raised after emitting partial trace events.
+        try:
+            pipeline_tracer.flush_worker_partial()
+        except Exception:
+            pass
+        try:
+            pipeline_tracer.uninstall_function_tracer()
+        except Exception:
+            pass
 
 
 def _create_unique_filepath(filename_base, extension):
@@ -260,6 +287,17 @@ def _write_excel_output(
     wb = Workbook()
     _fill_sheet(wb.active, df_clean, "Results", apply_conf_color=True)
     _fill_sheet(wb.create_sheet("Metadata"), df_meta, "Metadata", apply_conf_color=False)
+    if "Association Group" in df_clean.columns:
+        for group, group_df in df_clean.groupby("Association Group", dropna=False, sort=False):
+            group_name = str(group or "Unclassified")
+            safe_title = "".join(ch for ch in group_name if ch not in r'[]:*?/\\')[:31]
+            if safe_title and safe_title not in wb.sheetnames:
+                _fill_sheet(
+                    wb.create_sheet(safe_title),
+                    group_df,
+                    safe_title,
+                    apply_conf_color=True,
+                )
     wb.save(excel_path)
 
 
@@ -317,6 +355,20 @@ def _write_split_output(
     df = df.copy()
     df["Confidence"] = [r[0] for r in confidence_rows]
     df["Confidence Note"] = [r[1] for r in confidence_rows]
+    if "Association Type" in df.columns and "Association Group" not in df.columns:
+        df["Association Group"] = df["Association Type"].apply(association_group_for_type)
+    if "Association Group" in df.columns:
+        df["_association_group_order"] = df["Association Group"].map(
+            lambda group: ASSOCIATION_GROUP_ORDER.get(str(group or ""), 99)
+        )
+        sort_cols = [
+            col
+            for col in ["_association_group_order", "Confidence", "PMID", "Gene/Group"]
+            if col in df.columns
+        ]
+        df = df.sort_values(by=sort_cols, kind="stable").drop(
+            columns=["_association_group_order"]
+        )
 
     # --- Primary CSV (clean researcher-facing) ---
     rename_map = {
@@ -333,7 +385,7 @@ def _write_split_output(
         ["Gene", "Variant"]
         + [c for c in user_cols if c in df_clean.columns]
         + [
-            "Confidence", "Confidence Note",
+            "Confidence", "Confidence Note", "Association Group", "Association Type",
             # F11: extraction_mode (llm / skeleton) and evidence_backfilled
             # visible in the primary CSV so researchers can see fallback
             # rows at a glance instead of having to consult the metadata CSV.
@@ -367,6 +419,72 @@ def _write_split_output(
     return str(output_path), str(meta_path), str(excel_path), str(json_path)
 
 
+def _candidate_audit_rows_by_pmid(df: "pd.DataFrame") -> dict:
+    """Summarize emitted final rows for candidate-audit final counts."""
+    if df is None or df.empty:
+        return {}
+
+    work = _ensure_unique_columns(df.copy())
+    if "Association Type" in work.columns and "Association Group" not in work.columns:
+        work["Association Group"] = work["Association Type"].apply(association_group_for_type)
+
+    pmid_col = "PMID" if "PMID" in work.columns else None
+    gene_col = "Gene/Group" if "Gene/Group" in work.columns else ("Gene" if "Gene" in work.columns else None)
+    variant_col = (
+        "Variant Name"
+        if "Variant Name" in work.columns
+        else ("Variant" if "Variant" in work.columns else None)
+    )
+    if not pmid_col or not gene_col:
+        return {}
+
+    rows_by_pmid = {}
+    for pmid, group_df in work.groupby(pmid_col, dropna=False, sort=False):
+        associations = []
+        for _, row in group_df.iterrows():
+            gene = str(row.get(gene_col) or "")
+            if not gene.strip():
+                continue
+            association_type = str(row.get("Association Type") or "")
+            association_group = str(row.get("Association Group") or "")
+            if not association_group:
+                association_group = association_group_for_type(association_type)
+            associations.append(
+                {
+                    "gene": gene,
+                    "variant": str(row.get(variant_col) or "") if variant_col else "",
+                    "association_type": association_type,
+                    "association_group": association_group,
+                }
+            )
+        rows_by_pmid[str(pmid)] = {
+            "final_associations": associations,
+            "emitted_rows": int(len(group_df)),
+            "final_association_group_counts": count_association_groups(associations),
+        }
+    return rows_by_pmid
+
+
+def _candidate_audit_summary(papers: list[dict]) -> dict:
+    """Build run-level audit counts from emitted final rows."""
+    final_group_counts = count_association_groups(
+        association
+        for paper in papers
+        for association in (paper.get("final_associations") or [])
+    )
+    candidate_group_counts = count_association_groups(
+        candidate for paper in papers for candidate in (paper.get("candidates") or [])
+    )
+    return {
+        "papers": len(papers),
+        "total_candidates": sum(int(p.get("candidate_count") or 0) for p in papers),
+        "total_emitted_rows": sum(int(p.get("emitted_rows") or 0) for p in papers),
+        "association_group_counts": final_group_counts,
+        "final_association_group_counts": final_group_counts,
+        "candidate_association_group_counts": candidate_group_counts,
+    }
+
+
 def _sanitize_user_columns(user_columns: dict) -> dict:
     """Rename user-provided columns that collide with reserved/core names.
 
@@ -396,6 +514,8 @@ def _sanitize_user_columns(user_columns: dict) -> dict:
         "Journal",
         "Confidence",
         "Confidence Note",
+        "Association Group",
+        "Association Type",
         # Internal identifiers occasionally surfaced
         "gene_name",
         "variant_name",
@@ -489,6 +609,11 @@ def _prepare_paper_inputs(pmid, content_dict, paper_details, pubtator_results):
         "paper_text": paper_text,
         "figure_inputs": figure_inputs,
         "table_inputs": table_inputs,
+        "prepared_content": PreparedPaperContent.from_raw(
+            paper_text=paper_text,
+            abstract_text=abstract,
+            table_inputs=table_inputs,
+        ),
         "base_info": base_info,
         "abstract": abstract,
         "title": title,
@@ -511,7 +636,7 @@ def _aggregate_strict_gate_drops(
     refreshed from the list length.
 
     Extracted from ``_finalize_paper_result`` to enable direct unit testing
-    without building the full worker-payload/pandas mock stack.
+    without building the full worker payload and pandas stack.
     """
     paper_drops = worker_debug.get("strict_gate_drops", []) or []
     for drop in paper_drops:
@@ -522,6 +647,75 @@ def _aggregate_strict_gate_drops(
         pipeline_stats.get("strict_gate_drops", [])
     )
     return paper_drops
+
+
+def _gene_key(gene):
+    return str(gene or "").strip().upper()
+
+
+def _apply_pubtator_row_enrichment(paper_df, pmid, pubtator_results):
+    """Attach PubTator source and NCBI IDs with per-paper lookup caches."""
+    if paper_df.empty or pmid not in pubtator_results or "Gene/Group" not in paper_df.columns:
+        return paper_df
+
+    hybrid_result = pubtator_results[pmid]
+    pt_by_symbol = {
+        _gene_key(g.symbol): g
+        for g in hybrid_result.pubtator_genes
+        if _gene_key(g.symbol)
+    }
+    llm_symbols = {
+        _gene_key(g)
+        for g in paper_df["Gene/Group"].dropna().unique().tolist()
+        if _gene_key(g)
+    }
+    hybrid_result.llm_genes = sorted(llm_symbols)
+
+    source_by_symbol = {}
+    ncbi_id_by_symbol = {}
+    for symbol in llm_symbols:
+        source_by_symbol[symbol] = "both" if symbol in pt_by_symbol else "llm"
+        ncbi_id_by_symbol[symbol] = getattr(pt_by_symbol.get(symbol), "ncbi_gene_id", "") or ""
+
+    paper_df["Gene Source"] = paper_df["Gene/Group"].map(
+        lambda gene: source_by_symbol.get(_gene_key(gene), "")
+    )
+    paper_df["NCBI Gene ID"] = paper_df["Gene/Group"].map(
+        lambda gene: ncbi_id_by_symbol.get(_gene_key(gene), "")
+    )
+    return paper_df
+
+
+def _apply_ncbi_metadata_columns(all_results_df, gene_metadata):
+    """Attach NCBI enrichment columns using a single uppercase-keyed lookup."""
+    if all_results_df.empty or "Gene/Group" not in all_results_df.columns:
+        return all_results_df
+
+    metadata_by_symbol = {
+        _gene_key(symbol): value
+        for symbol, value in (gene_metadata or {}).items()
+        if _gene_key(symbol)
+    }
+
+    all_results_df["Gene Full Name"] = all_results_df["Gene/Group"].map(
+        lambda gene: getattr(metadata_by_symbol.get(_gene_key(gene)), "full_name", "") or ""
+    )
+    all_results_df["Gene Aliases"] = all_results_df["Gene/Group"].map(
+        lambda gene: ", ".join((getattr(metadata_by_symbol.get(_gene_key(gene)), "aliases", None) or [])[:3])
+    )
+    all_results_df["Chromosome"] = all_results_df["Gene/Group"].map(
+        lambda gene: getattr(metadata_by_symbol.get(_gene_key(gene)), "chromosome", "") or ""
+    )
+
+    if "NCBI Gene ID" not in all_results_df.columns:
+        all_results_df["NCBI Gene ID"] = ""
+    missing_mask = (
+        all_results_df["NCBI Gene ID"].fillna("").astype(str).str.strip() == ""
+    )
+    all_results_df.loc[missing_mask, "NCBI Gene ID"] = all_results_df.loc[
+        missing_mask, "Gene/Group"
+    ].map(lambda gene: getattr(metadata_by_symbol.get(_gene_key(gene)), "gene_id", "") or "")
+    return all_results_df
 
 
 def _finalize_paper_result(
@@ -579,37 +773,7 @@ def _finalize_paper_result(
         getattr(config, "ENABLE_FIGURE_ANALYSIS", True)
     )
 
-    if not paper_df.empty and pmid in pubtator_results:
-        hybrid_result = pubtator_results[pmid]
-        pt_symbols = {g.symbol.upper() for g in hybrid_result.pubtator_genes}
-
-        if "Gene/Group" in paper_df.columns:
-            llm_genes = paper_df["Gene/Group"].dropna().unique().tolist()
-            hybrid_result.llm_genes = [g for g in llm_genes if g]
-
-        def get_gene_source(gene):
-            if not gene:
-                return ""
-            gene_upper = str(gene).upper()
-            in_pubtator = gene_upper in pt_symbols
-            in_llm = gene_upper in {str(g).upper() for g in hybrid_result.llm_genes}
-            if in_pubtator and in_llm:
-                return "both"
-            if in_pubtator:
-                return "pubtator"
-            return "llm"
-
-        def get_ncbi_id(gene):
-            if not gene:
-                return ""
-            gene_upper = str(gene).upper()
-            for g in hybrid_result.pubtator_genes:
-                if g.symbol.upper() == gene_upper and g.ncbi_gene_id:
-                    return g.ncbi_gene_id
-            return ""
-
-        paper_df["Gene Source"] = paper_df["Gene/Group"].apply(get_gene_source)
-        paper_df["NCBI Gene ID"] = paper_df["Gene/Group"].apply(get_ncbi_id)
+    paper_df = _apply_pubtator_row_enrichment(paper_df, pmid, pubtator_results)
 
     if "Abstract" in paper_df.columns:
         paper_df["Abstract"] = base_info.get("abstract", "No abstract available")
@@ -759,6 +923,8 @@ def run_complete_pipeline(
             "Candidate Source": "",
             "Normalization Applied": "",
             "Validation Outcome": "",
+            "Association Type": "",
+            "Association Group": "Review Needed",
             "Dropped By Gate": "",
             "PMID": pmid,
             "DOI": base_info.get("doi", ""),
@@ -818,6 +984,62 @@ def run_complete_pipeline(
             logging.warning(f"Failed to write drop-debug artifact: {e}")
             return ""
 
+    def write_candidate_audit_artifact(output_csv_path: str = ""):
+        """
+        Persist candidate lifecycle as a stable first-class artifact.
+
+        This is a cleaner consumer-facing subset of drop_debug: one paper record
+        per PMID with candidate provenance, gate drops, and final associations.
+        """
+        emitted_by_pmid = _candidate_audit_rows_by_pmid(all_results_df)
+        papers = []
+        for paper in paper_debug_artifacts:
+            emitted_summary = emitted_by_pmid.get(str(paper.get("pmid", "")), {})
+            candidates = paper.get("candidates", []) or []
+            final_associations = (
+                emitted_summary.get("final_associations")
+                if emitted_summary
+                else paper.get("final_associations", []) or []
+            )
+            papers.append(
+                {
+                    "pmid": paper.get("pmid", ""),
+                    "status": paper.get("status", ""),
+                    "reason": paper.get("reason", ""),
+                    "candidate_count": paper.get("candidate_count"),
+                    "candidates": candidates,
+                    "validation_drops": paper.get("validation_drops", []),
+                    "strict_gate_drops": paper.get("strict_gate_drops", []),
+                    "evidence_gate_drops": paper.get("evidence_gate_drops", []),
+                    "final_associations": final_associations,
+                    "emitted_rows": emitted_summary.get(
+                        "emitted_rows", paper.get("emitted_rows", 0)
+                    ),
+                    "association_group_counts": count_association_groups(candidates),
+                    "final_association_group_counts": emitted_summary.get(
+                        "final_association_group_counts",
+                        count_association_groups(final_associations),
+                    ),
+                }
+            )
+        payload = {
+            "schema_version": "candidate_audit_v1",
+            "status": "completed",
+            "generated_at_epoch": time.time(),
+            "output_csv_path": output_csv_path or "",
+            "summary": _candidate_audit_summary(papers),
+            "papers": papers,
+        }
+        audit_path = _create_unique_filepath("candidate_audit", "json")
+        try:
+            with open(audit_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+            emit_log("info", "Saved candidate audit artifact", audit_path)
+            return audit_path
+        except Exception as e:
+            logging.warning(f"Failed to write candidate audit artifact: {e}")
+            return ""
+
     report_progress("Initializing pipeline", 0)
     emit_log("info", "Initializing pipeline")
 
@@ -825,10 +1047,9 @@ def run_complete_pipeline(
     if pipeline_tracer.is_enabled():
         pipeline_tracer.set_output_dir(os.path.join(config.OUTPUT_DIR, ".trace_partials"))
         emit_log("info", f"Pipeline tracing enabled for PMID {pipeline_tracer.target_pmid()}")
-        # Function-level tracing runs only in the orchestrator process (not in workers,
-        # where sys.setprofile conflicts with multiprocessing.Pool internals). This still
-        # captures all fetching, PubTator, dedup, and output code — the per-paper worker
-        # work is mostly network I/O inside Gemini.
+        # Function-level tracing is installed here and inside each worker. Stage
+        # contexts add stage_id to call/return events so the viewer can group
+        # noisy function streams by semantic pipeline stage.
         if pipeline_tracer.function_tracer_enabled():
             pipeline_tracer.install_function_tracer()
             emit_log("info", "Function-level tracing active (orchestrator process)")
@@ -857,13 +1078,13 @@ def run_complete_pipeline(
     mandatory_pmids |= author_pmids  # Union all author-derived PMIDs as mandatory
 
     # ── F2: OA backup gate for specific-PMIDs / author-search paths ──
-    # The UI's SmartInput enforces this upstream (green "Full text" / amber
-    # "Abstract only" badge + default-off include-paywalled toggle). This gate
-    # is defence-in-depth for CLI users and scripted invocations that bypass the
-    # UI. Query-mode papers already pass through PubMed's `loattrfull text[sb]`
+    # ResearchShop is OA-only. The UI's SmartInput enforces this upstream
+    # (green "Full text" / amber "No OA full text" badge). This gate is
+    # defence-in-depth for CLI users and scripted invocations that bypass the UI.
+    # Query-mode papers already pass through PubMed's `loattrfull text[sb]`
     # filter — they're unaffected here.
     papers_excluded_not_oa = 0
-    if mandatory_pmids and not getattr(config, "ALLOW_PAYWALLED_SPECIFIC_PMIDS", False):
+    if mandatory_pmids:
         check_cancellation()
         # Single-PMID PMC lookup via the fetcher's existing helper (same call it
         # would make later anyway). Typical specific_pmids list is 1–20 PMIDs,
@@ -884,8 +1105,7 @@ def run_complete_pipeline(
                 "warn",
                 f"OA gate: excluded {len(paywalled)} paywalled PMID(s) from the run",
                 f"PMIDs: {', '.join(paywalled[:10])}"
-                + ("…" if len(paywalled) > 10 else "")
-                + " — set ALLOW_PAYWALLED_SPECIFIC_PMIDS=true to include them anyway",
+                + ("…" if len(paywalled) > 10 else ""),
             )
         mandatory_pmids = oa_mandatory
     pipeline_stats["papers_excluded_not_oa"] = papers_excluded_not_oa
@@ -930,7 +1150,8 @@ def run_complete_pipeline(
         )
 
     fetch_start = time.time()
-    paper_details = pubmed_data_collector.fetch_paper_details(list(initial_pmids))
+    with pipeline_tracer.stage("pubmed_metadata"):
+        paper_details = pubmed_data_collector.fetch_paper_details(list(initial_pmids))
     fetch_duration_ms = (time.time() - fetch_start) * 1000.0
     # ── Tracer: record PubMed metadata fetch for the target PMID
     if pipeline_tracer.is_enabled():
@@ -966,7 +1187,8 @@ def run_complete_pipeline(
     pmids_to_fetch = list(paper_details.keys())
     content_dict_path = _create_unique_filepath("content_dict", "pkl.gz")
     fetch_start = time.time()
-    full_text_fetcher.run_fetching(pmids_to_fetch, content_dict_path)
+    with pipeline_tracer.stage("full_text_fetch"):
+        full_text_fetcher.run_fetching(pmids_to_fetch, content_dict_path)
     fetch_duration_ms = (time.time() - fetch_start) * 1000.0
 
     report_progress("Processing fetched content", 45)
@@ -1062,7 +1284,8 @@ def run_complete_pipeline(
         try:
             pubtator_tool = PubTatorTool()
             pt_start = time.time()
-            batch_results = pubtator_tool.extract_from_pmids(scraped_pmids)
+            with pipeline_tracer.stage("pubtator_ner"):
+                batch_results = pubtator_tool.extract_from_pmids(scraped_pmids)
             pt_duration_ms = (time.time() - pt_start) * 1000.0
 
             for pmid, (genes, variants) in batch_results.items():
@@ -1153,7 +1376,8 @@ def run_complete_pipeline(
     logging.info("STEP 4: Fetching citations for scraped PMIDs and selecting top papers...")
     check_cancellation()
     cite_start = time.time()
-    citation_records = pubmed_data_collector.fetch_citation_counts_with_fallback(scraped_pmids)
+    with pipeline_tracer.stage("citation_fetch"):
+        citation_records = pubmed_data_collector.fetch_citation_counts_with_fallback(scraped_pmids)
     citations_dict = {pmid: rec.get("count", 0) for pmid, rec in citation_records.items()}
 
     # ── Tracer: citation fetch for target PMID
@@ -1354,6 +1578,7 @@ def run_complete_pipeline(
                             prepared["abstract"],
                             prepared["table_inputs"],
                             pmid,
+                            prepared["prepared_content"],
                         ),
                     )
                     in_flight[pmid] = {"idx": idx, "async_result": ar, "ctx": ctx}
@@ -1487,6 +1712,7 @@ def run_complete_pipeline(
                                 ctx["abstract"],
                                 ctx["table_inputs"],
                                 pmid,
+                                ctx["prepared_content"],
                             ),
                         )
                         in_flight[pmid] = {
@@ -1543,6 +1769,7 @@ def run_complete_pipeline(
                             prepared["abstract"],
                             prepared["table_inputs"],
                             pmid,
+                            prepared["prepared_content"],
                         ),
                     )
                     submitted_at = time.time()
@@ -1727,57 +1954,19 @@ def run_complete_pipeline(
 
             if genes_to_enrich:
                 ncbi_tool = NCBIGeneTool()
-                gene_metadata = ncbi_tool.enrich_gene_symbols(list(genes_to_enrich))
-
-                # Add enrichment columns
-                def get_full_name(gene):
-                    if not gene or str(gene).upper() not in {
-                        k.upper() for k in gene_metadata.keys()
-                    }:
-                        return ""
-                    for k, v in gene_metadata.items():
-                        if k.upper() == str(gene).upper():
-                            return v.full_name
-                    return ""
-
-                def get_aliases(gene):
-                    if not gene:
-                        return ""
-                    for k, v in gene_metadata.items():
-                        if k.upper() == str(gene).upper():
-                            return ", ".join(v.aliases[:3]) if v.aliases else ""
-                    return ""
-
-                def get_chromosome(gene):
-                    if not gene:
-                        return ""
-                    for k, v in gene_metadata.items():
-                        if k.upper() == str(gene).upper():
-                            return v.chromosome or ""
-                    return ""
-
-                def get_ncbi_gene_id(gene):
-                    if not gene:
-                        return ""
-                    for k, v in gene_metadata.items():
-                        if k.upper() == str(gene).upper():
-                            return v.gene_id or ""
-                    return ""
-
-                all_results_df["Gene Full Name"] = all_results_df["Gene/Group"].apply(get_full_name)
-                all_results_df["Gene Aliases"] = all_results_df["Gene/Group"].apply(get_aliases)
-                all_results_df["Chromosome"] = all_results_df["Gene/Group"].apply(get_chromosome)
-
-                # Backfill NCBI Gene ID for rows that don't already have one (e.g. LLM-only genes
-                # not found by PubTator). The enrichment API returns gene_id for every resolved symbol.
-                if "NCBI Gene ID" not in all_results_df.columns:
-                    all_results_df["NCBI Gene ID"] = ""
-                missing_mask = (
-                    all_results_df["NCBI Gene ID"].fillna("").astype(str).str.strip() == ""
-                )
-                all_results_df.loc[missing_mask, "NCBI Gene ID"] = all_results_df.loc[
-                    missing_mask, "Gene/Group"
-                ].apply(get_ncbi_gene_id)
+                symbol_gene_ids = {}
+                if "NCBI Gene ID" in all_results_df.columns and "Gene/Group" in all_results_df.columns:
+                    for _, row in all_results_df[["Gene/Group", "NCBI Gene ID"]].dropna(how="all").iterrows():
+                        symbol = str(row.get("Gene/Group") or "").strip()
+                        gene_id = str(row.get("NCBI Gene ID") or "").strip()
+                        if symbol and gene_id and ";" not in gene_id:
+                            symbol_gene_ids[symbol] = gene_id
+                with pipeline_tracer.stage("ncbi_enrichment"):
+                    gene_metadata = ncbi_tool.enrich_gene_symbols(
+                        list(genes_to_enrich),
+                        symbol_gene_ids=symbol_gene_ids,
+                    )
+                all_results_df = _apply_ncbi_metadata_columns(all_results_df, gene_metadata)
 
                 logging.info(
                     f"NCBI enrichment: Added metadata for {len(gene_metadata)}/{len(genes_to_enrich)} genes"
@@ -1842,6 +2031,8 @@ def run_complete_pipeline(
                 "Candidate Source",
                 "Normalization Applied",
                 "Validation Outcome",
+                "Association Type",
+                "Association Group",
                 "Dropped By Gate",
             ]
             # Identify user columns (including their citation pairs) that are not core or metadata
@@ -1916,6 +2107,8 @@ def run_complete_pipeline(
         "Candidate Source",
         "Normalization Applied",
         "Validation Outcome",
+        "Association Type",
+        "Association Group",
         "Dropped By Gate",
         "PMID",
         "DOI",
@@ -1988,12 +2181,27 @@ def run_complete_pipeline(
 
     # Step 6: Save final results — primary CSV + metadata CSV + Excel + JSON
     output_path = _create_unique_filepath("final_enriched_results", "csv")
-    primary_path, metadata_path, excel_path, json_path = _write_split_output(
-        df=all_results_df,
-        output_path=output_path,
-        user_cols=user_columns_raw,
-    )
-    debug_path = write_drop_debug_artifact(status="completed", output_csv_path=primary_path)
+    with pipeline_tracer.stage("output_writer"):
+        primary_path, metadata_path, excel_path, json_path = _write_split_output(
+            df=all_results_df,
+            output_path=output_path,
+            user_cols=user_columns_raw,
+        )
+        candidate_audit_path = write_candidate_audit_artifact(output_csv_path=primary_path)
+        debug_path = write_drop_debug_artifact(status="completed", output_csv_path=primary_path)
+        if pipeline_tracer.is_enabled():
+            pipeline_tracer.capture(
+                "output_writer",
+                inputs={"rows": int(len(all_results_df)), "columns": list(all_results_df.columns)},
+                outputs={
+                    "primary_path": primary_path,
+                    "metadata_path": metadata_path,
+                    "excel_path": excel_path,
+                    "json_path": json_path,
+                    "candidate_audit_path": candidate_audit_path,
+                    "debug_path": debug_path,
+                },
+            )
 
     total_genes = pipeline_stats.get("genes_extracted", 0)
     total_analyzed = analyzed_attempts
@@ -2033,6 +2241,7 @@ def run_complete_pipeline(
         "metadata_path": metadata_path,
         "excel_path": excel_path,
         "json_path": json_path,
+        "candidate_audit_path": candidate_audit_path,
         "debug_path": debug_path,
         # F10b: explicit alias consumed by the Results banner. Mirrors debug_path
         # so the frontend doesn't have to know that "debug" and "drop_debug" refer

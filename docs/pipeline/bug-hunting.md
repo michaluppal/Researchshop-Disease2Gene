@@ -489,7 +489,7 @@ Use this to measure precision/recall impact of a fix on a single known-good pape
 ### Manual verification
 For finding 1.6 (hardcoded citation threshold): run `benchmark_runner.py` with `CITATION_MATCH_RATIO_THRESHOLD` at 0.70, 0.80, 0.85, 0.90 and plot the precision/recall curve.
 
-For finding 2.2 (circuit breaker): mock HGNC to return 503, verify the pipeline doesn't stall.
+For finding 2.2 (circuit breaker): use a fixture-backed HGNC 503 response path and verify the pipeline does not stall.
 
 ---
 

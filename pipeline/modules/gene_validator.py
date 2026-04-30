@@ -669,7 +669,15 @@ def _normalize_citation_drift(text: str) -> str:
     return text
 
 
-def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str = "", gene_aliases: List[str] = None, tables: List[Dict[str, Any]] = None) -> Tuple[bool, float, str]:
+def _citation_exists_in_paper(
+    citation: str,
+    paper_text: str,
+    gene_symbol: str = "",
+    gene_aliases: List[str] = None,
+    tables: List[Dict[str, Any]] = None,
+    paper_text_pre_normalized: bool = False,
+    table_index: Any = None,
+) -> Tuple[bool, float, str]:
     """
     Check if citation text exists in the paper securely using dense matching, numerical consistency, and gene context.
     Returns (exists, matching_ratio, detailed_reason)
@@ -683,7 +691,8 @@ def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str =
     # Normalize Unicode slash variants and formatting-drift artefacts (F10a) before any matching.
     # Applied symmetrically on both sides so SequenceMatcher isn't fooled by typeset variants.
     citation = _normalize_citation_drift(_normalize_unicode_slashes(citation))
-    paper_text = _normalize_citation_drift(_normalize_unicode_slashes(paper_text))
+    if not paper_text_pre_normalized:
+        paper_text = _normalize_citation_drift(_normalize_unicode_slashes(paper_text))
 
     # Normalize texts
     citation_norm = ' '.join(citation.lower().split())
@@ -815,8 +824,14 @@ def _citation_exists_in_paper(citation: str, paper_text: str, gene_symbol: str =
         return True, best_ratio, "Match found and constraints verified"
 
     # Table-cell fallback: when prose matching fails and tables are available
-    if tables and gene_symbol:
-        table_result = validate_table_citation(citation, tables, gene_symbol, gene_aliases)
+    if (tables or table_index) and gene_symbol:
+        table_result = validate_table_citation(
+            citation,
+            tables or [],
+            gene_symbol,
+            gene_aliases,
+            table_index=table_index,
+        )
         if table_result and table_result.confidence_score >= 0.7:
             return True, table_result.confidence_score, f"table_match:{table_result.table_label}"
 
@@ -878,6 +893,7 @@ def validate_table_citation(
     tables: List[Dict[str, Any]],
     gene_symbol: str,
     gene_aliases: List[str] = None,
+    table_index: Any = None,
 ) -> Optional[TableCitationResult]:
     """Gene-anchored row matching for table-based citation verification.
 
@@ -892,8 +908,39 @@ def validate_table_citation(
     - Gene matches but some numbers missing -> confidence 0.7
     - Gene not found in any table -> return None
     """
-    if not citation_text or not tables or not gene_symbol:
+    if not citation_text or (not tables and table_index is None) or not gene_symbol:
         return None
+
+    if table_index is not None:
+        cit_numbers = list(table_index.numbers_for_citation(citation_text))
+        best_result: Optional[TableCitationResult] = None
+        for row in table_index.rows_for_gene(gene_symbol, gene_aliases):
+            row_numbers_set = set(row.numbers)
+            matched = [n for n in cit_numbers if n in row_numbers_set]
+            missing = [n for n in cit_numbers if n not in row_numbers_set]
+
+            if cit_numbers:
+                score = 1.0 if not missing else 0.7
+            else:
+                score = 0.7
+
+            result = TableCitationResult(
+                field_name="",
+                table_label=row.label,
+                matched_row_idx=row.row_index,
+                gene_found_in_row=True,
+                values_matched=matched,
+                values_missing=missing,
+                confidence_score=score,
+                validation_details=(
+                    f"gene in row {row.row_index} of {row.label}"
+                    + (f"; matched values: {matched}" if matched else "")
+                    + (f"; missing values: {missing}" if missing else "")
+                ),
+            )
+            if best_result is None or result.confidence_score > best_result.confidence_score:
+                best_result = result
+        return best_result
 
     cit_numbers = _extract_numbers(citation_text)
     best_result: Optional[TableCitationResult] = None

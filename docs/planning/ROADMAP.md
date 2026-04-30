@@ -16,8 +16,8 @@ Last updated: 2026-03-09
 - **P3** — Pre-submission work identified post-Elicit analysis (2026-03-09). Blocking or high priority.
 - **P4** — Polish. Low-effort items, do during other work.
 
-Remaining work order (P0-P2 complete):
-`P3-A (benchmark expansion) → P3-B (smoke test) → P3-C (limitations in paper) → P3-D (future work in paper) → P4 polish → submit`
+Remaining work order for SoftwareX submission (P0-P2 complete):
+`P3-B (smoke test) → P3-C (limitations in paper) → P3-D (future work in paper) → P4 polish → release build → submit`
 
 ---
 
@@ -52,9 +52,9 @@ At least one paper type F1 > 0.6 ✅ (3 types pass). Citation grounding ≥60% �
 **Why it's P0:** SoftwareX requires an open-source license. Without one, the submission is
 immediately rejected. Takes 5 minutes.
 
-**Goal:** Add MIT license to repo root and `local_pivot/`.
+**Goal:** Add MIT license to repo root.
 
-**Acceptance criteria:** `LICENSE` file present at repo root ✅. `local_pivot/LICENSE` present ✅.
+**Acceptance criteria:** `LICENSE` file present at repo root ✅.
 
 ---
 
@@ -105,8 +105,8 @@ tests would have caught before merging.
 a Gemini API key, NCBI email, or network access.
 
 **Execution:**
-1. Create `local_pivot/python/tests/` with `__init__.py` and `conftest.py`.
-2. Create `local_pivot/python/tests/fixtures/` with cached responses:
+1. Create `pipeline/tests/` with `__init__.py` and `conftest.py`.
+2. Create `pipeline/tests/fixtures/` with cached responses:
    - `pmc_efetch_34876594.xml` — raw PMC XML for one paper
    - `pubtator_34876594.json` — PubTator batch response for one PMID
    - `gemini_stage1_response.json` — cached Gemini gene discovery response
@@ -121,12 +121,12 @@ a Gemini API key, NCBI email, or network access.
      `results` and `abstract` keys; table text is extracted.
    - `test_pubtator.py` — batch response parse returns expected gene list.
    - `test_pipeline_orchestrator.py` — smoke test: orchestrator instantiates without error;
-     `run_complete_pipeline` with mocked workers returns a DataFrame.
+     fixture-backed output contracts produce a DataFrame.
 4. Add `[tool.pytest.ini_options]` to `pyproject.toml` pointing at `tests/`.
 5. Add `pytest python/tests/` to the verification recipe in `.codex/tasks/verify.md`.
 6. Add pytest run to GitHub Actions CI workflow.
 
-**Acceptance criteria:** `pytest local_pivot/python/tests/` passes with no env vars set.
+**Acceptance criteria:** `pytest pipeline/tests/` passes with no env vars set.
 All 5 test files exist. CI runs tests on push to main.
 
 ---
@@ -185,7 +185,7 @@ biomarker genes by X% on clinical papers while preserving Y% of molecular gene f
 **Why it's P1:** Open-source code quality signal. SoftwareX reviewers will clone the repo
 and inspect the code.
 
-**Acceptance criteria:** `pyproject.toml` present at `local_pivot/python/` ✅. Ruff, mypy, and
+**Acceptance criteria:** `pyproject.toml` present at `pipeline/` ✅. Ruff, mypy, and
 pytest configured ✅.
 
 ---
@@ -243,26 +243,27 @@ citation coverage with std. Output documented for at least one benchmark paper.
 
 ---
 
-### P2-C · README for local_pivot/ ✅ Done (2026-02-25)
+### P2-C · README ✅ Done (2026-02-25)
 
 **Why P2:** Required for open-source release and SoftwareX submission.
 
-**Acceptance criteria:** `local_pivot/README.md` present ✅. Covers all 10 required sections ✅.
+**Acceptance criteria:** root `README.md` present ✅. Covers installation, configuration, usage, limitations, reproducibility, citation, and license ✅.
 
 ---
 
 ## P3 — Pre-submission (new items from Elicit gap analysis, 2026-03-09)
 
-### P3-A · Expand benchmark to 20-30 papers 🔴 Blocking
+### P3-A · Expand benchmark to 20-30 papers ⏸ Deferred
 
-**Why it's P3-A (blocking):** Elicit benchmarked 58 systematic reviews for screening and ~128 gold
-standard answers for extraction. RS's 12-paper benchmark is statistically underpowered — SoftwareX
-reviewers will notice. Need 20-30 papers with external validation from a domain expert (Suski).
+**Status (2026-04-26):** Deferred by project decision. The immediate goal is SoftwareX publication
+as a software description and reproducibility paper, not a definitive extraction-accuracy benchmark.
+Historical benchmark artifacts remain in the repository for transparency, but benchmark expansion is
+not a pre-submission blocker.
 
 **Goal:** Add 8-18 papers to `gold_standard.json` covering rare disease, pharmacogenomics, RNA-seq,
 and multi-ethnic GWAS. Have Suski independently verify gold standard gene lists for ≥3 papers.
 
-**Acceptance criteria:** ≥20 papers in benchmark. ≥3 externally validated. Updated F1 numbers in paper.
+**Acceptance criteria if resumed:** ≥20 papers in benchmark. ≥3 externally validated. Updated F1 numbers in paper.
 
 ---
 
@@ -329,10 +330,10 @@ but should be mentioned as future work directions:
 | Citation encoding normalization | ✅ Fixed (C22) |
 | Electron desktop app (UI, IPC, Python bridge) | ✅ Working |
 | GitHub Actions build (macOS/Windows/Linux) | ✅ Working |
-| Benchmark dataset | ⚠️ 12 papers done — needs expansion to 20-30 (P3-A) |
+| Benchmark dataset | ⏸ 12-paper historical benchmark retained; expansion deferred for SoftwareX |
 | pytest test suite | ✅ Done (47 tests, all offline) |
 | LICENSE file | ✅ Done |
-| README | ✅ Done (local_pivot/README.md) |
+| README | ✅ Done (root `README.md`) |
 | pyproject.toml | ✅ Done |
 | Abstract screener calibration | ✅ Done (5/5 pass, 10/10 reject, threshold=5 confirmed) |
 | Disambiguation clause benchmark | ✅ Done (P1-D: 0/5 molecular FN, 1/5 clinical FP-free) |
@@ -340,6 +341,6 @@ but should be mentioned as future work directions:
 | Figure extraction benchmark | ✅ Done (P2-A: 166 figure-only genes across 3/4 papers; oncoprint 130×, COVID volcano 35×) |
 | Figure-on vs figure-off controlled F1 comparison | ✅ Done (A4 YELLOW #4, 2026-03-03: 36 runs, ΔF1=+0.833 on GBM) |
 | Elicit competitive analysis | ✅ Done (2026-03-09: 12 articles, `publication/elicit_research/`) |
-| Inter-rater reliability | ⬜ Pending (Suski — A3 RED #4) |
+| Inter-rater reliability | ⏸ Deferred with benchmark expansion |
 | Paper co-author sections | ⬜ Pending (Suski: bio methods; Gorski: AI methods + reproducibility) |
 | Windows EXE build | ⬜ Pending |

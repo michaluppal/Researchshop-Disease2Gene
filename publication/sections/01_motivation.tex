@@ -4,7 +4,7 @@
 
 \subsection{The Knowledge-Extraction Bottleneck}
 
-Genomic medicine faces a fundamental knowledge-extraction bottleneck: while sequencing data is abundant, the interpretation of genetic variants relies on evidence scattered across millions of publications. PubMed indexes over 39 million citations with approximately 1.5 million added annually~\cite{placeholder_pubmed_about_2025}. Manual curation processes---such as those underpinning ClinVar and OMIM---cannot keep pace, leading to significant delays in integrating new findings into clinical practice.
+Genomic medicine faces a fundamental knowledge-extraction bottleneck: while sequencing data is abundant, the interpretation of genetic variants relies on evidence scattered across millions of publications. PubMed indexes more than 40 million citations and abstracts in biomedical and life-science literature~\cite{pubmed_about_2026}. Manual curation processes---such as those underpinning ClinVar and OMIM---cannot keep pace, leading to significant delays in integrating new findings into clinical practice.
 
 This bottleneck has direct consequences. A significant proportion of variants identified through clinical sequencing are classified as Variants of Uncertain Significance (VUS) due to insufficient published evidence. Even when genetic associations are published, months to years may pass before this information reaches clinical databases. For rare diseases, relevant papers may be scattered across thousands of publications, making comprehensive review impractical without automation.
 
@@ -12,8 +12,8 @@ This bottleneck has direct consequences. A significant proportion of variants id
 
 Automated text-mining systems offer a solution but face two critical challenges:
 
-\paragraph{Full-text accessibility.} Up to 70\% of gene mentions appear exclusively in full-text sections such as Results and Methods, not in abstracts~\cite{placeholder_westergaard2018comprehensive}. This requires robust full-text acquisition strategies.
+\paragraph{Full-text accessibility.} Abstract-only mining misses information that appears in Results, Methods, tables, captions, and supplementary material. PubTator Central reported that concept taggers recovered 56--65\% of manual annotations from abstracts but 78--83\% from full text, an 18--22 percentage-point increase~\cite{wei2019pubtatorcentral}. This requires robust full-text acquisition strategies.
 
-\paragraph{LLM hallucinations.} Large Language Models show promise for information extraction but are prone to generating plausible yet factually incorrect associations~\cite{placeholder_farquhar2024detecting}. An LLM may generate valid-sounding gene symbols (e.g., ``BRCA3'') or extract real gene names from training data that do not appear in the source paper. For biomedical applications, such errors are unacceptable.
+\paragraph{LLM hallucinations.} Large Language Models show promise for information extraction but are prone to generating plausible yet factually incorrect associations~\cite{farquhar2024semanticentropy}. An LLM may generate valid-sounding gene symbols (e.g., ``BRCA3'') or extract real gene names from training data that do not appear in the source paper. For biomedical applications, such errors are unacceptable.
 
-Existing tools fall on a spectrum: dedicated NER systems like PubTator Central~\cite{placeholder_wei2019pubtator} offer high precision but limited recall and no contextual extraction; LLM-based approaches offer comprehensive extraction but lack validation safeguards. \textcolor{red}{\textbf{tool name}} bridges this gap by combining both approaches in a hybrid architecture with a multi-layer validation framework.
+Existing tools fall on a spectrum: dedicated NER systems like PubTator Central~\cite{wei2019pubtatorcentral} offer high precision but limited recall and no contextual extraction; LLM-based approaches offer comprehensive extraction but lack validation safeguards. ResearchShop Desktop bridges this gap by combining both approaches in a hybrid architecture with a multi-layer validation framework.

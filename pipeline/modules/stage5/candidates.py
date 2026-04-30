@@ -58,32 +58,109 @@ class CandidateMixin:
     def _as_sorted_strings(self, value: Any) -> List[str]:
         return sorted(self._as_string_set(value))
 
+    def _refresh_candidate_cache(self, key: Tuple[str, str]) -> None:
+        """Materialize candidate-derived values once for later Stage 5 gates."""
+        if not hasattr(self, "_candidate_terms_cache"):
+            self._candidate_terms_cache = {}
+        meta = self.candidate_meta.get(key)
+        if not meta:
+            return
+
+        sources = self._as_string_set(meta.get("sources"))
+        raw_labels = self._as_string_set(meta.get("raw_gene_labels"))
+        gene = str(meta.get("gene") or key[0]).strip()
+        variant = self._normalize_variant_value(meta.get("variant", key[1]))
+
+        meta["sources"] = sources
+        meta["raw_gene_labels"] = raw_labels
+        meta["sources_list"] = sorted(sources)
+        meta["raw_gene_labels_list"] = sorted(raw_labels)
+
+        terms: List[str] = []
+        if gene:
+            terms.append(gene)
+        terms.extend(sorted(raw_labels))
+        terms.extend(self._get_hgnc_aliases_for_gene(gene))
+
+        deduped: List[str] = []
+        seen: Set[str] = set()
+        for term in terms:
+            marker = str(term or "").strip().upper()
+            if not marker or marker in seen:
+                continue
+            seen.add(marker)
+            deduped.append(str(term).strip())
+
+        meta["candidate_terms"] = deduped
+        meta["association_type"] = self._infer_candidate_association_type(meta)
+        self._candidate_terms_cache[(gene.upper(), variant.upper())] = list(deduped)
+
+    def _refresh_all_candidate_caches(self) -> None:
+        for key in list(self.candidate_meta.keys()):
+            self._refresh_candidate_cache(key)
+
+    def _infer_candidate_association_type(self, meta: Dict[str, Any]) -> str:
+        """Coarse row intent used to separate genetics from pathway mentions."""
+        sources = self._as_string_set(meta.get("sources"))
+        variant = self._normalize_variant_value(meta.get("variant", ""))
+        context_reason = str(meta.get("deterministic_context_reason") or "")
+
+        if variant:
+            return "variant_association"
+        if "llm_figure" in sources:
+            return "figure_derived_gene"
+        if context_reason == "pathway_context":
+            return "mechanistic_pathway_gene"
+        if context_reason == "result_context":
+            return "mechanistic_or_biomarker_gene"
+        if "pubtator" in sources:
+            return "pubtator_supported_gene"
+        if sources == {"deterministic_lexicon"}:
+            return "deterministic_candidate"
+        if sources & {"llm_text", "llm_abstract"}:
+            return "llm_supported_gene"
+        return "candidate_gene"
+
     def _get_hgnc_aliases_for_gene(self, gene: str) -> List[str]:
         """
         Return HGNC alias_symbol + prev_symbol entries for the given canonical gene symbol.
         Used by alias-aware evidence backfill to find genes referenced by natural language names.
         """
+        gene_u = (gene or "").strip().upper()
+        if not hasattr(self, "_hgnc_alias_cache"):
+            self._hgnc_alias_cache = {}
+        if gene_u in self._hgnc_alias_cache:
+            return list(self._hgnc_alias_cache[gene_u])
+
         db = getattr(self.gene_validator, "_local_gene_db", None) or {}
         if not db:
             return []
-        gene_u = (gene or "").strip().upper()
+
         info = db.get(gene_u) or {}
         aliases = list(info.get("alias_symbol") or info.get("aliases") or [])
         prevs = list(info.get("prev_symbol") or info.get("prev_symbols") or [])
         all_terms = [str(a).strip() for a in aliases + prevs if str(a).strip()]
         # Cap at 15 to avoid exploding search with genes that have many aliases
-        return all_terms[:15]
+        cached = all_terms[:15]
+        self._hgnc_alias_cache[gene_u] = cached
+        return list(cached)
 
     def _candidate_terms_for_row(self, gene: str, variant: str) -> List[str]:
         """
         Build search terms for deterministic evidence backfill.
         """
+        key = self._assoc_key(gene, variant)
+        meta = self.candidate_meta.get(key)
+        if meta and meta.get("candidate_terms"):
+            return list(meta["candidate_terms"])
+        if key in getattr(self, "_candidate_terms_cache", {}):
+            return list(self._candidate_terms_cache[key])
+
         terms: List[str] = []
         if gene:
             terms.append(gene)
 
-        key = self._assoc_key(gene, variant)
-        meta = self.candidate_meta.get(key) or {}
+        meta = meta or {}
         raw_labels = meta.get("raw_gene_labels", set())
         if isinstance(raw_labels, set):
             iterable = raw_labels
@@ -112,6 +189,9 @@ class CandidateMixin:
                 continue
             seen.add(marker)
             deduped.append(term)
+        self._candidate_terms_cache[key] = list(deduped)
+        if meta:
+            meta["candidate_terms"] = list(deduped)
         return deduped
 
     def _normalize_gene_symbol(self, gene: str) -> Tuple[str, str]:
@@ -174,11 +254,13 @@ class CandidateMixin:
                     entry["normalization_applied"] = norm_note
 
             entry["sources"].add(source)
+            self._refresh_candidate_cache(key)
 
         self._refresh_associations_from_meta()
         return added
 
     def _refresh_associations_from_meta(self):
+        self._refresh_all_candidate_caches()
         self.associations = []
         for entry in self.candidate_meta.values():
             self.associations.append(

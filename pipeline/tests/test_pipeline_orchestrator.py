@@ -2,15 +2,33 @@
 Tests for pipeline_orchestrator
 
 Smoke test: imports succeed without errors.
-Unit test: _run_pipeline_worker returns expected structure when Stage5Pipeline is mocked.
+Unit tests use explicit local pipeline fixtures instead of runtime patching.
 
 These tests do NOT call the Gemini API or any external service.
 """
 
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+
+
+class DataFramePipelineFixture:
+    _paper_api_calls = 0
+
+    def __init__(self, *_args, dataframe=None, **_kwargs):
+        self.dataframe = dataframe if dataframe is not None else pd.DataFrame()
+
+    def run_pipeline(self, _cols):
+        return self.dataframe
+
+    def _collect_debug_artifact(self):
+        return {}
+
+
+class FailingPipelineFixture:
+    def __init__(self, *_args, **_kwargs):
+        raise RuntimeError("Fixture pipeline failure")
 
 
 def test_orchestrator_module_imports():
@@ -46,22 +64,21 @@ def test_sanitize_user_columns_empty_input():
 def test_run_pipeline_worker_returns_records_on_success(sample_paper_text):
     """
     _run_pipeline_worker should return {"records": [...], "debug": ...} when
-    Stage5Pipeline succeeds. The real Stage 5 extractor is mocked.
+    Stage 5 succeeds.
     """
-    mock_df = pd.DataFrame([
+    fixture_df = pd.DataFrame([
         {"Gene/Group": "BRCA1", "Variant Name": "p.Glu1915Ter", "PMID": "34876594"},
     ])
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.return_value.run_pipeline.return_value = mock_df
-    mock_pipeline.return_value._collect_debug_artifact.return_value = {}
+    def pipeline_factory(*args, **kwargs):
+        return DataFramePipelineFixture(*args, dataframe=fixture_df, **kwargs)
 
-    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
-        from modules.pipeline_orchestrator import _run_pipeline_worker
-        result = _run_pipeline_worker(
-            text=sample_paper_text,
-            cols={"Mechanism": "Describe the molecular mechanism"},
-        )
+    from modules.pipeline_orchestrator import _run_pipeline_worker
+    result = _run_pipeline_worker(
+        text=sample_paper_text,
+        cols={"Mechanism": "Describe the molecular mechanism"},
+        pipeline_factory=pipeline_factory,
+    )
 
     assert "records" in result, f"Expected 'records' key, got: {list(result.keys())}"
     assert isinstance(result["records"], list)
@@ -74,21 +91,20 @@ def test_run_pipeline_worker_deduplicates_columns_before_records(sample_paper_te
     Pandas raises when to_dict(orient="records") is called with duplicate
     columns. The worker should normalize columns before returning records.
     """
-    mock_df = pd.DataFrame(
+    fixture_df = pd.DataFrame(
         [["BRCA1", "duplicate", "34876594"]],
         columns=["Gene/Group", "Gene/Group", "PMID"],
     )
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.return_value.run_pipeline.return_value = mock_df
-    mock_pipeline.return_value._collect_debug_artifact.return_value = {}
+    def pipeline_factory(*args, **kwargs):
+        return DataFramePipelineFixture(*args, dataframe=fixture_df, **kwargs)
 
-    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
-        from modules.pipeline_orchestrator import _run_pipeline_worker
-        result = _run_pipeline_worker(
-            text=sample_paper_text,
-            cols={"Mechanism": "Describe the molecular mechanism"},
-        )
+    from modules.pipeline_orchestrator import _run_pipeline_worker
+    result = _run_pipeline_worker(
+        text=sample_paper_text,
+        cols={"Mechanism": "Describe the molecular mechanism"},
+        pipeline_factory=pipeline_factory,
+    )
 
     assert "records" in result
     assert result["records"][0]["Gene/Group"] == "BRCA1"
@@ -100,18 +116,15 @@ def test_run_pipeline_worker_returns_error_on_exception(sample_paper_text):
     _run_pipeline_worker should return {"error": "..."} rather than raising
     when Stage5Pipeline raises an exception.
     """
-    mock_pipeline = MagicMock()
-    mock_pipeline.side_effect = RuntimeError("Simulated Gemini failure")
-
-    with patch("modules.pipeline_orchestrator.Stage5Pipeline", mock_pipeline):
-        from modules.pipeline_orchestrator import _run_pipeline_worker
-        result = _run_pipeline_worker(
-            text=sample_paper_text,
-            cols={"Mechanism": "Describe the molecular mechanism"},
-        )
+    from modules.pipeline_orchestrator import _run_pipeline_worker
+    result = _run_pipeline_worker(
+        text=sample_paper_text,
+        cols={"Mechanism": "Describe the molecular mechanism"},
+        pipeline_factory=FailingPipelineFixture,
+    )
 
     assert "error" in result, f"Expected 'error' key on failure, got: {list(result.keys())}"
-    assert "Simulated Gemini failure" in result["error"]
+    assert "Fixture pipeline failure" in result["error"]
 
 
 def test_write_split_output_deduplicates_columns_before_json(tmp_path):
@@ -160,6 +173,124 @@ def test_write_split_output_deduplicates_columns_before_json(tmp_path):
     assert excel_path.endswith("results.xlsx")
 
 
+def test_write_split_output_adds_and_sorts_association_groups(tmp_path):
+    from modules.pipeline_orchestrator import _write_split_output
+
+    df = pd.DataFrame(
+        [
+            {
+                "Gene/Group": "MAPK1",
+                "Variant Name": "",
+                "PMID": "2",
+                "Association Type": "mechanistic_pathway_gene",
+                "Key Finding": "MAPK1 pathway signal.",
+                "validation_confidence": 0.9,
+            },
+            {
+                "Gene/Group": "CASP3",
+                "Variant Name": "",
+                "PMID": "3",
+                "Association Type": "animal_model_gene",
+                "Key Finding": "CASP3 knockout mouse model signal.",
+                "validation_confidence": 0.9,
+            },
+            {
+                "Gene/Group": "BRCA1",
+                "Variant Name": "p.Glu1915Ter",
+                "PMID": "1",
+                "Association Type": "variant_association",
+                "Key Finding": "BRCA1 susceptibility variant.",
+                "validation_confidence": 0.9,
+            },
+        ]
+    )
+
+    primary_path, _, _, _ = _write_split_output(
+        df=df,
+        output_path=tmp_path / "grouped.csv",
+        user_cols=["Key Finding"],
+    )
+
+    out = pd.read_csv(primary_path)
+    assert "Association Group" in out.columns
+    assert out.loc[0, "Gene"] == "BRCA1"
+    assert out.loc[0, "Association Group"] == "Primary Genetic Association"
+    assert out.loc[1, "Association Group"] == "Mechanistic/Pathway Signal"
+    assert out.loc[2, "Association Group"] == "Animal Model Signal"
+
+
+def test_candidate_audit_rows_by_pmid_uses_emitted_row_groups():
+    from modules.pipeline_orchestrator import _candidate_audit_rows_by_pmid
+
+    df = pd.DataFrame(
+        [
+            {
+                "PMID": "1",
+                "Gene/Group": "",
+                "Variant Name": "",
+                "Association Type": "",
+                "Association Group": "Review Needed",
+            },
+            {
+                "PMID": "1",
+                "Gene/Group": "CASP3",
+                "Variant Name": "",
+                "Association Type": "animal_model_gene",
+                "Association Group": "Animal Model Signal",
+            },
+            {
+                "PMID": "1",
+                "Gene/Group": "ITPKC",
+                "Variant Name": "",
+                "Association Type": "susceptibility_gene",
+                "Association Group": "Primary Genetic Association",
+            },
+        ]
+    )
+
+    summary = _candidate_audit_rows_by_pmid(df)
+
+    assert summary["1"]["emitted_rows"] == 3
+    assert len(summary["1"]["final_associations"]) == 2
+    assert summary["1"]["final_association_group_counts"] == {
+        "Animal Model Signal": 1,
+        "Primary Genetic Association": 1,
+    }
+
+
+def test_candidate_audit_summary_uses_final_row_groups():
+    from modules.pipeline_orchestrator import _candidate_audit_summary
+
+    summary = _candidate_audit_summary(
+        [
+            {
+                "candidate_count": 4,
+                "emitted_rows": 2,
+                "candidates": [
+                    {"association_group": "Other Candidate Signal"},
+                    {"association_group": "Review Needed"},
+                ],
+                "final_associations": [
+                    {"association_group": "Primary Genetic Association"},
+                    {"association_group": "Animal Model Signal"},
+                ],
+            }
+        ]
+    )
+
+    assert summary["total_candidates"] == 4
+    assert summary["total_emitted_rows"] == 2
+    assert summary["association_group_counts"] == {
+        "Primary Genetic Association": 1,
+        "Animal Model Signal": 1,
+    }
+    assert summary["final_association_group_counts"] == summary["association_group_counts"]
+    assert summary["candidate_association_group_counts"] == {
+        "Other Candidate Signal": 1,
+        "Review Needed": 1,
+    }
+
+
 def test_finalize_result_marks_quota_limited_rows():
     """Quota-limited skeleton rows should be counted and logged as incomplete."""
     from modules.pipeline_orchestrator import _finalize_paper_result
@@ -206,6 +337,55 @@ def test_finalize_result_marks_quota_limited_rows():
     assert stats["quota_limited_papers"] == 1
     assert stats["quota_limited_rows"] == 1
     assert any(level == "warn" and "quota" in msg for level, msg, _ in logs)
+
+
+def test_pubtator_row_enrichment_uses_per_paper_symbol_lookup():
+    from modules.pipeline_orchestrator import _apply_pubtator_row_enrichment
+
+    df = pd.DataFrame({"Gene/Group": ["BRCA1", "TP53", "brca1"]})
+    hybrid = SimpleNamespace(
+        pubtator_genes=[
+            SimpleNamespace(symbol="BRCA1", ncbi_gene_id="672"),
+            SimpleNamespace(symbol="TP53", ncbi_gene_id="7157"),
+        ],
+        llm_genes=[],
+    )
+
+    enriched = _apply_pubtator_row_enrichment(df, "123", {"123": hybrid})
+
+    assert enriched["Gene Source"].tolist() == ["both", "both", "both"]
+    assert enriched["NCBI Gene ID"].tolist() == ["672", "7157", "672"]
+    assert hybrid.llm_genes == ["BRCA1", "TP53"]
+
+
+def test_ncbi_metadata_columns_fill_missing_ids_once():
+    from modules.pipeline_orchestrator import _apply_ncbi_metadata_columns
+
+    df = pd.DataFrame({
+        "Gene/Group": ["BRCA1", "TP53"],
+        "NCBI Gene ID": ["", "existing"],
+    })
+    metadata = {
+        "brca1": SimpleNamespace(
+            full_name="BRCA1 DNA repair associated",
+            aliases=["RNF53", "FANCS", "BRCC1", "extra"],
+            chromosome="17",
+            gene_id="672",
+        ),
+        "TP53": SimpleNamespace(
+            full_name="tumor protein p53",
+            aliases=[],
+            chromosome="17",
+            gene_id="7157",
+        ),
+    }
+
+    enriched = _apply_ncbi_metadata_columns(df, metadata)
+
+    assert enriched.loc[0, "Gene Full Name"] == "BRCA1 DNA repair associated"
+    assert enriched.loc[0, "Gene Aliases"] == "RNF53, FANCS, BRCC1"
+    assert enriched.loc[0, "NCBI Gene ID"] == "672"
+    assert enriched.loc[1, "NCBI Gene ID"] == "existing"
 
 
 # ---------------------------------------------------------------------------

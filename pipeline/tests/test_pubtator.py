@@ -7,7 +7,7 @@ The fixture dict matches the PubTator3 API BioC JSON response format.
 
 import pytest
 
-from modules.pubtator_tool import PubTatorGene, PubTatorTool, PubTatorVariant
+from modules.pubtator_tool import NCBIGeneTool, PubTatorGene, PubTatorTool, PubTatorVariant
 
 
 @pytest.fixture(scope="module")
@@ -64,3 +64,128 @@ class TestPubTatorDocumentParsing:
             assert isinstance(g, PubTatorGene)
         for v in variants:
             assert isinstance(v, PubTatorVariant)
+
+
+class ResponseFixture:
+    def __init__(self, payload, status_code=200, headers=None):
+        self._payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+
+            raise requests.HTTPError(f"{self.status_code} error")
+
+
+class SessionFixture:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+        self.headers = {}
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append((url, dict(params or {}), timeout))
+        if not self.responses:
+            raise AssertionError("Unexpected extra NCBI request")
+        return self.responses.pop(0)
+
+
+def _esearch_payload(gene_id="672"):
+    return {"esearchresult": {"idlist": [gene_id]}}
+
+
+def _esummary_payload(gene_id="672", symbol="BRCA1"):
+    return {
+        "result": {
+            gene_id: {
+                "name": symbol,
+                "description": f"{symbol} full name",
+                "otheraliases": "Alias1, Alias2",
+                "chromosome": "17",
+                "maplocation": "17q21",
+                "genetictype": "protein-coding",
+                "organism": {"scientificname": "Homo sapiens"},
+            }
+        }
+    }
+
+
+class TestNCBIGeneTool:
+    def test_symbol_cache_avoids_duplicate_requests(self, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        tool = NCBIGeneTool()
+        tool._session = SessionFixture([
+            ResponseFixture(_esearch_payload()),
+            ResponseFixture(_esummary_payload()),
+        ])
+
+        first = tool.get_gene_by_symbol("BRCA1")
+        second = tool.get_gene_by_symbol("BRCA1")
+
+        assert first is second
+        assert len(tool._session.calls) == 2
+
+    def test_uses_gene_id_before_symbol_search(self, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        tool = NCBIGeneTool()
+        tool._session = SessionFixture([
+            ResponseFixture(_esummary_payload(gene_id="7157", symbol="TP53")),
+        ])
+
+        enriched = tool.enrich_gene_symbols(["TP53"], symbol_gene_ids={"TP53": "7157"})
+
+        assert enriched["TP53"].gene_id == "7157"
+        assert "esummary.fcgi" in tool._session.calls[0][0]
+        assert len(tool._session.calls) == 1
+
+    def test_invalid_gene_id_falls_back_to_symbol_search(self, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        tool = NCBIGeneTool()
+        tool._session = SessionFixture([
+            ResponseFixture({"result": {}}),
+            ResponseFixture(_esearch_payload(gene_id="7157")),
+            ResponseFixture(_esummary_payload(gene_id="7157", symbol="TP53")),
+        ])
+
+        enriched = tool.enrich_gene_symbols(["TP53"], symbol_gene_ids={"TP53": "999999"})
+
+        assert enriched["TP53"].gene_id == "7157"
+        assert [call[0].split("/")[-1] for call in tool._session.calls] == [
+            "esummary.fcgi",
+            "esearch.fcgi",
+            "esummary.fcgi",
+        ]
+
+    def test_429_retries_before_success(self, monkeypatch):
+        sleeps = []
+        monkeypatch.setattr("time.sleep", lambda value: sleeps.append(value))
+        tool = NCBIGeneTool()
+        tool._session = SessionFixture([
+            ResponseFixture({}, status_code=429, headers={"Retry-After": "0.2"}),
+            ResponseFixture(_esummary_payload()),
+        ])
+
+        meta = tool.get_gene_metadata("672")
+
+        assert meta is not None
+        assert len(tool._session.calls) == 2
+        assert any(value >= 0.2 for value in sleeps)
+
+    def test_429_exhaustion_is_not_cached_as_negative(self, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        tool = NCBIGeneTool()
+        tool._session = SessionFixture([
+            ResponseFixture({}, status_code=429),
+            ResponseFixture({}, status_code=429),
+            ResponseFixture({}, status_code=429),
+        ])
+
+        assert tool.get_gene_by_symbol("BRCA1") is None
+
+        assert "BRCA1" not in tool._symbol_negative_cache
+        assert "BRCA1" not in tool._symbol_cache

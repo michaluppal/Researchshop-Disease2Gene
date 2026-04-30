@@ -13,6 +13,7 @@ export interface Job {
   metadata_path: string | null
   excel_path: string | null
   json_path: string | null
+  candidate_audit_path: string | null
   stats: string | null // JSON
   error: string | null
 }
@@ -36,13 +37,14 @@ function getDb(): Database.Database {
         metadata_path TEXT,
         excel_path TEXT,
         json_path TEXT,
+        candidate_audit_path TEXT,
         stats TEXT,
         error TEXT
       )
     `)
     const tableInfo = db.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>
     const columnNames = new Set(tableInfo.map((column) => column.name))
-    const nullableTextColumns = ['metadata_path', 'excel_path', 'json_path']
+    const nullableTextColumns = ['metadata_path', 'excel_path', 'json_path', 'candidate_audit_path']
     for (const column of nullableTextColumns) {
       if (!columnNames.has(column)) {
         db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT`)

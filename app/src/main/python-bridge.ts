@@ -22,7 +22,7 @@ function isProgressPayload(p: unknown): p is { stage: string; percent: number; s
 function isLogPayload(p: unknown): p is { level: string; msg: string; detail?: string | null } {
   return typeof p === 'object' && p !== null && 'level' in p && 'msg' in p
 }
-function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string } {
+function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; candidate_audit_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string } {
   return typeof p === 'object' && p !== null
 }
 
@@ -33,9 +33,10 @@ let lastJobApiCalls = 0 // tracks cumulative count for current job (delta calcul
 function getPythonPath(): string {
   // Prefer the bundled venv if it exists
   const pythonDir = getPythonDir()
+  const venvDir = getVenvDir(pythonDir)
   const venvCandidates = [
-    join(pythonDir, '.venv', 'bin', 'python3'),
-    join(pythonDir, '.venv', 'Scripts', 'python.exe'),
+    join(venvDir, 'bin', 'python3'),
+    join(venvDir, 'Scripts', 'python.exe'),
   ]
   for (const venvPython of venvCandidates) {
     if (existsSync(venvPython)) return venvPython
@@ -59,6 +60,13 @@ function getPythonDir(): string {
   }
   // Dev: __dirname is out/main at runtime → ../../pipeline
   return join(__dirname, '../../pipeline')
+}
+
+function getVenvDir(pythonDir: string): string {
+  if (app.isPackaged) {
+    return join(app.getPath('userData'), 'python', '.venv')
+  }
+  return join(pythonDir, '.venv')
 }
 
 export function startPipeline(jobId: string, args: PipelineArgs): void {
@@ -174,6 +182,7 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
                 metadata_path: raw.metadata_path || null,
                 excel_path: raw.excel_path || null,
                 json_path: raw.json_path || null,
+                candidate_audit_path: raw.candidate_audit_path || null,
                 completed_at: new Date().toISOString()
               })
             }

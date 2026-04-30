@@ -63,6 +63,7 @@ These constraints exist for scientific accuracy and must not be overridden witho
 - Keep `docs/audit/AUDIT.md` synchronized. Any pipeline behavior change requires an audit update.
 - Secrets via env vars only. Never pass secrets as CLI args because they can be visible in process listings.
 - OA papers only. No paywall bypass and no automated browser scraping for restricted full text.
+- No runtime test doubles in committed tests. Prefer pure helper extraction, fixture data, explicit dependency injection for local clients, or clearly marked live/manual tests.
 - No over-engineering. Use the minimum complexity for the current task. Replace stale paths instead of adding parallel systems.
 
 ## Common Agent Mistakes

@@ -35,8 +35,8 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/ResearchShop-Website.git
-cd ResearchShop-Website/local_pivot
+git clone https://github.com/michaluppal/RS_SOFTWAREX.git
+cd RS_SOFTWAREX
 npm install
 npm run dev          # opens the app in development mode
 ```
@@ -45,8 +45,9 @@ Python dependencies are installed automatically on first launch into a local vir
 
 To build a distributable:
 ```bash
-npm run package      # macOS universal DMG + ZIP
-npm run package:win  # Windows NSIS installer
+npm run package:mac:local # macOS Apple Silicon DMG for local testing
+npm run package      # macOS universal DMG + ZIP, intended for release builders
+npm run package:win  # Windows NSIS installer, intended for Windows release builders
 npm run package:linux # Linux AppImage + deb
 ```
 
@@ -173,21 +174,34 @@ For any association you intend to report or build upon:
 
 - **Gene symbol ambiguity.** Common clinical abbreviations (ESR mm/h, AST U/L, CRP mg/L) overlap with gene symbols (ESR1, GOT1). The corroboration gate provides a hard backstop, but stochastic LLM compliance means rare misclassifications occur.
 
-### Benchmark accuracy
+### Validation status
 
-On a 12-paper gold-standard evaluation (cancer genomics, GWAS, rare disease, RNA-seq, pharmacogenomics), the full pipeline achieves F1 ≈ 0.59–0.67 on well-studied paper types and as low as 0.17 on rare disease papers with limited PubTator coverage. See `docs/audit/AUDIT.md § Benchmark Results` for full per-paper figures.
+ResearchShop includes offline unit and integration tests for the parser, PubTator integration, Stage 5 extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records historical benchmark experiments and known failure modes, but the current SoftwareX submission is framed as a software description and reproducibility paper rather than a definitive clinical accuracy benchmark.
 
-**False positive rate at the 0.7 confidence threshold:** precision varies from ~0.50 (GWAS, pan-cancer) to ~1.0 (classic cancer genetics). Expect 10–30% false positives on novel or multi-topic papers even after validation gating.
+The safest interpretation is: high-confidence rows are **prioritised candidates for expert review**, not validated biomedical facts. Precision and recall depend on paper type, full-text availability, user-defined columns, Gemini model behavior, and whether evidence appears in prose, tables, figures, or supplementary files.
 
 ---
 
 ## Reproducibility
 
-The benchmark dataset is at `pipeline/data/benchmark/`. To reproduce the evaluation:
+To run the local verification suite:
+
+```bash
+npm run typecheck
+cd pipeline
+source .venv/bin/activate
+python -m pytest tests/ -v --tb=short
+```
+
+Historical benchmark scripts and data live under `pipeline/data/benchmark/` and `pipeline/scripts/`. They are retained for auditability, but they are not required for normal installation or SoftwareX reproduction of the software workflow.
+
+If you do run historical benchmark scripts, provide credentials via environment variables only:
 
 ```bash
 cd pipeline
 source .venv/bin/activate
+export GEMINI_API_KEY="..."
+export ENTREZ_EMAIL="you@example.org"
 python scripts/benchmark_runner.py --all --runs 3
 python scripts/benchmark_analysis.py
 ```
@@ -198,7 +212,7 @@ Results are written to `data/benchmark/benchmark_results.csv`. See `docs/audit/A
 
 ## How to cite
 
-> ResearchShop Desktop [version]. DOI: *pending SoftwareX submission*
+> ResearchShop Desktop v1.0.0. GitHub: <https://github.com/michaluppal/RS_SOFTWAREX>. DOI to be added after archival release.
 
 ---
 

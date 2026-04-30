@@ -4,20 +4,20 @@
 
 \subsection{System Architecture}
 
-\textcolor{red}{\textbf{tool name}} is a cross-platform desktop application built with Electron~\cite{placeholder_electron} (TypeScript/React frontend) and Python 3.9+ (extraction pipeline backend). The application runs entirely on the user's machine with no server infrastructure. Users provide their own Google Gemini API key; all other external API calls (PubMed, PubTator, HGNC) are free and unauthenticated.
+ResearchShop Desktop is a cross-platform desktop application built with Electron~\cite{electron_docs} (TypeScript/React frontend) and Python 3.11+ (extraction pipeline backend). The application runs entirely on the user's machine with no server infrastructure. Users provide their own Google Gemini API key and NCBI Entrez email; all pipeline secrets are passed to Python through process environment variables rather than command-line arguments.
 
 The frontend communicates with the Python pipeline via an IPC (Inter-Process Communication) bridge. The pipeline process emits structured JSON messages on stdout (\texttt{PROGRESS:\{...\}}, \texttt{LOG:\{...\}}, \texttt{RESULT:\{...\}}) which the Electron main process parses and forwards to the React renderer. Secrets (API key, email) are passed as environment variables to the spawned Python process, never as command-line arguments.
 
 The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
 
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
-    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{placeholder_hutchins2016icite} (primary) with Semantic Scholar~\cite{placeholder_semantic_scholar_api} as fallback. Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$; user-curated PMID lists are taken 1:1 with no widening.
+    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{hutchins2016rcr} (primary) with Semantic Scholar~\cite{semantic_scholar_api} as fallback. Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$; user-curated PMID lists are taken 1:1 with no widening.
 
     \item \textbf{Gene Relevance Scoring (UI-side).} A TypeScript keyword-and-regex scorer runs in the Electron renderer, scoring each paper for gene relevance before the user submits their selection. High/medium papers are auto-selected; low-relevance papers are hidden by default with a ``Show all'' toggle. This replaces traditional pipeline-side abstract screening, giving researchers transparent control.
 
     \item \textbf{Full-Text Acquisition.} Retrieves structured full text via PMC Entrez JATS XML (primary) or Europe PMC XML (fallback). The system extracts section structure (abstract, introduction, methods, results, discussion), figure captions and image URLs, and supplementary tables. Only open-access papers are fetched; no paywall bypass is attempted.
 
-    \item \textbf{PubTator NER.} Submits PMIDs to NCBI PubTator3~\cite{placeholder_wei2024pubtator3} for Named Entity Recognition. Returns high-precision gene symbols and variant annotations. These serve as seed candidates for the LLM stage, forming the \emph{precision floor} of the hybrid architecture.
+    \item \textbf{PubTator NER.} Submits PMIDs to NCBI PubTator3~\cite{wei2024pubtator3} for Named Entity Recognition. Returns high-precision gene symbols and variant annotations. These serve as seed candidates for the LLM stage, forming the \emph{precision floor} of the hybrid architecture.
 
     \item \textbf{LLM Extraction (Gemini Flash).} A two-stage extraction using Google Gemini Flash:
     \begin{itemize}[itemsep=1pt]
@@ -26,15 +26,15 @@ The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
     \end{itemize}
     PubTator results are injected as deterministic candidate seeds, constraining the LLM's hallucination surface. An optional multimodal pass analyses figure images via Gemini Vision.
 
-    \item \textbf{Gene Validation.} Multi-source validation against a bundled HGNC database (44,943 genes), HGNC REST API, and MyGene.info. Includes biotype filtering (protein-coding by default), HGVS variant pattern matching, and citation cross-referencing (Section~\ref{subsec:validation}).
+    \item \textbf{Gene Validation.} Multi-source validation against a bundled HGNC database (44,943 genes), HGNC REST API, and MyGene.info. Includes biotype annotation, HGVS variant pattern matching, and citation cross-referencing (Section~\ref{subsec:validation}).
 
     \item \textbf{Orchestration \& Output.} A multiprocessing worker pool (2--4 persistent processes, 600\,s per-paper timeout) coordinates stages~3--6. Results are deduplicated, ranked by citation count, and written to CSV with full validation metadata.
 \end{enumerate}
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.95\textwidth]{figures/architecture_diagram.pdf}
-    \caption{\textcolor{red}{\textbf{tool name}} system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes full-text acquisition, PubTator NER, and LLM extraction in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
+    \includegraphics[width=0.95\textwidth]{figures/pipeline_tikz.pdf}
+    \caption{ResearchShop Desktop system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes full-text acquisition, PubTator NER, and LLM extraction in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
     \label{fig:architecture}
 \end{figure*}
 
@@ -70,7 +70,7 @@ The GUI provides:
 \begin{itemize}[itemsep=1pt]
     \item \textbf{Onboarding wizard:} API key validation, output directory selection, research-use disclaimer.
     \item \textbf{Query builder:} PubMed search with relevance scoring and paper selection.
-    \item \textbf{Live pipeline monitor:} Real-time progress, per-stage breakdown, Gemini API usage tracking against the 1,500\,calls/day free-tier limit.
+    \item \textbf{Live pipeline monitor:} Real-time progress, per-stage breakdown, Gemini API usage tracking, and technical logs for debugging failed runs.
     \item \textbf{Results explorer:} Sortable table with confidence badges (CORROBORATED, MEDIUM, LOW, REVIEW), citation coverage metrics, and CSV/XLSX export.
 \end{itemize}
 
@@ -90,13 +90,13 @@ Every extracted gene is verified against authoritative databases in priority ord
     \item \textbf{Fuzzy matching:} Suggests corrections for near-misses (e.g., ``BRAC1'' $\to$ ``BRCA1'').
 \end{enumerate}
 
-Biotype filtering caps the confidence of non-protein-coding genes (pseudogenes, lncRNAs, miRNAs) at~0.5, below the strict gate threshold. Users studying non-coding RNA can disable this via \texttt{VALIDATE\_PROTEIN\_CODING\_ONLY=false}.
+Biotype information is retained as metadata so researchers can distinguish protein-coding genes, non-coding RNA genes, pseudogenes, and other HGNC locus classes during review. The current release does not reject valid HGNC symbols solely because they are non-protein-coding; this avoids false negatives in RNA-seq, regulatory RNA, and immunogenomics workflows.
 
 \subsubsection{Grounding Check}
 The grounding check verifies that each candidate gene symbol appears as text in the fetched paper. This prevents ``contextual hallucinations'' where the LLM mentions real genes from its training data that are not discussed in the paper. The check searches for the canonical symbol, all HGNC aliases, and the raw label the LLM used (e.g., ``BNP'' for NPPB).
 
 \subsubsection{Variant Pattern Matching}
-Extracted variants are validated against 12+ HGVS nomenclature patterns~\cite{placeholder_den2016hgvs}: protein substitution (\texttt{p.Arg175His}), coding variants (\texttt{c.1234A>G}), genomic variants (\texttt{g.123456A>T}), frameshifts, splice sites, indels, copy number states, translocations, and cytogenetic notation. Both three-letter and single-letter amino acid codes are recognised.
+Extracted variants are validated against 12+ HGVS nomenclature patterns~\cite{denDunnen2016hgvs}: protein substitution (\texttt{p.Arg175His}), coding variants (\texttt{c.1234A>G}), genomic variants (\texttt{g.123456A>T}), frameshifts, splice sites, indels, copy number states, translocations, and cytogenetic notation. Both three-letter and single-letter amino acid codes are recognised.
 
 \subsubsection{Citation Cross-Referencing}
 For each LLM-provided citation, the system verifies its existence in the paper text using dense sequence matching (\texttt{difflib.SequenceMatcher}, threshold~$\geq$0.85). Additional checks include:
