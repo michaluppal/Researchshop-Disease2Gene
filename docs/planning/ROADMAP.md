@@ -1,10 +1,12 @@
 # ResearchShop Desktop — Roadmap to Paper-Ready
 
+> **Status.** Historical planning document with a small current carry-forward section. Most P0-P2 items describe completed work and retain original execution notes for auditability. Before using any command or path below, prefer current repository paths (`pipeline/`, `app/src/main/`, `app/src/renderer/`) and the public docs map in [`../README.md`](../README.md).
+>
 **Goal:** Reach a stable, frozen architecture that is good enough to publish in SoftwareX and
 impress the genomics crowd. Every open item below is framed as: what it is, why it matters,
 and exactly how to execute it.
 
-Last updated: 2026-03-09
+Last updated: 2026-05-05
 
 ---
 
@@ -90,7 +92,7 @@ genetics papers recorded in `../audit/AUDIT.md`. Known-good rate ≥60% on paper
 with a comment "per user request" but the variable was never read.
 
 **Acceptance criteria:** `enable_abstract_discovery` does not appear anywhere in the codebase ✅.
-(Verified: `grep -r enable_abstract_discovery python/modules/` → no output)
+(Verified historically with `grep -r enable_abstract_discovery pipeline/modules/` → no output)
 
 ---
 
@@ -123,7 +125,7 @@ a Gemini API key, NCBI email, or network access.
    - `test_pipeline_orchestrator.py` — smoke test: orchestrator instantiates without error;
      fixture-backed output contracts produce a DataFrame.
 4. Add `[tool.pytest.ini_options]` to `pyproject.toml` pointing at `tests/`.
-5. Add `pytest python/tests/` to the verification recipe in `.codex/tasks/verify.md`.
+5. Add `pytest pipeline/tests/` to the verification recipe in `.codex/tasks/verify.md`.
 6. Add pytest run to GitHub Actions CI workflow.
 
 **Acceptance criteria:** `pytest pipeline/tests/` passes with no env vars set.
@@ -171,7 +173,7 @@ biomarker genes by X% on clinical papers while preserving Y% of molecular gene f
   measured clinically AND relevant molecularly.
 
 **Commit:** See `../audit/AUDIT.md ## Disambiguation Benchmark (P1-D, 2026-02-26)`.
-**Results JSON:** `python/data/benchmark/disambiguation_results.json`
+**Results JSON:** `pipeline/data/benchmark/disambiguation_results.json`
 
 **Acceptance criteria:**
 - Benchmark results documented ✅
@@ -209,7 +211,7 @@ Need at least one paper where the answer is demonstrably yes.
   likely prevented full figure vision analysis
 
 **Infrastructure fixes required before benchmark could run:**
-- PMC CDN URL resolution: `_resolve_pmc_cdn_url()` added to `gemini_extractor.py`
+- PMC CDN URL resolution: `_resolve_pmc_cdn_url()` added to the per-paper analysis implementation; `pipeline/modules/gemini_extractor.py` now remains as a compatibility shim for legacy imports.
 - Gemini Vision 429 retry-with-backoff + 4s inter-call delay
 - `llm_figure` grounding bypass (RED FLAG 2 — figure genes were silently dropped)
 - Panel deduplication fix in `full_text_fetcher.py`
@@ -231,7 +233,7 @@ Mean ± std across N runs is the correct metric.
 report mean ± std alongside Jaccard gene-set stability.
 
 **Execution:**
-1. In `python/scripts/repeatability_check.py`, after each run parse the output CSV for
+1. In `pipeline/scripts/repeatability_check.py`, after each run parse the output CSV for
    `*_citation_valid` columns.
 2. For each run: `coverage = sum(True values) / count(non-empty citation fields)`.
 3. After all runs: compute `mean(coverage)` and `std(coverage)`.
@@ -274,7 +276,7 @@ regression test on known-good input prevents this from recurring.
 
 **Goal:** Add a test asserting >0 citations validate True on PMID 17463248 (T2D GWAS, 95% accuracy).
 
-**Acceptance criteria:** `pytest python/tests/test_gene_validator.py::test_citation_smoke` passes.
+**Acceptance criteria:** `pytest pipeline/tests/test_gene_validator.py::test_citation_smoke` passes.
 
 ---
 
@@ -309,7 +311,7 @@ but should be mentioned as future work directions:
 ## P4 — Polish (carry-forward from previous P3)
 
 - **`--runs` flag on repeatability harness** — currently hardcoded, should be a CLI arg. 5-minute fix.
-- **HGNC snapshot refresh** — the bundled `hgnc_genes.json` was generated at 44,933 genes.
+- **HGNC snapshot refresh** — the bundled `hgnc_genes.json` was generated at 44,943 genes.
   Refresh before submission to capture genes approved in 2025–2026.
 - **Full forensic run-analytics** ✅ Done (2026-02-28) — per-stage artifact persistence implemented.
 - **Table-aware citation path** ✅ Done (2026-02-28) — `StructuredTable` extraction + table-cell validation.

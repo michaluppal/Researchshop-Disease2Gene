@@ -1,11 +1,15 @@
 # Pipeline Understanding
 
+> **Status.** Historical maintainer notes from pipeline tracing sessions. This is not the current architecture contract.
+> Use [`pipeline-contract.md`](./pipeline-contract.md) for canonical pipeline boundaries and [`internals.md`](./internals.md) for curated technical notes.
+> References to `pipeline/modules/gemini_extractor.py` usually describe legacy locations; the active per-paper implementation is owned by `pipeline/modules/paper_analysis/`, with `gemini_extractor.py` retained as a compatibility shim.
+>
 > A working document built up step by step as we trace through the pipeline.
 > Written collaboratively — each section reflects what has been discussed and verified.
 > Not a spec. Not a reference. A shared mental model.
 
-For the compact source-of-truth domain/function map, see
-[`pipeline-step-table.md`](./pipeline-step-table.md).
+For the source-of-truth domain/function map, see
+[`pipeline-contract.md`](./pipeline-contract.md).
 
 ---
 
@@ -25,7 +29,7 @@ Each source maintains its own selection state in `QueryBuilder.tsx`:
 
 ### What actually crosses the UI → pipeline boundary
 
-When the user clicks "Run", [`QueryBuilder.tsx:156`](app/src/renderer/pages/QueryBuilder.tsx:156)
+When the user clicks "Run", [`QueryBuilder.tsx:156`](../../app/src/renderer/pages/QueryBuilder.tsx:156)
 `handleRunPipeline()` flattens all three arrays into **one deduplicated PMID list**:
 
 ```ts
@@ -49,7 +53,7 @@ The pipeline receives no rationale for the selection — just the PMIDs.
 
 ### How it reaches Python
 
-[`python-bridge.ts:64`](app/src/main/python-bridge.ts:64) `startPipeline()` spawns
+[`python-bridge.ts:64`](../../app/src/main/python-bridge.ts:64) `startPipeline()` spawns
 `python run_pipeline.py` as a child process. The PMIDs are passed as a JSON-encoded CLI arg:
 
 ```
@@ -60,7 +64,7 @@ Secrets (`GEMINI_API_KEY`, `ENTREZ_EMAIL`) go in via `env`, **never** as CLI arg
 otherwise show up in `ps aux`. The parallel-analysis toggle is also passed via env
 (`PARALLEL_ANALYSIS=true|false`).
 
-On the Python side, [`run_pipeline.py:42`](pipeline/run_pipeline.py:42) parses `--pmids` with
+On the Python side, [`run_pipeline.py:42`](../../pipeline/run_pipeline.py:42) parses `--pmids` with
 `json.loads()` and hands the list to the orchestrator as `specific_pmids`.
 
 ### The key consequence
@@ -89,7 +93,7 @@ per-paper expectation set by the UI is not re-validated inside the pipeline. If 
 ## 2. User-Defined List — A Worked Example
 
 A "user-defined list" is the **Specific Papers** paste box on the Query Builder page —
-rendered by [`SmartInput.tsx`](app/src/renderer/components/SmartInput.tsx). This is the entry
+rendered by [`SmartInput.tsx`](../../app/src/renderer/components/SmartInput.tsx). This is the entry
 path for a researcher who already knows which papers they want to analyse.
 
 ### What the user types
@@ -157,7 +161,7 @@ The user sees all 7 parsed items in the validated-papers panel and clicks **"Use
 
 ### Silent PMID-only filter
 
-[`SmartInput.tsx:184`](app/src/renderer/components/SmartInput.tsx:184) `useValid()`:
+[`SmartInput.tsx:184`](../../app/src/renderer/components/SmartInput.tsx:184) `useValid()`:
 
 ```ts
 const pmids = papers.filter((p) => p.pmid).map((p) => p.pmid!)
@@ -172,7 +176,7 @@ It won't be. (Worth a separate audit entry — adding as **F3** below.)
 
 ### Into `QueryBuilder` state
 
-[`QueryBuilder.tsx:134`](app/src/renderer/pages/QueryBuilder.tsx:134)
+[`QueryBuilder.tsx:134`](../../app/src/renderer/pages/QueryBuilder.tsx:134)
 `handleSpecificPapersChange(pmids, papers)` stores both:
 
 ```ts
@@ -185,7 +189,7 @@ the false impression that all 7 will be processed.
 
 ### Final merge on "Run"
 
-When the user clicks **Run**, [`QueryBuilder.tsx:161–167`](app/src/renderer/pages/QueryBuilder.tsx:161)
+When the user clicks **Run**, [`QueryBuilder.tsx:161–167`](../../app/src/renderer/pages/QueryBuilder.tsx:161)
 does its second filter:
 
 ```ts
@@ -201,7 +205,7 @@ would have collapsed anyway if they'd resolved to a PMID).
 
 ### Spawn
 
-[`python-bridge.ts:80`](app/src/main/python-bridge.ts:80) passes the 3 PMIDs as a JSON CLI
+[`python-bridge.ts:80`](../../app/src/main/python-bridge.ts:80) passes the 3 PMIDs as a JSON CLI
 argument:
 
 ```
@@ -218,7 +222,7 @@ Secrets go through `env`. See Section 1 for the security reasoning.
 
 ### Into the pipeline
 
-[`pipeline_orchestrator.run_pipeline(specific_pmids=[...], query="", ...)`](pipeline/modules/pipeline_orchestrator.py:551):
+[`pipeline_orchestrator.run_pipeline(specific_pmids=[...], query="", ...)`](../../pipeline/modules/pipeline_orchestrator.py:551):
 
 - Line 685: `mandatory_pmids = set(specific_pmids)` — now `{'12345678', '34876594', '20129251'}`.
 - Line 698–699: `initial_pmids.update(mandatory_pmids)` — they're guaranteed to be processed.
@@ -254,11 +258,11 @@ is the only identifier that ties them together.
 
 | Lookup | Function | What it fetches | API hit |
 |---|---|---|---|
-| **A** | [`pubmed_data_collector.fetch_paper_details(pmids)`](pipeline/modules/pubmed_data_collector.py:249) | Metadata + abstract | NCBI Entrez `efetch` (db=pubmed, rettype=medline) |
-| **B** | [`full_text_fetcher.run_fetching(pmids, path)`](pipeline/modules/full_text_fetcher.py) | Full text + figures + tables | NCBI Entrez `efetch` (db=pmc) → Europe PMC `fullTextXML` fallback → `pubmed_parser` adapter for paragraphs/figure metadata |
-| **C** | [`pubmed_data_collector.fetch_citation_counts_with_fallback(pmids)`](pipeline/modules/pubmed_data_collector.py:388) | Citation counts | iCite (NIH) → Semantic Scholar fallback |
+| **A** | [`pubmed_data_collector.fetch_paper_details(pmids)`](../../pipeline/modules/pubmed_data_collector.py:249) | Metadata + abstract | NCBI Entrez `efetch` (db=pubmed, rettype=medline) |
+| **B** | [`full_text_fetcher.run_fetching(pmids, path)`](../../pipeline/modules/full_text_fetcher.py) | Full text + figures + tables | NCBI Entrez `efetch` (db=pmc) → Europe PMC `fullTextXML` fallback → `pubmed_parser` adapter for paragraphs/figure metadata |
+| **C** | [`pubmed_data_collector.fetch_citation_counts_with_fallback(pmids)`](../../pipeline/modules/pubmed_data_collector.py:388) | Citation counts | iCite (NIH) → Semantic Scholar fallback |
 
-Metadata and full-text lookup are called back-to-back in `run_pipeline` ([orchestrator.py:718, 738](pipeline/modules/pipeline_orchestrator.py:718)).
+Metadata and full-text lookup are called back-to-back in `run_pipeline` ([orchestrator.py:718, 738](../../pipeline/modules/pipeline_orchestrator.py:718)).
 Citation lookup runs on demand — it's used later for ranking when `query` mode is active, and as a
 fallback when full-text fetch fails entirely.
 
@@ -293,7 +297,7 @@ surfaced in the final output for audit.
 keyed by PMID. For each PMID it tries two paths:
 
 1. **NCBI PMC via `Bio.Entrez.efetch(db='pmc', id=pmc_num, rettype='full', retmode='xml')`** —
-   [`full_text_fetcher.py:816`](pipeline/modules/full_text_fetcher.py:816). This is the only
+   [`full_text_fetcher.py:816`](../../pipeline/modules/full_text_fetcher.py:816). This is the only
    place the codebase actually uses the Biopython Entrez wrapper for the request. Returns
    JATS XML.
 2. **Europe PMC `fullTextXML`** — raw `requests.get()` to
@@ -301,7 +305,7 @@ keyed by PMID. For each PMID it tries two paths:
    Also JATS XML.
 
 Both responses flow through the same parser entrypoint
-([`_extract_text_and_figures_from_pmc_xml`](pipeline/modules/full_text_fetcher.py:499)).
+([`_extract_text_and_figures_from_pmc_xml`](../../pipeline/modules/full_text_fetcher.py:499)).
 The parser combines `pubmed_parser` for body paragraphs and figure metadata with ResearchShop's own JATS handling for abstracts, tables, supplementary links, cleaning, and fallback parsing. Together they walk JATS tags (`<abstract>`, `<body>`, `<sec>`, `<fig>`, `<table-wrap>`) and
 returns three things:
 
@@ -351,7 +355,7 @@ fetch fails entirely.
 
 ### 3.5 The stack
 
-From [`pipeline/requirements.txt`](pipeline/requirements.txt):
+From [`pipeline/requirements.txt`](../../pipeline/requirements.txt):
 
 | Library | Role | Where used |
 |---|---|---|
@@ -380,7 +384,7 @@ PubMed directly.
 ### 3.6 Two easy-to-miss stack details
 
 - **The PubMed metadata fetch does not use Biopython's Entrez wrapper** — it uses raw
-  `requests.post` to `efetch.fcgi` ([line 272](pipeline/modules/pubmed_data_collector.py:272)).
+  `requests.post` to `efetch.fcgi` ([line 272](../../pipeline/modules/pubmed_data_collector.py:272)).
   Biopython is only used for `Medline.parse()` of the response body. This is historical —
   `Entrez.efetch` would work identically for this call.
 - **Different endpoints for the same data.** The UI uses `pubmed:fetchAbstracts`
@@ -432,10 +436,10 @@ formats.
 
 The fetcher:
 
-1. **Discovers URLs from the XML** — [`_extract_supplementary_urls_from_pmc_xml`](pipeline/modules/full_text_fetcher.py:101)
+1. **Discovers URLs from the XML** — [`_extract_supplementary_urls_from_pmc_xml`](../../pipeline/modules/full_text_fetcher.py:101)
    walks the parsed JATS tree collecting `xlink:href` attributes. **Not scraping** — it's
    reading structured metadata already in the XML we fetched.
-2. **Fetches each URL via `requests`** — [`_extract_supplementary_content`](pipeline/modules/full_text_fetcher.py:183),
+2. **Fetches each URL via `requests`** — [`_extract_supplementary_content`](../../pipeline/modules/full_text_fetcher.py:183),
    capped at 3 files per paper (`SUPPLEMENTARY_MAX_FILES`) and 200 KB each
    (`SUPPLEMENTARY_MAX_CHARS`).
 3. **Dispatches by content type or file extension**:
@@ -475,7 +479,7 @@ So the honest mental model:
 
 One post-processing step lives between "XML parsed into `body_text`" and "content written
 to the pickle" that's easy to miss:
-[`_clean_and_validate_content`](pipeline/modules/full_text_fetcher.py:676) runs on every
+[`_clean_and_validate_content`](../../pipeline/modules/full_text_fetcher.py:676) runs on every
 paper body before it's saved.
 
 What it does, in order:
@@ -721,9 +725,9 @@ high-precision extraction pass with PubTator.
 ### 6.1 The pickle-to-disk-then-reload pattern
 
 `full_text_fetcher.run_fetching(pmids, path)` doesn't return the content. It writes a
-gzipped pickle to `path` ([`full_text_fetcher.py:1008`](pipeline/modules/full_text_fetcher.py:1008))
+gzipped pickle to `path` ([`full_text_fetcher.py:1008`](../../pipeline/modules/full_text_fetcher.py:1008))
 and returns `None`. The orchestrator then reads that same file back into memory
-([`pipeline_orchestrator.py:742`](pipeline/modules/pipeline_orchestrator.py:742)):
+([`pipeline_orchestrator.py:742`](../../pipeline/modules/pipeline_orchestrator.py:742)):
 
 ```python
 full_text_fetcher.run_fetching(pmids_to_fetch, content_dict_path)
@@ -799,7 +803,7 @@ results — but only after the run finishes, in a CSV they may not look at.
 ### 6.5 PubTator NER — the precision floor
 
 With scraped PMIDs and content in memory, the orchestrator calls
-[`PubTatorTool().extract_from_pmids(scraped_pmids)`](pipeline/modules/pubtator_tool.py:165).
+[`PubTatorTool().extract_from_pmids(scraped_pmids)`](../../pipeline/modules/pubtator_tool.py:165).
 
 **What PubTator3 is:** NCBI's biomedical NER service. Pre-annotated gene and variant
 mentions for every indexed PubMed/PMC document, extracted by a dedicated NER model trained
@@ -1000,7 +1004,7 @@ Why keep it:
 - **Backstop if `ENABLE_ABSTRACT_SCREENING=False`.** The flag still works — disabling it
   skips even the scoring. But the hard filter that used to live here is gone.
 
-Scoring uses [`abstract_screener.has_genetic_content`](pipeline/modules/abstract_screener.py)
+Scoring uses [`abstract_screener.has_genetic_content`](../../pipeline/modules/abstract_screener.py)
 — the same weighted keyword algorithm as the UI scorer (`geneRelevanceScorer.ts`), with
 positive/negative weights and a molecular-context precision gate. See
 `memory-pipeline.md` §`paper_selection` for the scoring rubric.
@@ -1091,7 +1095,7 @@ not to be confused with the top-level `pipeline_orchestrator.run_pipeline`).
 
 ### 8.1 When it fires
 
-In [`gemini_extractor.py:1375`](pipeline/modules/gemini_extractor.py:1375):
+In [`gemini_extractor.py:1375`](../../pipeline/modules/gemini_extractor.py:1375):
 
 ```python
 # candidate_discovery: abstract gene discovery
@@ -1125,7 +1129,7 @@ The model is `config.GEMINI_CONFIG["gene_extraction_model"]` — currently Gemin
 
 ### 8.3 The prompt (`_GENE_DISCOVERY_INSTRUCTION_ABSTRACT`)
 
-Literal text from [`gemini_extractor.py:25–42`](pipeline/modules/gemini_extractor.py:25),
+Literal text from [`gemini_extractor.py:25–42`](../../pipeline/modules/gemini_extractor.py:25),
 paraphrased into four jobs:
 
 1. **What to extract** — all genes, cytokines, chemokines, interleukins, gene products
@@ -1222,7 +1226,7 @@ Important, because I described it wrongly in an earlier draft of Section 7.6:
 - **It does NOT filter the paper out.** An empty `associations` list does not stop the
   pipeline. The full-text candidate pass runs unconditionally.
 - **It does NOT decide anything.** No gating, no downstream "skip this paper" branch.
-- **The log message is misleading.** [Line 733](pipeline/modules/gemini_extractor.py:733)
+- **The log message is misleading.** [Line 733](../../pipeline/modules/gemini_extractor.py:733)
   emits:
   > *"Abstract gene discovery found no associations — skipping full-text analysis"*
 
@@ -1298,7 +1302,7 @@ candidate list.
 
 ### 9.1 Pre-flight — context window check and truncation
 
-Before the full-text candidate pass fires, [`_validate_and_prepare_paper_text`](pipeline/modules/gemini_extractor.py:2068)
+Before the full-text candidate pass fires, [`_validate_and_prepare_paper_text`](../../pipeline/modules/gemini_extractor.py:2068)
 runs (called earlier at line 1331 in `run_pipeline`). It ensures the paper will fit in
 Gemini Flash's context window.
 
@@ -1325,7 +1329,7 @@ The reassembled `self.paper_text` is what the full-text pass actually sees. A pa
 ### 9.2 What the full-text pass sends to Gemini
 
 The prompt is `_GENE_DISCOVERY_INSTRUCTION_FULLTEXT`
-([`gemini_extractor.py:44`](pipeline/modules/gemini_extractor.py:44)) — nearly identical
+([`gemini_extractor.py:44`](../../pipeline/modules/gemini_extractor.py:44)) — nearly identical
 to the abstract-pass prompt from Section 8, with two small but real differences:
 
 | | Abstract prompt | Full-text prompt |
@@ -1340,7 +1344,7 @@ count if it's not actually discussed).
 
 **PubTator seed injection (the hybrid pipeline).** If PubTator genes exist for this paper
 (from Section 6), they're folded into the prompt
-([`gemini_extractor.py:775–787`](pipeline/modules/gemini_extractor.py:775)):
+([`gemini_extractor.py:775–787`](../../pipeline/modules/gemini_extractor.py:775)):
 
 ```text
 {instruction}
@@ -1406,7 +1410,7 @@ Three differences worth flagging:
 ### 9.5 Recall retry — the temperature=0.4 pass
 
 Immediately after the full-text pass completes,
-[`gemini_extractor.py:1392–1405`](pipeline/modules/gemini_extractor.py:1392) calls
+[`gemini_extractor.py:1392–1405`](../../pipeline/modules/gemini_extractor.py:1392) calls
 `extract_gene_names(temperature=0.4)` a second time.
 
 Why bother running the same function again?
@@ -1433,7 +1437,7 @@ Second pass added 3 additional genes (total: 47)
 
 ### 9.6 `_ingest_associations` — where all sources meet
 
-Both full-text passes funnel through [`_ingest_associations(parsed_associations, "llm_text")`](pipeline/modules/gemini_extractor.py:541).
+Both full-text passes funnel through [`_ingest_associations(parsed_associations, "llm_text")`](../../pipeline/modules/gemini_extractor.py:541).
 This is the accumulator that every candidate-sourcing step calls. Worth understanding
 because it's the junction point for the whole hybrid pipeline.
 
@@ -1478,7 +1482,7 @@ Five concrete cases:
 | 2. Both find the same gene | `{BRCA1}` | `{BRCA1}` | One entry, sources=`{llm_text}`. **No corroboration weight added** — `set.add("llm_text")` is a no-op on the second call. |
 | 3. Same gene, different variant | `{(BRCA1, "")}` | `{(BRCA1, "c.5266dupC")}` | Two separate entries. No deduplication at gene level. |
 | 4. Recall retry omits what the greedy pass found | `{BRCA1, FAKEGENE1}` | `{BRCA1}` | Both entries survive. **The recall retry cannot remove candidates** — omission is not contradiction. `FAKEGENE1` is dropped later by the grounding check, not by the recall retry. |
-| 5. Greedy pass fails, recall retry succeeds | `[]` (all retries exhausted) | `{BRCA1, TP53}` | The recall retry's output becomes the only LLM contribution. The recall retry is wrapped in try/except at [line 1392](pipeline/modules/gemini_extractor.py:1392) — if it fails too, greedy-pass results (if any) are preserved. |
+| 5. Greedy pass fails, recall retry succeeds | `[]` (all retries exhausted) | `{BRCA1, TP53}` | The recall retry's output becomes the only LLM contribution. The recall retry is wrapped in try/except at [line 1392](../../pipeline/modules/gemini_extractor.py:1392) — if it fails too, greedy-pass results (if any) are preserved. |
 
 **The non-obvious consequence:** two LLM passes agreeing on a gene produces the same
 downstream signal as one LLM pass finding it once. Because `sources` is a Python `set`
@@ -1612,7 +1616,7 @@ They cover different surfaces.
 
 ### 10.2 The algorithm
 
-[`extract_deterministic_candidates`](pipeline/modules/gemini_extractor.py:596):
+[`extract_deterministic_candidates`](../../pipeline/modules/gemini_extractor.py:596):
 
 ```python
 # 1. Find candidate tokens in the paper text
@@ -1638,7 +1642,7 @@ Four specific design choices worth unpacking:
 
 ### 10.3 No alias expansion — intentional
 
-The comment at [line 600](pipeline/modules/gemini_extractor.py:600) is explicit:
+The comment at [line 600](../../pipeline/modules/gemini_extractor.py:600) is explicit:
 
 > *This path intentionally does NOT use alias/previous-symbol expansion.*
 > *Alias collisions on clinical abbreviations (e.g., ESR, AST, CRT, DIC) create high*
@@ -1659,7 +1663,7 @@ after false positives showed up on lab-value-heavy clinical papers.
 ### 10.4 Token shape filter
 
 The token must look gene-shaped to even be looked up. The rule on
-[line 621](pipeline/modules/gemini_extractor.py:621):
+[line 621](../../pipeline/modules/gemini_extractor.py:621):
 
 ```python
 if not (token.isupper() or any(ch.isdigit() for ch in token) or "-" in token):
@@ -1833,7 +1837,7 @@ to the paper's primary findings, reducing hallucination surface. ΔF1 on GBM pap
 
 ### 11.2 When it fires
 
-Three guards at [line 1414](pipeline/modules/gemini_extractor.py:1414):
+Three guards at [line 1414](../../pipeline/modules/gemini_extractor.py:1414):
 
 ```python
 if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
@@ -1861,7 +1865,7 @@ All discovered associations are finally fed through `_ingest_associations(..., "
 
 ### 11.4 Image download — the two-phase fetch
 
-[`_fetch_figure_image`](pipeline/modules/gemini_extractor.py:932) is more careful than
+[`_fetch_figure_image`](../../pipeline/modules/gemini_extractor.py:932) is more careful than
 it looks. PMC migrated its figure hosting to a hash-based CDN structure
 (`cdn.ncbi.nlm.nih.gov/pmc/blobs/{hash}/{pmcid}/{hash}/{file}`) that can't be derived
 from the JATS XML `href` alone. So there are two phases:
@@ -1897,7 +1901,7 @@ defensible because (a) the alternative is no figures for post-migration papers, 
 
 ### 11.5 The multimodal prompt
 
-`_FIGURE_ANALYSIS_INSTRUCTION` at [line 61](pipeline/modules/gemini_extractor.py:61):
+`_FIGURE_ANALYSIS_INSTRUCTION` at [line 61](../../pipeline/modules/gemini_extractor.py:61):
 
 > *You are analyzing a biomedical research figure. Extract gene symbols and specific*
 > *variants that are explicitly visible in the figure text, axes labels, legends,*
@@ -2070,7 +2074,7 @@ scan, figure analysis, PubTator merge), the pipeline runs its **first filter**: 
 candidates that don't appear in the fetched paper text.
 
 This is the primary hallucination filter. Per the docstring at
-[gemini_extractor.py:1430](pipeline/modules/gemini_extractor.py:1430):
+[gemini_extractor.py:1430](../../pipeline/modules/gemini_extractor.py:1430):
 
 > *Flash sometimes hallucinates gene names it associates with the disease topic*
 > *(e.g., cytokines for MIS-C papers) even when those genes are absent from the*
@@ -2097,7 +2101,7 @@ Figure-only candidates can't escape their narrow corroboration pool.
 ### 12.2 Terms searched per candidate
 
 For each gene symbol, the check builds a pool of searchable terms via
-[`_candidate_terms_for_row`](pipeline/modules/gemini_extractor.py:206):
+[`_candidate_terms_for_row`](../../pipeline/modules/gemini_extractor.py:206):
 
 1. **The canonical HGNC symbol** — e.g., `IL6`, `NPPB`, `CSF1`.
 2. **Every raw LLM label** accumulated in `candidate_meta[key]["raw_gene_labels"]` —
@@ -2115,7 +2119,7 @@ certainly does — so the raw label matches and the gene is kept.
 
 ### 12.3 Matching logic — two regex patterns per term
 
-[`_find_evidence_snippet`](pipeline/modules/gemini_extractor.py:246) iterates terms, and
+[`_find_evidence_snippet`](../../pipeline/modules/gemini_extractor.py:246) iterates terms, and
 for each runs **two patterns** in order:
 
 1. **Strict word-boundary match** (case-insensitive):
@@ -2267,7 +2271,7 @@ Despite the generic name, this function contains **three distinct gates** applie
 order. The middle one is what we've been calling the "corroboration gate."
 
 Important framing: this is **not** a separately-named function. The corroboration check
-lives at [`gemini_extractor.py:1739–1760`](pipeline/modules/gemini_extractor.py:1739),
+lives at [`gemini_extractor.py:1739–1760`](../../pipeline/modules/gemini_extractor.py:1739),
 bundled inside the per-association validation loop. Understanding it requires
 understanding what runs before it in the same loop.
 
@@ -2297,7 +2301,7 @@ artifact. Rejected entries go to `self.dropped_candidates` with a `reason` field
 
 ### 13.2 What HGNC validation does (short version)
 
-[`gene_validator.validate_associations`](pipeline/modules/gene_validator.py) attempts to
+[`gene_validator.validate_associations`](../../pipeline/modules/gene_validator.py) attempts to
 resolve each gene symbol through the multi-source chain from `memory-pipeline.md` §`validation`:
 
 1. Local HGNC JSON (44,943 genes, bundled, offline)
@@ -2501,7 +2505,7 @@ After grounding (Section 12) and validation heuristics (Section 13), the remaini
 `validated_associations` list enters the single biggest LLM call of the pipeline.
 This is where the user's column schema finally gets filled in per gene.
 
-The call itself was traced in the F7 discussion — [`extract_gene_info`](pipeline/modules/gemini_extractor.py:1169)
+The call itself was traced in the F7 discussion — [`extract_gene_info`](../../pipeline/modules/gemini_extractor.py:1169)
 takes all remaining `(gene, variant)` pairs as a JSON list, sends them with the full
 paper text and the 9 CRITICAL INSTRUCTIONS, and returns an array of rows with the
 user columns filled. What we didn't trace there is what `_run_detail_extraction`
@@ -2509,7 +2513,7 @@ does *around* that call.
 
 ### 14.1 The wrapper — three post-call salvage steps
 
-[`_run_detail_extraction`](pipeline/modules/gemini_extractor.py:1551) does four things:
+[`_run_detail_extraction`](../../pipeline/modules/gemini_extractor.py:1551) does four things:
 
 1. **Call `extract_gene_info(column_descriptions)`.** The Section 9 Gemini call.
 2. **Merge duplicate rows** via `_merge_duplicate_gene_rows`.
@@ -2619,7 +2623,7 @@ letting untrusted entries through. Hard fail-closed behaviour.
 ### 15.2 Citation validation (annotation only)
 
 If `ENABLE_CITATION_VALIDATION=True` and the paper text is available,
-[`_add_citation_validation_metadata`](pipeline/modules/gemini_extractor.py:1868) annotates
+[`_add_citation_validation_metadata`](../../pipeline/modules/gemini_extractor.py:1868) annotates
 each row with three columns per user field:
 
 - `{field}_citation_valid` (bool)
@@ -2654,7 +2658,7 @@ with their Citation siblings directly and validates only citation text.
 
 ### 15.3 The evidence gate — per-source thresholds
 
-The final filter. [`_apply_evidence_gate`](pipeline/modules/gemini_extractor.py:365)
+The final filter. [`_apply_evidence_gate`](../../pipeline/modules/gemini_extractor.py:365)
 drops rows based on how many user columns they actually filled, with **different
 thresholds per source tier**:
 
@@ -2865,7 +2869,7 @@ window saturates fast. Paid tier users benefit more.
 
 ### 16.4 `_run_pipeline_worker` — what actually runs in the worker
 
-[`pipeline_orchestrator.py:109`](pipeline/modules/pipeline_orchestrator.py:109):
+[`pipeline_orchestrator.py:109`](../../pipeline/modules/pipeline_orchestrator.py:109):
 
 ```python
 def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None,
@@ -2886,7 +2890,7 @@ workers.
 
 ### 16.5 `_accumulate_result` — per-paper merge into the global DataFrame
 
-After a worker returns, [`_accumulate_result`](pipeline/modules/pipeline_orchestrator.py:520)
+After a worker returns, [`_accumulate_result`](../../pipeline/modules/pipeline_orchestrator.py:520)
 attaches the per-paper metadata (PMID, title, authors, year, journal, DOI, citations,
 figure count) to every extracted row, then appends to `all_results_df`.
 
@@ -2916,7 +2920,7 @@ additional metadata from NCBI's Gene API:
 - `Chromosome`
 - `NCBI Gene ID` (backfilled for LLM-only genes that PubTator didn't touch)
 
-This is **a separate tool** ([`NCBIGeneTool.enrich_gene_symbols`](pipeline/modules/pubtator_tool.py:428))
+This is **a separate tool** ([`NCBIGeneTool.enrich_gene_symbols`](../../pipeline/modules/pubtator_tool.py:428))
 that hits NCBI's efetch (db=gene). It's on the critical path — the pipeline blocks
 waiting for it — but it's lazy (only for unique symbols) and fast.
 
@@ -2988,7 +2992,7 @@ metadata CSV will have the full set (see Section 18).
 
 ## 18. `output_writing`: Four Artefacts + Debug Bundle
 
-Final output domain. [`_write_split_output`](pipeline/modules/pipeline_orchestrator.py:217)
+Final output domain. [`_write_split_output`](../../pipeline/modules/pipeline_orchestrator.py:217)
 writes four files from one DataFrame, sharing `(PMID, Gene/Group, Variant Name)`
 as join keys. A fifth file — the drop-debug artifact — is written separately.
 
@@ -3031,7 +3035,7 @@ every signal that went into that decision.
 
 ### 18.3 Excel workbook (two sheets)
 
-[`_write_excel_output`](pipeline/modules/pipeline_orchestrator.py) produces `.xlsx`
+[`_write_excel_output`](../../pipeline/modules/pipeline_orchestrator.py) produces `.xlsx`
 with:
 
 - **Sheet 1: Results** — the primary CSV content
@@ -3155,7 +3159,7 @@ Four pieces, built once per worker process:
 
 ### 19.2 Local HGNC database — the offline-first foundation
 
-[`_load_local_hgnc_database`](pipeline/modules/gene_validator.py:81) loads
+[`_load_local_hgnc_database`](../../pipeline/modules/gene_validator.py:81) loads
 `pipeline/data/reference/hgnc_genes.json` — the bundled snapshot (44,943 entries,
 6.6 MB, last refreshed 2026-02-28).
 
@@ -3209,7 +3213,7 @@ rare. Most calls return from Tier 1 with no network I/O.
 
 ### 19.4 Variant pattern bank
 
-[`_compile_variant_patterns`](pipeline/modules/gene_validator.py:283) compiles 18
+[`_compile_variant_patterns`](../../pipeline/modules/gene_validator.py:283) compiles 18
 regex patterns covering:
 
 | Category | Patterns | Example |
@@ -3230,7 +3234,7 @@ regex patterns covering:
 be tested first because `delins` is a superset of `del`. Same reason `duplication`
 precedes `deletion` in the traversal.
 
-Validation logic ([`_is_valid_variant`](pipeline/modules/gene_validator.py:392)) just
+Validation logic ([`_is_valid_variant`](../../pipeline/modules/gene_validator.py:392)) just
 iterates these in order and returns `(True, pattern_name)` on the first match. If
 nothing matches, the variant fails validation — but the overall gene validation can
 still succeed (Section 19.5).
@@ -3285,7 +3289,7 @@ drops can see why something was rejected and whether there's an obvious rename.
 
 ### 19.7 Murine symbol detection
 
-At [gene_validator.py:466-470](pipeline/modules/gene_validator.py:466):
+At [gene_validator.py:466-470](../../pipeline/modules/gene_validator.py:466):
 
 ```python
 if resolved_symbol and gene_stripped and gene_stripped != resolved_symbol:
@@ -3345,7 +3349,7 @@ Returns `(exists: bool, matching_ratio: float, detailed_reason: str)`.
 
 ### 19.9 Table citation validation
 
-[`validate_table_citation`](pipeline/modules/gene_validator.py:831) is a parallel
+[`validate_table_citation`](../../pipeline/modules/gene_validator.py:831) is a parallel
 path for citations that reference tables rather than prose. The `detail_extraction` prompt's
 instruction #4 ("PROSE CITATIONS ONLY, or `[Table N]` format if prose absent")
 produces citations like:
@@ -3447,13 +3451,13 @@ ask for 10 papers, we analyse 40 to compensate for paywalls and failed extractio
 
 This is not true in the current code.
 
-- `ANALYSIS_OVERFETCH_FACTOR = 4` is defined in [`config.py:158`](pipeline/modules/config.py:158)
+- `ANALYSIS_OVERFETCH_FACTOR = 4` is defined in [`config.py:158`](../../pipeline/modules/config.py:158)
   but **never read anywhere** — orphaned config.
 - The only knob that actually widens the candidate pool is `PUBMED_RELEVANT_COUNT = 200`
-  ([`orchestrator.py:710`](pipeline/modules/pipeline_orchestrator.py:710)), and it's hardcoded
+  ([`orchestrator.py:710`](../../pipeline/modules/pipeline_orchestrator.py:710)), and it's hardcoded
   at 200 regardless of how many papers the user wants. It only fires on a **query-mode** run.
 - For a **user-curated PMID list**, `specific_pmids` are treated as `mandatory_pmids`
-  ([`orchestrator.py:685`](pipeline/modules/pipeline_orchestrator.py:685)) — every one is
+  ([`orchestrator.py:685`](../../pipeline/modules/pipeline_orchestrator.py:685)) — every one is
   included, none are added. The concept of overfetching a hand-picked list doesn't make sense
   and the code correctly doesn't do it, despite what the docs say.
 
