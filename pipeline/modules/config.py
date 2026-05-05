@@ -103,11 +103,17 @@ GEMINI_CONFIG = {
 # --- Gemini quota guards ---
 # Defaults target the public free tier, where limits are model-dependent and can
 # be as low as 5-15 RPM plus daily request/token caps. Keep retry/call budgets
-# low so quota exhaustion is surfaced quickly instead of burning minutes.
+# low so quota exhaustion is surfaced quickly instead of burning minutes. Required
+# calls get one bounded retry for transient 503/high-demand responses; with the
+# default three-call budget this still leaves one call for detail extraction.
 GEMINI_MAX_CALLS_PER_PAPER = int(os.getenv("GEMINI_MAX_CALLS_PER_PAPER", "3"))
-GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "1"))
+GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
 GEMINI_OPTIONAL_MAX_RETRIES = int(os.getenv("GEMINI_OPTIONAL_MAX_RETRIES", "1"))
 GEMINI_INTER_CALL_DELAY_SECONDS = float(os.getenv("GEMINI_INTER_CALL_DELAY_SECONDS", "6"))
+GEMINI_TRANSIENT_RETRY_WAIT_SECONDS = int(os.getenv("GEMINI_TRANSIENT_RETRY_WAIT_SECONDS", "10"))
+GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS = int(
+    os.getenv("GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", "8192")
+)
 GEMINI_RETRY_RATE_LIMIT_WITH_DELAY = (
     os.getenv("GEMINI_RETRY_RATE_LIMIT_WITH_DELAY", "true").lower() == "true"
 )

@@ -4,7 +4,9 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from .. import config
 from .prompts import (
@@ -14,11 +16,115 @@ from .prompts import (
 )
 
 
+class CandidateAssociationResponse(BaseModel):
+    reported_gene: str
+    reported_variant: str
+    original_mention: str
+    evidence_sentence: str
+
+
+class CandidateDiscoveryResponse(BaseModel):
+    associations: List[CandidateAssociationResponse]
+
+
+class FigureAssociationResponse(BaseModel):
+    gene: str
+    variant: str
+
+
+class FigureDiscoveryResponse(BaseModel):
+    associations: List[FigureAssociationResponse]
+
+
+class DetailExtractionRowBase(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    gene_name: str = Field(description="The name of the gene.")
+    variant_name: str = Field(description="The associated variant, if any.")
+
+
+def _safe_detail_field_name(index: int, suffix: str = "") -> str:
+    return f"user_field_{index}{suffix}"
+
+
+def build_detail_extraction_response_model(
+    column_descriptions: Dict[str, str],
+) -> Type[BaseModel]:
+    """Build a Pydantic response model for dynamic user-requested columns."""
+    row_fields: Dict[str, Any] = {}
+    for index, (column, description) in enumerate(column_descriptions.items()):
+        row_fields[_safe_detail_field_name(index)] = (
+            str,
+            Field(default="", alias=column, description=description),
+        )
+        row_fields[_safe_detail_field_name(index, "_citation")] = (
+            str,
+            Field(
+                default="",
+                alias=f"{column} Citation",
+                description=(
+                    f"Direct quote or section/page reference supporting {column}. "
+                    "Leave empty if no variant-specific evidence."
+                ),
+            ),
+        )
+
+    detail_row_model = create_model(
+        "DetailExtractionRow",
+        __base__=DetailExtractionRowBase,
+        **row_fields,
+    )
+    return create_model(
+        "DetailExtractionResponse",
+        rows=(List[detail_row_model], Field(...)),  # type: ignore[valid-type]
+    )
+
+
 class GeminiClientMixin:
+    @staticmethod
+    def _parse_json_response(text: str) -> Any:
+        """Parse Gemini JSON output with limited cleanup for response wrappers."""
+        stripped = (text or "").strip()
+        if not stripped:
+            raise json.JSONDecodeError("Empty response", "", 0)
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+        if stripped.startswith("```"):
+            stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+            stripped = re.sub(r"\s*```$", "", stripped).strip()
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                pass
+
+        start_positions = [pos for pos in (stripped.find("{"), stripped.find("[")) if pos >= 0]
+        if not start_positions:
+            raise json.JSONDecodeError("No JSON object or array found", stripped, 0)
+        start = min(start_positions)
+        opening = stripped[start]
+        closing = "}" if opening == "{" else "]"
+        end = stripped.rfind(closing)
+        if end <= start:
+            raise json.JSONDecodeError("No complete JSON object or array found", stripped, start)
+        return json.loads(stripped[start:end + 1])
+
     @staticmethod
     def _is_rate_limit_error(error: Exception) -> bool:
         err = str(error)
         return "429" in err or "RESOURCE_EXHAUSTED" in err or "quota" in err.lower()
+
+    @staticmethod
+    def _is_transient_server_error(error: Exception) -> bool:
+        err = str(error)
+        return (
+            "503" in err
+            or "UNAVAILABLE" in err
+            or "high demand" in err.lower()
+            or "temporarily unavailable" in err.lower()
+        )
 
     @staticmethod
     def _extract_retry_delay_seconds(error: Exception) -> Optional[int]:
@@ -56,6 +162,57 @@ class GeminiClientMixin:
             return False
         raise RuntimeError(msg)
 
+    @staticmethod
+    def _coerce_parsed_value(value: Any) -> Any:
+        """Convert SDK/Pydantic parsed values into plain Python containers."""
+        if hasattr(value, "model_dump"):
+            return value.model_dump(by_alias=True)
+        if isinstance(value, list):
+            return [GeminiClientMixin._coerce_parsed_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: GeminiClientMixin._coerce_parsed_value(item)
+                for key, item in value.items()
+            }
+        return value
+
+    def _generate_content_response(
+        self,
+        *,
+        model_name: str,
+        contents: list,
+        generate_content_config: Any,
+        purpose: str,
+        optional: bool = False,
+        reserved_required_calls: int = 0,
+    ) -> Any:
+        """Call Gemini with per-paper budget and spacing guards."""
+        if not self._can_make_gemini_call(
+            purpose,
+            optional=optional,
+            reserved_required_calls=reserved_required_calls,
+        ):
+            return None
+
+        min_delay = float(getattr(config, "GEMINI_INTER_CALL_DELAY_SECONDS", 0) or 0)
+        if self._last_gemini_call_at is not None and min_delay > 0:
+            elapsed = time.time() - self._last_gemini_call_at
+            if elapsed < min_delay:
+                time.sleep(min_delay - elapsed)
+
+        self._paper_api_calls += 1
+        self._last_gemini_call_at = time.time()
+        try:
+            return self.client.models.generate_content(
+                model=f"models/{model_name}",
+                contents=contents,
+                config=generate_content_config,
+            )
+        except Exception as e:
+            if self._is_rate_limit_error(e):
+                self._quota_limited = True
+            raise
+
     def _generate_content_text(
         self,
         *,
@@ -66,41 +223,112 @@ class GeminiClientMixin:
         optional: bool = False,
         reserved_required_calls: int = 0,
     ) -> str:
-        """Call Gemini with per-paper budget and spacing guards."""
-        if not self._can_make_gemini_call(
-            purpose,
+        """Call Gemini and return text for non-structured callers."""
+        response = self._generate_content_response(
+            model_name=model_name,
+            contents=contents,
+            generate_content_config=generate_content_config,
+            purpose=purpose,
             optional=optional,
             reserved_required_calls=reserved_required_calls,
-        ):
+        )
+        if response is None:
             return ""
+        return (getattr(response, "text", None) or "").strip()
 
-        min_delay = float(getattr(config, "GEMINI_INTER_CALL_DELAY_SECONDS", 0) or 0)
-        if self._last_gemini_call_at is not None and min_delay > 0:
-            elapsed = time.time() - self._last_gemini_call_at
-            if elapsed < min_delay:
-                time.sleep(min_delay - elapsed)
+    def _generate_content_json(
+        self,
+        *,
+        model_name: str,
+        contents: list,
+        generate_content_config: Any,
+        purpose: str,
+        optional: bool = False,
+        reserved_required_calls: int = 0,
+        response_model: Optional[Type[BaseModel]] = None,
+    ) -> Any:
+        """Call Gemini structured output and return parsed JSON when the SDK provides it."""
+        response = self._generate_content_response(
+            model_name=model_name,
+            contents=contents,
+            generate_content_config=generate_content_config,
+            purpose=purpose,
+            optional=optional,
+            reserved_required_calls=reserved_required_calls,
+        )
+        if response is None:
+            return None
+        parsed = getattr(response, "parsed", None)
+        if parsed is not None:
+            parsed_value = self._coerce_parsed_value(parsed)
+            if response_model is not None:
+                return self._validate_structured_response(
+                    parsed_value,
+                    response_model,
+                    purpose,
+                )
+            return parsed_value
+        text = (getattr(response, "text", None) or "").strip()
+        if not text:
+            return None
+        parsed_value = self._parse_json_response(text)
+        if response_model is not None:
+            return self._validate_structured_response(
+                parsed_value,
+                response_model,
+                purpose,
+            )
+        return parsed_value
 
-        self._paper_api_calls += 1
-        self._last_gemini_call_at = time.time()
-        full_response_text = ""
+    @staticmethod
+    def _validate_structured_response(
+        response_json: Any,
+        response_model: Type[BaseModel],
+        purpose: str,
+    ) -> Dict[str, Any]:
+        """Validate parsed Gemini JSON against the same Pydantic schema sent to Gemini."""
         try:
-            for chunk in self.client.models.generate_content_stream(
-                model=f"models/{model_name}",
-                contents=contents,
-                config=generate_content_config,
-            ):
-                if chunk.text:
-                    full_response_text += chunk.text
-        except Exception as e:
-            if self._is_rate_limit_error(e):
-                self._quota_limited = True
-            raise
-        return full_response_text
+            validated = response_model.model_validate(response_json)
+        except ValidationError as exc:
+            raise ValueError(f"{purpose} response failed schema validation: {exc}") from exc
+        return GeminiClientMixin._coerce_parsed_value(validated)
+
+    @staticmethod
+    def _associations_from_structured_response(
+        response_json: Any,
+        purpose: str,
+        response_model: Type[BaseModel] = CandidateDiscoveryResponse,
+    ) -> List[Any]:
+        """Validate a structured response model that exposes an associations list."""
+        validated = GeminiClientMixin._validate_structured_response(
+            response_json,
+            response_model,
+            purpose,
+        )
+        associations = validated.get("associations")
+        if not isinstance(associations, list):
+            raise ValueError(f"{purpose} response field 'associations' was not a list")
+        return associations
+
+    @staticmethod
+    def _detail_rows_from_structured_response(response_json: Any, purpose: str) -> List[Dict[str, Any]]:
+        if not isinstance(response_json, dict):
+            raise ValueError(f"{purpose} response was not a JSON object")
+        rows = response_json.get("rows")
+        if rows is None:
+            raise ValueError(f"{purpose} response missing required 'rows' field")
+        if not isinstance(rows, list):
+            raise ValueError(f"{purpose} response field 'rows' was not a list")
+        return [row for row in rows if isinstance(row, dict)]
 
     def _should_retry_gemini_error(self, error: Exception, attempt: int, max_retries: int) -> tuple[bool, int]:
         """Return (should_retry, wait_seconds) for Gemini failures."""
         if attempt >= max_retries - 1:
             return False, 0
+
+        if self._is_transient_server_error(error):
+            wait = int(getattr(config, "GEMINI_TRANSIENT_RETRY_WAIT_SECONDS", 10))
+            return True, max(wait, 1)
 
         if not self._is_rate_limit_error(error):
             wait = 2 ** attempt
@@ -151,7 +379,6 @@ class GeminiClientMixin:
         Returns:
             List of gene-variant associations found in abstract
         """
-        from google import genai  # type: ignore
         from google.genai import types  # type: ignore
 
         if not self.abstract_text or len(self.abstract_text) < 50:
@@ -168,29 +395,11 @@ class GeminiClientMixin:
         generate_content_config = types.GenerateContentConfig(
             temperature=config.GEMINI_CONFIG["temperature"],
             thinking_config=types.ThinkingConfig(thinking_budget=0),
-            response_mime_type="application/json",
-            response_schema=genai.types.Schema(
-                type=genai.types.Type.OBJECT,
-                required=["associations"],
-                properties={
-                    "associations": genai.types.Schema(
-                        type=genai.types.Type.ARRAY,
-                        items=genai.types.Schema(
-                            type=genai.types.Type.OBJECT,
-                            properties={
-                                "gene": genai.types.Schema(
-                                    type=genai.types.Type.STRING,
-                                    description="Official HGNC gene symbol (e.g. IL6, CXCL9, BRCA1)",
-                                ),
-                                "variant": genai.types.Schema(
-                                    type=genai.types.Type.STRING,
-                                    description="Specific variant if mentioned (e.g. rs1234, c.123A>G), or empty string if none",
-                                ),
-                            },
-                        ),
-                    ),
-                },
+            max_output_tokens=int(
+                getattr(config, "GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", 8192)
             ),
+            response_mime_type="application/json",
+            response_schema=CandidateDiscoveryResponse,
         )
 
         instruction = _GENE_DISCOVERY_INSTRUCTION_ABSTRACT
@@ -206,19 +415,22 @@ class GeminiClientMixin:
 
         for attempt in range(max_retries):
             try:
-                full_response_text = self._generate_content_text(
+                response_json = self._generate_content_json(
                     model_name=model_name,
                     contents=contents,
                     generate_content_config=generate_content_config,
                     purpose="abstract gene discovery",
                     optional=True,
                     reserved_required_calls=2,
+                    response_model=CandidateDiscoveryResponse,
                 )
-                if not full_response_text:
+                if not response_json:
                     break
 
-                response_json = json.loads(full_response_text)
-                self.associations = response_json.get("associations", [])
+                self.associations = self._associations_from_structured_response(
+                    response_json,
+                    "abstract gene discovery",
+                )
 
                 if self.associations:
                     logging.info(
@@ -258,7 +470,6 @@ class GeminiClientMixin:
                          so the model explores different completions instead of repeating pass 1.
             optional: If False, failures raise so the caller can fail paper analysis.
         """
-        from google import genai  # type: ignore
         from google.genai import types  # type: ignore
 
         model_name = config.GEMINI_CONFIG["gene_extraction_model"]
@@ -288,29 +499,11 @@ Paper text:
         generate_content_config = types.GenerateContentConfig(
             temperature=effective_temperature,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
-            response_mime_type="application/json",
-            response_schema=genai.types.Schema(
-                type=genai.types.Type.OBJECT,
-                required=["associations"],
-                properties={
-                    "associations": genai.types.Schema(
-                        type=genai.types.Type.ARRAY,
-                        items=genai.types.Schema(
-                            type=genai.types.Type.OBJECT,
-                            properties={
-                                "gene": genai.types.Schema(
-                                    type=genai.types.Type.STRING,
-                                    description="Official HGNC gene symbol (e.g. IL6, CXCL9, BRCA1, TP53)",
-                                ),
-                                "variant": genai.types.Schema(
-                                    type=genai.types.Type.STRING,
-                                    description="Specific variant if mentioned (e.g. rs1234, c.123A>G), or empty string if none",
-                                ),
-                            },
-                        ),
-                    ),
-                },
+            max_output_tokens=int(
+                getattr(config, "GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", 8192)
             ),
+            response_mime_type="application/json",
+            response_schema=CandidateDiscoveryResponse,
         )
 
         contents = [
@@ -322,33 +515,24 @@ Paper text:
 
         for attempt in range(max_retries):
             try:
-                full_response_text = self._generate_content_text(
+                response_json = self._generate_content_json(
                     model_name=model_name,
                     contents=contents,
                     generate_content_config=generate_content_config,
                     purpose="full-text gene discovery",
                     optional=optional,
                     reserved_required_calls=1 if optional else 0,
+                    response_model=CandidateDiscoveryResponse,
                 )
-                if not full_response_text:
+                if not response_json:
                     if not optional:
                         raise RuntimeError("full-text gene discovery returned an empty response")
                     break
 
-                response_json = json.loads(full_response_text)
-                if not isinstance(response_json, dict):
-                    raise ValueError("full-text gene discovery response was not a JSON object")
-                if "associations" not in response_json:
-                    raise ValueError(
-                        "full-text gene discovery response missing required 'associations' field"
-                    )
-                parsed_associations = response_json.get("associations", [])
-                if parsed_associations is None:
-                    parsed_associations = []
-                if not isinstance(parsed_associations, list):
-                    raise ValueError(
-                        "full-text gene discovery response field 'associations' was not a list"
-                    )
+                parsed_associations = self._associations_from_structured_response(
+                    response_json,
+                    "full-text gene discovery",
+                )
                 if parsed_associations:
                     self._ingest_associations(parsed_associations, "llm_text")
                     break  # Success, exit retry loop
@@ -395,58 +579,29 @@ Paper text:
             self.detail_extraction_rows = 0
             return []
 
-        from google import genai  # type: ignore
         from google.genai import types  # type: ignore
 
         model_name = config.GEMINI_CONFIG["data_extraction_model"]
-
-        properties = {
-            "gene_name": genai.types.Schema(
-                type=genai.types.Type.STRING, description="The name of the gene."
-            )
-        }
-        properties["variant_name"] = genai.types.Schema(
-            type=genai.types.Type.STRING, description="The associated variant, if any."
-        )
-        # Only require identifiers; user fields are optional so the model can omit generic, non-variant-specific text
-        required = ["gene_name", "variant_name"]
-        # For each user column, request both the value and a separate citation field (optional)
-        for column, description in column_descriptions.items():
-            # Value field (optional)
-            properties[column] = genai.types.Schema(
-                type=genai.types.Type.STRING, description=description
-            )
-            # Citation field (optional)
-            citation_col = f"{column} Citation"
-            properties[citation_col] = genai.types.Schema(
-                type=genai.types.Type.STRING,
-                description=f"Direct quote or section/page reference supporting {column}. Leave empty if no variant-specific evidence.",
-            )
+        detail_response_model = build_detail_extraction_response_model(column_descriptions)
 
         generate_content_config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(thinking_budget=0),
             response_mime_type="application/json",
-            response_schema=genai.types.Schema(
-                type=genai.types.Type.ARRAY,
-                items=genai.types.Schema(
-                    type=genai.types.Type.OBJECT,
-                    required=required,
-                    properties=properties,
-                ),
-            ),
+            response_schema=detail_response_model,
         )
 
         normalized_associations = []
         for assoc in self.associations:
             gene = (assoc.get("gene") or "").strip()
-            variant = self._normalize_variant_value(assoc.get("variant", ""))
+            variant = self._normalize_variant_for_gene(gene, assoc.get("variant", ""))
             if not gene:
                 continue
             normalized_associations.append({"gene_name": gene, "variant_name": variant})
 
         associations_json = json.dumps(normalized_associations, ensure_ascii=False)
         prompt_text = (
-            "Based on the following research paper text, extract the requested information for the following gene-variant associations:\n\n"
+            "Based on the following research paper text, extract the requested information for the following gene-variant associations.\n"
+            "Return one JSON object with a `rows` array. Each row must match one association from the authoritative input.\n\n"
             f"Associations JSON (authoritative input): {associations_json}\n\n"
             "IMPORTANT: For each piece of information you extract, provide a specific citation "
             "(quote or section/page reference) from the paper text that directly supports your answer. "
@@ -484,41 +639,45 @@ Paper text:
 
         for attempt in range(max_retries):
             try:
-                full_response_text = self._generate_content_text(
+                parsed = self._generate_content_json(
                     model_name=model_name,
                     contents=contents,
                     generate_content_config=generate_content_config,
                     purpose="detail extraction",
                     optional=False,
+                    response_model=detail_response_model,
+                )
+                parsed_rows = self._detail_rows_from_structured_response(
+                    parsed,
+                    "detail extraction",
                 )
 
-                parsed = json.loads(full_response_text)
-                if isinstance(parsed, list):
-                    for row in parsed:
-                        if not isinstance(row, dict):
-                            continue
-                        row["variant_name"] = self._normalize_variant_value(
-                            row.get("variant_name", "")
-                        )
-                        # Cleanup no-evidence placeholders so CSV stays clean.
-                        for col in column_descriptions:
-                            if col in row:
-                                row[col] = self._normalize_empty_placeholder(row.get(col, ""))
-                            citation_col = f"{col} Citation"
-                            if citation_col in row:
-                                row[citation_col] = self._normalize_empty_placeholder(
-                                    row.get(citation_col, "")
-                                )
-                        # F11: Tag as LLM-sourced so the output CSV can
-                        # distinguish real LLM content from fallback skeletons
-                        # produced when Gemini fails (quota, timeout, malformed).
-                        row["extraction_mode"] = "llm"
-                    self.detail_extraction_status = (
-                        "model_response_parsed" if parsed else "model_response_empty_rows"
+                for row in parsed_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    row["variant_name"] = self._normalize_variant_for_gene(
+                        row.get("gene_name", ""),
+                        row.get("variant_name", ""),
                     )
-                    self.detail_extraction_error = ""
-                    self.detail_extraction_rows = len(parsed)
-                return parsed
+                    # Cleanup no-evidence placeholders so CSV stays clean.
+                    for col in column_descriptions:
+                        if col in row:
+                            row[col] = self._normalize_empty_placeholder(row.get(col, ""))
+                        citation_col = f"{col} Citation"
+                        if citation_col in row:
+                            row[citation_col] = self._normalize_empty_placeholder(
+                                row.get(citation_col, "")
+                            )
+                    # F11: Tag as LLM-sourced so the output CSV can
+                    # distinguish real LLM content from fallback skeletons
+                    # produced when Gemini fails (quota, timeout, malformed).
+                    row["extraction_mode"] = "llm"
+                self.detail_extraction_status = (
+                    "model_response_parsed" if parsed_rows else "model_response_empty_rows"
+                )
+                self.detail_extraction_error = ""
+                self.detail_extraction_rows = len(parsed_rows)
+                return parsed_rows
 
             except Exception as e:
                 logging.error(
@@ -545,7 +704,10 @@ Paper text:
                     for assoc in self.associations:
                         fallback_item = {
                             "gene_name": assoc["gene"],
-                            "variant_name": self._normalize_variant_value(assoc.get("variant", "")),
+                            "variant_name": self._normalize_variant_for_gene(
+                                assoc.get("gene", ""),
+                                assoc.get("variant", ""),
+                            ),
                             "extraction_mode": "skeleton",
                             "detail_extraction_error": err_msg,
                         }

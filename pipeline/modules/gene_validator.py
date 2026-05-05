@@ -812,7 +812,8 @@ def _citation_exists_in_paper(
                     found_symbol = True
                     break
                 # Also check without hyphens
-                if re.search(r'\b' + escaped.replace("-", "") + r'\b', context_str_lower.replace("-", "")):
+                escaped_no_hyphen = re.escape(sym_lower.replace("-", ""))
+                if re.search(r'\b' + escaped_no_hyphen + r'\b', context_str_lower.replace("-", "")):
                     found_symbol = True
                     break
 

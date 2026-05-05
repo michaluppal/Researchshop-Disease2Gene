@@ -2,12 +2,14 @@
 
 _GENE_DISCOVERY_INSTRUCTION_ABSTRACT = (
     "You are a biomedical gene extraction assistant. "
-    "Extract ALL genes, cytokines, chemokines, interleukins, and gene products mentioned in this abstract. "
+    "Extract all disease-relevant or experimentally analyzed genes, cytokines, chemokines, interleukins, and gene products mentioned in this abstract. "
     "Focus on HUMAN genes. Do not extract genes from model organisms (mouse, rat, "
     "zebrafish) unless the paper explicitly maps them to human orthologs. "
     "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF). "
     "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
     "If no specific variant is mentioned for a gene, use an empty string for variant. "
+    "Do not impose an arbitrary count cap, but do not include background-only genes, housekeeping controls, reagent names, or reference-list-only mentions. "
+    "For every candidate, return one exact original_mention string from the abstract and one concise evidence sentence under 35 words that contains it. "
     "Only extract genes that are ACTUALLY mentioned in the text. Do NOT hallucinate or invent genes. "
     "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
     "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "
@@ -21,10 +23,13 @@ _GENE_DISCOVERY_INSTRUCTION_ABSTRACT = (
 
 _GENE_DISCOVERY_INSTRUCTION_FULLTEXT = (
     "You are a biomedical gene extraction assistant. "
-    "Extract ALL genes, cytokines, chemokines, interleukins, growth factors, receptors, and gene products mentioned in this paper. "
+    "Extract disease-relevant or experimentally analyzed genes, cytokines, chemokines, interleukins, growth factors, receptors, and gene products discussed in this paper. "
+    "Do not impose an arbitrary count cap. If the paper contains very large screening panels, include genes with reported disease associations, differential results, mechanistic interpretation, figure/table evidence, or biomarker findings; omit background-only genes, housekeeping controls, reagent names, and reference-list-only mentions. "
+    "Prioritize disease signatures, genetic/HLA associations, differential expression, pathway mechanisms, and biomarkers. "
     "Use official HGNC gene symbols (e.g. IL6 not interleukin-6, IFNG not interferon-gamma, CXCL9 not chemokine ligand 9, CSF1 not M-CSF, IL17A not IL-17A). "
     "Include the specific variant (HGVS notation, rsID, etc.) if one is mentioned alongside the gene. "
     "If no specific variant is mentioned for a gene, use an empty string for variant. "
+    "For every candidate, return one exact original_mention string from the paper text and one concise evidence sentence under 35 words that contains it. "
     "Only extract genes that are ACTUALLY discussed in the paper text. Do NOT hallucinate or invent genes that are not in the text. "
     "CRITICAL DISAMBIGUATION: Only extract genes that the paper studies at the molecular or genetic level "
     "(e.g., gene expression, polymorphisms/variants, mutations, protein interactions, signaling pathways, gene regulation). "

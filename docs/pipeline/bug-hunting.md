@@ -1,10 +1,12 @@
 # Pipeline Bug-Hunting Cheatsheet
 
+> **Status:** Historical/maintainer review notes, not a current issue tracker or architecture source of truth. Verify every finding against the current code before acting.
+>
 > **Purpose:** Actionable audit of suspicious code paths in the extraction pipeline. Scan the tables, pick a finding, open the referenced file:line, verify, and decide what to fix.
 >
 > **Companion doc:** [`internals.md`](./internals.md) — the deep technical reference. This doc tells you *what looks wrong*; the internals doc tells you *how the code actually works*.
 >
-> **History vs. current state:** [`AUDIT.md`](../audit/AUDIT.md) logs bugs that were already fixed. This doc lists code that is currently in production and should be reviewed.
+> **History vs. current state:** [`../audit/AUDIT.md`](../audit/AUDIT.md) logs bugs that were already fixed. Entries below may predate the `pipeline/modules/paper_analysis/` split; `pipeline/modules/gemini_extractor.py` is now a compatibility shim for legacy imports.
 
 ---
 
@@ -24,7 +26,7 @@ All findings are ordered by risk within each section. Every entry includes `file
 
 ### 1.1 Parallel mode: `ready()` → `.get(timeout=0)` race swallows worker errors
 
-**File:** `python/modules/pipeline_orchestrator.py:1085-1092`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1085-1092`
 
 ```python
 # pipeline_orchestrator.py:1085
@@ -48,7 +50,7 @@ for pmid in newly_done:
 
 ### 1.2 Pool restart resets per-paper timeout clock
 
-**File:** `python/modules/pipeline_orchestrator.py:1169-1176`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1169-1176`
 
 ```python
 # pipeline_orchestrator.py:1169
@@ -72,7 +74,7 @@ for pmid, info in list(in_flight.items()):
 
 ### 1.3 Pool restart leaves stale `in_flight` entries
 
-**File:** `python/modules/pipeline_orchestrator.py:1174-1196`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1174-1196`
 
 **Problem.** After `worker_pool.terminate()`, the code iterates `in_flight` and re-submits each paper to the new pool. But the restart path only re-submits papers whose timeout *didn't* fire. Papers that are neither timed out nor ready get re-submitted and stay in `in_flight` — correct. Papers that were ready but not yet harvested (lines 1142-1167) get harvested *before* the restart. That ordering is fragile: if `_finalize_paper_result()` raises for a harvested-but-ready paper, the code continues to `terminate()` anyway, and the in-flight dict still contains entries pointing to async results on a dead pool.
 
@@ -84,7 +86,7 @@ for pmid, info in list(in_flight.items()):
 
 ### 1.4 Variant dedup aggregation silently loses empty variants
 
-**File:** `python/modules/pipeline_orchestrator.py:1563-1565`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1563-1565`
 
 ```python
 # pipeline_orchestrator.py:1563
@@ -103,7 +105,7 @@ def _agg_variants(series):
 
 ### 1.5 Dedup wrapped in swallow-all try/except
 
-**File:** `python/modules/pipeline_orchestrator.py:1573-1574`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1573-1574`
 
 ```python
 # pipeline_orchestrator.py:1573
@@ -121,7 +123,7 @@ def _agg_variants(series):
 
 ### 1.6 Citation match threshold hardcoded
 
-**File:** `python/modules/gene_validator.py:704`
+**File:** `pipeline/modules/gene_validator.py:704`
 
 ```python
 # gene_validator.py:704
@@ -139,7 +141,7 @@ if best_ratio < 0.85:
 
 ### 1.7 Citation word overlap threshold hardcoded
 
-**File:** `python/modules/gene_validator.py:690`
+**File:** `pipeline/modules/gene_validator.py:690`
 
 ```python
 # gene_validator.py:690
@@ -155,7 +157,7 @@ if len(common) / len(cit_set) < 0.6:
 
 ### 1.8 `isResultPayload` accepts any object
 
-**File:** `src/main/python-bridge.ts:25-27`
+**File:** `app/src/main/python-bridge.ts:25-27`
 
 ```typescript
 // python-bridge.ts:25
@@ -174,7 +176,7 @@ function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?
 
 ### 1.9 RESULT vs. cancel micro-race
 
-**File:** `src/main/python-bridge.ts:156-161`
+**File:** `app/src/main/python-bridge.ts:156-161`
 
 ```typescript
 // python-bridge.ts:156
@@ -198,7 +200,7 @@ if (!isResultPayload(raw)) {
 
 ### 1.10 Grounding check can be bypassed for mixed-source figure genes
 
-**File:** `python/modules/gemini_extractor.py:1455-1479`
+**File:** `pipeline/modules/gemini_extractor.py:1455-1479`
 
 **Problem.** The figure-specific grounding check (light check: search figure captions) only runs when `sources == {"llm_figure"}`. A gene that was found by BOTH `llm_figure` AND `deterministic_lexicon` has `sources = {"llm_figure", "deterministic_lexicon"}`, which fails the set equality. It falls through to the standard grounding check (line 1444) which searches the full paper text. If the deterministic lexicon found the gene as a raw match but the gene has no prose context, the grounding check might still pass because the lexicon match is itself textual evidence.
 
@@ -212,7 +214,7 @@ if (!isResultPayload(raw)) {
 
 ### 2.1 HIGH confidence tier unreachable if `val_conf < 0.85`
 
-**File:** `python/modules/pipeline_orchestrator.py:79-93`
+**File:** `pipeline/modules/pipeline_orchestrator.py:79-93`
 
 **Problem.** `_compute_row_confidence` returns LOW if `val_conf < 0.85` before it can evaluate the HIGH branch. HIGH requires `gene_source == "both"` AND a valid citation — but if validation confidence didn't hit 0.85, the row has already returned LOW. Some dual-source genes with `val_conf = 0.8` that have verified citations land in LOW when they should be at least MEDIUM.
 
@@ -222,7 +224,7 @@ if (!isResultPayload(raw)) {
 
 ### 2.2 HGNC API fallback has no circuit breaker
 
-**File:** `python/modules/gene_validator.py:216-250`
+**File:** `pipeline/modules/gene_validator.py:216-250`
 
 **Problem.** Every failed local lookup tries the HGNC REST API. If HGNC is down (503) or slow (8s+), every one of 2000 gene validations pays the timeout. 2000 × 8s = 4.5 hours stalled on a single paper.
 
@@ -232,7 +234,7 @@ if (!isResultPayload(raw)) {
 
 ### 2.3 Figure URL dedup loses multi-panel figure detail
 
-**File:** `python/modules/full_text_fetcher.py:354-413`
+**File:** `pipeline/modules/full_text_fetcher.py:354-413`
 
 **Problem.** Figure URL dedup uses only the URL string. PMC multi-panel figures (1A, 1B, 1C) sometimes share the same image URL with different panel labels. Dedup by URL alone drops panels 1B and 1C.
 
@@ -242,7 +244,7 @@ if (!isResultPayload(raw)) {
 
 ### 2.4 Semantic Scholar per-PMID rate limit
 
-**File:** `python/modules/pubmed_data_collector.py:364-385`
+**File:** `pipeline/modules/pubmed_data_collector.py:364-385`
 
 **Problem.** The Semantic Scholar fallback loops over unresolved PMIDs one at a time with a 200ms sleep. For 1000 unresolved PMIDs that's 3+ minutes of pure wait.
 
@@ -252,7 +254,7 @@ if (!isResultPayload(raw)) {
 
 ### 2.5 `PARALLEL_ANALYSIS` string coercion accepts any truthy value
 
-**File:** `src/main/python-bridge.ts:93` + `python/modules/config.py:154`
+**File:** `app/src/main/python-bridge.ts:93` + `pipeline/modules/config.py:154`
 
 ```typescript
 // python-bridge.ts (around line 93, inside env:)
@@ -272,7 +274,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 2.6 Validation fallback trusts pre-validation on empty result
 
-**File:** `python/modules/gemini_extractor.py:1505-1549` (`_run_validation_and_normalize`)
+**File:** `pipeline/modules/gemini_extractor.py:1505-1549` (`_run_validation_and_normalize`)
 
 **Problem.** If `_apply_gene_validation_heuristics()` filters out all associations AND `ENABLE_STRICT_VALIDATION_GATE=False`, the code falls back to `pre_validation_associations`. This trusts the raw LLM output after it *failed* gene validation. Only safe with strict gate off, but worth a second look: the gate-off branch should probably still apply SOME floor (e.g., must exist in HGNC at any confidence) rather than taking raw LLM output.
 
@@ -282,7 +284,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 2.7 `Medline.parse()` silently drops malformed records
 
-**File:** `python/modules/pubmed_data_collector.py:222-228`
+**File:** `pipeline/modules/pubmed_data_collector.py:222-228`
 
 **Problem.** Biopython's `Medline.parse()` skips records it can't parse. No exception is raised. Papers with corrupted metadata (rare but possible with very old NCBI entries) simply vanish from the result set.
 
@@ -292,7 +294,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 2.8 Sequential mode polling loop burns CPU on slow workers
 
-**File:** `python/modules/pipeline_orchestrator.py:1244-1251`
+**File:** `pipeline/modules/pipeline_orchestrator.py:1244-1251`
 
 **Problem.** Sequential mode uses a 200ms polling loop around `async_result.ready()` instead of `async_result.get(timeout=N)`. This adds up-to-200ms detection lag per timeout, and burns CPU during the check_cancellation cycles.
 
@@ -302,7 +304,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 2.9 `_finalize_paper_result` assumes PubTator results exist
 
-**File:** `python/modules/pipeline_orchestrator.py:409-517` (approximate)
+**File:** `pipeline/modules/pipeline_orchestrator.py:409-517` (approximate)
 
 **Problem.** The code checks `if pmid in pubtator_results` before enrichment. If `ENABLE_PUBTATOR_EXTRACTION=False`, `pubtator_results` is empty for all PMIDs, and the `Gene Source` / `NCBI Gene ID` columns are silently omitted from the output. Users who disable PubTator think those columns should be blank, not missing.
 
@@ -314,7 +316,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 3.1 `_write_split_output` silently drops renamed user columns
 
-**File:** `python/modules/pipeline_orchestrator.py:217-290` (approximate)
+**File:** `pipeline/modules/pipeline_orchestrator.py:217-290` (approximate)
 
 **Contract assumed:** user_cols names match DataFrame column names.
 
@@ -326,7 +328,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 3.2 `validate_citations` collapses "empty" and "mismatched" into the same result
 
-**File:** `python/modules/gene_validator.py:541-582` (approximate)
+**File:** `pipeline/modules/gene_validator.py:541-582` (approximate)
 
 **Contract assumed:** Callers can distinguish "no citation provided" from "citation provided but not in paper".
 
@@ -338,7 +340,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 3.3 JATS XML parser conflates invalid XML with empty article
 
-**File:** `python/modules/full_text_fetcher.py:499-617` (approximate)
+**File:** `pipeline/modules/full_text_fetcher.py:499-617` (approximate)
 
 **Contract assumed:** Caller can distinguish parse error from "valid but empty".
 
@@ -350,7 +352,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 3.4 PubTator PMID extraction tries multiple response fields
 
-**File:** `python/modules/pubtator_tool.py:204-208`
+**File:** `pipeline/modules/pubtator_tool.py:204-208`
 
 **Contract assumed:** The PubTator3 API response has one of `pmid`, `id`, or `_id` containing the PMID.
 
@@ -362,7 +364,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 ### 3.5 `_finalize_paper_result` assumes `paper_df` has `Gene/Group` column
 
-**File:** `python/modules/pipeline_orchestrator.py:538-539` (approximate)
+**File:** `pipeline/modules/pipeline_orchestrator.py:538-539` (approximate)
 
 **Contract assumed:** `PaperAnalysisPipeline.run_pipeline()` always returns a DataFrame with `Gene/Group` column (even empty).
 
@@ -461,16 +463,16 @@ Every `try/except` below catches an error without surfacing it. Grep for them an
 ## Section 9 — How to Verify a Fix
 
 ### Unit tests
-Location: `python/tests/test_*.py`
+Location: `pipeline/tests/test_*.py`
 
-Run: `cd python && source .venv/bin/activate && python -m pytest -v`
+Run: `cd pipeline && source .venv/bin/activate && python -m pytest -v`
 
 Expected: 65/65 pass. If you add a fix, add a test that *would have failed before the fix*.
 
 ### Integration tests
-Location: `python/tests/test_pipeline_integration.py`
+Location: `pipeline/tests/test_pipeline_integration.py`
 
-Run: `cd python && source .venv/bin/activate && python -m pytest tests/test_pipeline_integration.py -v`
+Run: `cd pipeline && source .venv/bin/activate && python -m pytest tests/test_pipeline_integration.py -v`
 
 Expected: 11/11 pass. These run the full pipeline on cached fixtures; they catch regressions but not all edge cases.
 
@@ -480,7 +482,7 @@ Run: `/verify` (project slash command)
 What it does: TS typecheck + Python module imports + a minimal extraction test.
 
 ### Benchmark
-Location: `python/scripts/benchmark_runner.py`
+Location: `pipeline/scripts/benchmark_runner.py`
 
 Run: `python scripts/benchmark_runner.py --pmids 17463248`
 

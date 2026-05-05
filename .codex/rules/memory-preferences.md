@@ -21,7 +21,7 @@
 
 - **Strict mode on** — both `config/tsconfig.web.json` and `config/tsconfig.node.json`
 - **Functional components only** — no class components
-- **Path alias:** `@/*` maps to `src/renderer/*`
+- **Path alias:** `@/*` maps to `app/src/renderer/*`
 - **Tailwind** for all styling — no inline styles, no CSS modules
 - **IPC pattern:** renderer calls `window.api.*` (preload bridge), never directly imports Electron
 

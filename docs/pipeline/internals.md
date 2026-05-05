@@ -1,12 +1,16 @@
 # Pipeline Internals — Deep Technical Reference
 
-> **Purpose.** Function-level deep dive into the ResearchShop extraction pipeline. Read this to understand how the pipeline actually works, where state flows, and where things can fail silently.
+> **Status.** Maintainer technical notes, not the canonical architecture contract.
+> Use [`pipeline-contract.md`](./pipeline-contract.md) as the source of truth for current pipeline domains, boundaries, and invariants.
+>
+> **Purpose.** Function-level deep dive into the ResearchShop extraction pipeline. Read this to understand historical state flow, implementation details, and places where failures can be silent. Some line numbers and architecture narrative may lag behind the active contract.
 >
 > **Companion docs:**
+> - [`pipeline-contract.md`](./pipeline-contract.md) — canonical architecture source.
 > - [`bug-hunting.md`](./bug-hunting.md) — actionable audit cheatsheet. This doc tells you how the code works; that one tells you where it's suspect.
 > - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level overview for Codex sessions. This doc goes deeper.
-> - [`AUDIT.md`](../audit/AUDIT.md) — historical bug log.
-> - [`AGENTS.md`](../../AGENTS.md) — project routing file.
+> - [`../audit/AUDIT.md`](../audit/AUDIT.md) — historical bug log.
+> - [`../../AGENTS.md`](../../AGENTS.md) — project routing file.
 
 ---
 
@@ -33,7 +37,7 @@
 
 **The pipeline in one sentence.** User selects PubMed papers in the Electron UI → main process spawns a Python subprocess → Python fetches full text, runs NER + LLM extraction + validation → writes CSV/Excel/JSON artifacts → main process reads the RESULT line and persists artifact paths in SQLite.
 
-**Where it starts.** `python/run_pipeline.py` (spawned by `src/main/python-bridge.ts`).
+**Where it starts.** `pipeline/run_pipeline.py` (spawned by `app/src/main/python-bridge.ts`).
 **Where it ends.** A multi-file artifact bundle under `data/output/` plus a row in `jobs.db`.
 
 **Main invariants** (things the pipeline assumes but does not always enforce):
@@ -50,6 +54,8 @@
 ---
 
 ## Part 1 — Architecture Overview
+
+> **Canonical source:** [`pipeline-contract.md`](./pipeline-contract.md). The diagram below is retained as a useful implementation snapshot, but architecture changes should be made against the contract and then reflected here only where the technical notes remain useful.
 
 ### The 7 domains
 
@@ -170,7 +176,7 @@ Everything in the pipeline is a tension between these three. The safeguards (gro
 
 ## Part 2 — Entry Points
 
-### 2.1 `python/run_pipeline.py` — CLI entry
+### 2.1 `pipeline/run_pipeline.py` — CLI entry
 
 Entire file is 74 lines. Reading it gives you the full shape of the Python entry point.
 
@@ -244,7 +250,7 @@ except Exception as e:
 
 The RESULT dict (when successful) contains `local_path`, `metadata_path`, `excel_path`, `json_path`, and `debug_path`. See [`pipeline_orchestrator.py:1363-1369`](#part-9--output_writing-orchestration-and-output-writing).
 
-### 2.2 `src/main/python-bridge.ts` — Electron side
+### 2.2 `app/src/main/python-bridge.ts` — Electron side
 
 **Type guards.** `python-bridge.ts:18-27`:
 
@@ -316,7 +322,7 @@ export function cancelPipeline(): boolean {
 
 The bridge stays single-flight until the child process actually emits `close` or `error`. `currentProcess` and `currentJobId` are NOT cleared here — they're cleared in the `close` handler at line 210-211. This prevents a new run from starting while the old process is still draining (see [`AUDIT.md` C23 §2026-04-07](../audit/AUDIT.md)).
 
-### 2.3 `src/main/ipc-handlers.ts` — Pipeline IPC
+### 2.3 `app/src/main/ipc-handlers.ts` — Pipeline IPC
 
 The pipeline-related handlers are:
 - `pipeline:start` → calls `startPipeline(jobId, args)` from python-bridge
@@ -391,7 +397,7 @@ search results the modal fetches/renders, not how many get analysed.
 
 ### 4.1 UI-side scoring
 
-Since 2026-03-02 this moved from the Python pipeline to the Electron renderer. The primary implementation is `src/renderer/utils/geneRelevanceScorer.ts`.
+Since 2026-03-02 this moved from the Python pipeline to the Electron renderer. The primary implementation is `app/src/renderer/utils/geneRelevanceScorer.ts`.
 
 **Trigger point:** `TopicResultsModal.tsx` fetches abstracts via `pubmed:fetch-abstracts` IPC, then scores each paper client-side.
 
@@ -507,7 +513,7 @@ PubTator provides the precision floor:
 
 ### 7.1 Package: `pipeline/modules/paper_analysis/`
 
-This package owns the per-paper extraction flow. `gemini_extractor.py` remains only as
+This package owns the per-paper extraction flow. `pipeline/modules/gemini_extractor.py` remains only as
 a backward-compatible shim exporting legacy aliases to `PaperAnalysisPipeline`.
 
 ### 7.2 Class lifecycle
@@ -762,7 +768,7 @@ Two main classes: `GeneValidator` and `ContextWindowValidator`.
 
 `GeneValidator.resolve_gene_symbol(candidate)` tries sources in order:
 
-1. **Local HGNC JSON** (44,933 genes bundled at `python/data/reference/hgnc_genes.json`) — fast, offline.
+1. **Local HGNC JSON** (44,943 genes bundled at `pipeline/data/reference/hgnc_genes.json`) — fast, offline.
 2. **HGNC REST API** — authoritative for recent changes.
 3. **MyGene.info** — comprehensive alias database.
 4. **Fuzzy match** — suggests similar symbols for review.
@@ -1018,7 +1024,7 @@ Columns in the primary CSV (typical):
 
 ## Part 10 — Configuration Flag Reference
 
-All flags from `python/modules/config.py`. Grouped by purpose.
+All flags from `pipeline/modules/config.py`. Grouped by purpose.
 
 ### 10.1 API & auth
 
@@ -1463,12 +1469,12 @@ The 14 rules in `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` accumulate. Each new 
 
 | Test type | Location | Count | How to run |
 |---|---|---|---|
-| Unit | `python/tests/test_*.py` | ~50 | `python -m pytest tests/ -v` |
-| Integration | `python/tests/test_pipeline_integration.py` | 11 | `python -m pytest tests/test_pipeline_integration.py -v` |
+| Unit | `pipeline/tests/test_*.py` | ~50 | `python -m pytest tests/ -v` |
+| Integration | `pipeline/tests/test_pipeline_integration.py` | 11 | `python -m pytest tests/test_pipeline_integration.py -v` |
 | Smoke | `/verify` slash command | n/a | TS typecheck + Python imports |
-| Benchmark | `python/scripts/benchmark_runner.py` | 24 papers | `python scripts/benchmark_runner.py --all --runs 3` |
+| Benchmark | `pipeline/scripts/benchmark_runner.py` | 24 papers | `python scripts/benchmark_runner.py --all --runs 3` |
 
-All tests run from the `python/` directory with the venv activated. Total runtime: ~4-5 minutes for the full suite.
+All tests run from the `pipeline/` directory with the venv activated. Total runtime: ~4-5 minutes for the full suite.
 
 ## Appendix B — Debug Artifacts
 

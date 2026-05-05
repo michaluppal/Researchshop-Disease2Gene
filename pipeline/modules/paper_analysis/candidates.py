@@ -15,6 +15,27 @@ class CandidateMixin:
             return ""
         return text
 
+    @classmethod
+    def _normalize_variant_for_gene(cls, gene: str, value: Any) -> str:
+        """Normalize gene-scoped variant shorthand without changing generic variants."""
+        variant = cls._normalize_variant_value(value)
+        gene_u = str(gene or "").strip().upper()
+        if not variant or not gene_u.startswith("HLA-"):
+            return variant
+
+        match = re.match(
+            r"^(?:HLA[-\s]*)?([A-Z])w?\*?(\d{2,4}(?::\d{2,4}){0,3})$",
+            variant.strip(),
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return variant
+        allele_locus = match.group(1).upper()
+        gene_locus = gene_u.split("-", 1)[1][:1]
+        if allele_locus != gene_locus:
+            return variant
+        return f"HLA-{allele_locus}*{match.group(2)}"
+
     @staticmethod
     def _normalize_empty_placeholder(value: Any) -> str:
         """
@@ -58,6 +79,69 @@ class CandidateMixin:
     def _as_sorted_strings(self, value: Any) -> List[str]:
         return sorted(self._as_string_set(value))
 
+    @staticmethod
+    def _as_string_list(value: Any) -> List[str]:
+        """Normalize metadata values to a de-duplicated list while preserving order."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            iterable = [value]
+        elif isinstance(value, (list, tuple, set)):
+            iterable = list(value)
+        else:
+            iterable = [value]
+
+        out: List[str] = []
+        seen: Set[str] = set()
+        for item in iterable:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            marker = text.upper()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            out.append(text)
+        return out
+
+    def _merge_string_lists(self, existing: Any, additions: Any) -> List[str]:
+        return self._as_string_list(self._as_string_list(existing) + self._as_string_list(additions))
+
+    @staticmethod
+    def _normalization_record_to_dict(record: Any) -> Dict[str, str]:
+        return {
+            "original_mention": str(getattr(record, "original_mention", "") or ""),
+            "normalized_gene": str(getattr(record, "normalized_gene", "") or ""),
+            "normalized_variant": str(getattr(record, "normalized_variant", "") or ""),
+            "evidence_sentence": str(getattr(record, "evidence_sentence", "") or ""),
+            "normalization_rule": str(getattr(record, "normalization_rule", "") or ""),
+        }
+
+    def _normalization_records_for_candidate(
+        self,
+        gene: str,
+        variant: str = "",
+    ) -> List[Dict[str, str]]:
+        prepared = getattr(self, "prepared_content", None)
+        if prepared is None or not hasattr(prepared, "records_for_gene"):
+            return []
+
+        gene_u = (gene or "").strip().upper()
+        variant_u = self._normalize_variant_for_gene(gene_u, variant).upper()
+        records: List[Dict[str, str]] = []
+        for record in prepared.records_for_gene(gene_u):
+            payload = self._normalization_record_to_dict(record)
+            record_variant = self._normalize_variant_for_gene(
+                payload["normalized_gene"],
+                payload["normalized_variant"],
+            ).upper()
+            if variant_u and record_variant and record_variant != variant_u:
+                continue
+            if not variant_u and record_variant:
+                continue
+            records.append(payload)
+        return records
+
     def _refresh_candidate_cache(self, key: Tuple[str, str]) -> None:
         """Materialize candidate-derived values once for later per-paper extraction gates."""
         if not hasattr(self, "_candidate_terms_cache"):
@@ -69,18 +153,38 @@ class CandidateMixin:
         sources = self._as_string_set(meta.get("sources"))
         raw_labels = self._as_string_set(meta.get("raw_gene_labels"))
         gene = str(meta.get("gene") or key[0]).strip()
-        variant = self._normalize_variant_value(meta.get("variant", key[1]))
+        variant = self._normalize_variant_for_gene(gene, meta.get("variant", key[1]))
+        reported_gene = str(meta.get("reported_gene") or "").strip()
+        original_mentions = self._as_string_list(meta.get("original_mentions"))
+        normalization_records = self._normalization_records_for_candidate(gene, variant)
+        normalization_mentions = [
+            record["original_mention"]
+            for record in normalization_records
+            if record.get("original_mention")
+        ]
+        if reported_gene:
+            raw_labels.add(reported_gene)
+        raw_labels.update(original_mentions)
+        raw_labels.update(normalization_mentions)
 
         meta["sources"] = sources
         meta["raw_gene_labels"] = raw_labels
+        meta["original_mentions"] = self._merge_string_lists(
+            original_mentions,
+            normalization_mentions,
+        )
+        meta["normalization_records"] = normalization_records
         meta["sources_list"] = sorted(sources)
         meta["raw_gene_labels_list"] = sorted(raw_labels)
 
         terms: List[str] = []
+        if variant:
+            terms.append(variant)
         if gene:
             terms.append(gene)
         terms.extend(sorted(raw_labels))
         terms.extend(self._get_hgnc_aliases_for_gene(gene))
+        terms.extend(normalization_mentions)
 
         deduped: List[str] = []
         seen: Set[str] = set()
@@ -102,7 +206,10 @@ class CandidateMixin:
     def _infer_candidate_association_type(self, meta: Dict[str, Any]) -> str:
         """Coarse row intent used to separate genetics from pathway mentions."""
         sources = self._as_string_set(meta.get("sources"))
-        variant = self._normalize_variant_value(meta.get("variant", ""))
+        variant = self._normalize_variant_for_gene(
+            str(meta.get("gene") or ""),
+            meta.get("variant", ""),
+        )
         context_reason = str(meta.get("deterministic_context_reason") or "")
 
         if variant:
@@ -157,6 +264,8 @@ class CandidateMixin:
             return list(self._candidate_terms_cache[key])
 
         terms: List[str] = []
+        if variant:
+            terms.append(variant)
         if gene:
             terms.append(gene)
 
@@ -220,21 +329,35 @@ class CandidateMixin:
         added = 0
         for assoc in associations or []:
             if isinstance(assoc, dict):
-                gene_raw = (assoc.get("gene") or "").strip()
-                variant_raw = assoc.get("variant", "")
+                gene_raw = (assoc.get("reported_gene") or assoc.get("gene") or "").strip()
+                variant_raw = assoc.get("reported_variant")
+                if variant_raw is None:
+                    variant_raw = assoc.get("variant", "")
+                reported_variant = str(variant_raw or "").strip()
+                original_mentions = self._as_string_list(assoc.get("original_mentions"))
+                original_mention = str(assoc.get("original_mention") or "").strip()
+                if original_mention:
+                    original_mentions = self._merge_string_lists(
+                        original_mentions,
+                        [original_mention],
+                    )
+                evidence_sentence = str(assoc.get("evidence_sentence") or "").strip()
             else:
                 if not assoc:
                     continue
                 gene_raw = str(assoc[0] if len(assoc) > 0 else "").strip()
                 variant_raw = assoc[1] if len(assoc) > 1 else ""
+                reported_variant = str(variant_raw or "").strip()
+                original_mentions = []
+                evidence_sentence = ""
 
             if not gene_raw:
                 continue
 
-            variant_norm = self._normalize_variant_value(variant_raw)
             gene_norm, norm_note = self._normalize_gene_symbol(gene_raw)
             if not gene_norm:
                 continue
+            variant_norm = self._normalize_variant_for_gene(gene_norm, variant_raw)
 
             key = self._assoc_key(gene_norm, variant_norm)
             entry = self.candidate_meta.get(key)
@@ -244,15 +367,32 @@ class CandidateMixin:
                     "variant": variant_norm,
                     "sources": set(),
                     "normalization_applied": norm_note,
-                    "raw_gene_labels": set([gene_raw]),
+                    "raw_gene_labels": set([gene_raw, *original_mentions]),
+                    "reported_gene": gene_raw,
+                    "reported_variant": reported_variant,
+                    "original_mentions": list(original_mentions),
+                    "evidence_sentence": evidence_sentence,
                 }
                 self.candidate_meta[key] = entry
                 added += 1
             else:
-                entry["raw_gene_labels"].add(gene_raw)
+                raw_labels = self._as_string_set(entry.get("raw_gene_labels"))
+                raw_labels.add(gene_raw)
+                raw_labels.update(original_mentions)
+                entry["raw_gene_labels"] = raw_labels
+                entry.setdefault("reported_gene", gene_raw)
+                if reported_variant and not entry.get("reported_variant"):
+                    entry["reported_variant"] = reported_variant
+                entry["original_mentions"] = self._merge_string_lists(
+                    entry.get("original_mentions"),
+                    original_mentions,
+                )
+                if evidence_sentence and not entry.get("evidence_sentence"):
+                    entry["evidence_sentence"] = evidence_sentence
                 if norm_note and not entry.get("normalization_applied"):
                     entry["normalization_applied"] = norm_note
 
+            entry["sources"] = self._as_string_set(entry.get("sources"))
             entry["sources"].add(source)
             self._refresh_candidate_cache(key)
 
@@ -263,10 +403,14 @@ class CandidateMixin:
         self._refresh_all_candidate_caches()
         self.associations = []
         for entry in self.candidate_meta.values():
+            gene = str(entry.get("gene", "") or "")
             self.associations.append(
                 {
-                    "gene": entry.get("gene", ""),
-                    "variant": self._normalize_variant_value(entry.get("variant", "")),
+                    "gene": gene,
+                    "variant": self._normalize_variant_for_gene(
+                        gene,
+                        entry.get("variant", ""),
+                    ),
                 }
             )
 

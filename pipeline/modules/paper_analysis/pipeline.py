@@ -226,7 +226,13 @@ class PaperAnalysisPipeline(
         # Post-validation: metadata, strict gate, citation validation, evidence gate.
         df = pd.DataFrame(extracted_info)
         if "variant_name" in df.columns:
-            df["variant_name"] = df["variant_name"].apply(self._normalize_variant_value)
+            df["variant_name"] = df.apply(
+                lambda row: self._normalize_variant_for_gene(
+                    row.get("gene_name", ""),
+                    row.get("variant_name", ""),
+                ),
+                axis=1,
+            )
         return self._run_post_validation(df, column_descriptions, context_validation)
 
     def _summarise_sources(self) -> Dict[str, int]:
@@ -314,6 +320,28 @@ class PaperAnalysisPipeline(
                     "candidate_meta_size": len(self.candidate_meta),
                 },
                 duration_ms=(time.time() - t0) * 1000.0,
+            )
+
+        normalization_candidates = []
+        for record in self.prepared_content.normalization_records:
+            if not record.normalized_gene:
+                continue
+            normalization_candidates.append(
+                {
+                    "gene": record.normalized_gene,
+                    "variant": record.normalized_variant,
+                    "original_mention": record.original_mention,
+                    "evidence_sentence": record.evidence_sentence,
+                }
+            )
+        if normalization_candidates:
+            added = self._ingest_associations(
+                normalization_candidates,
+                "normalized_text_index",
+            )
+            logging.info(
+                "Candidate discovery: normalized text index added "
+                f"{added} candidate genes"
             )
 
         # Optional recall pass: second independent LLM pass at a higher temperature to diverge from
@@ -462,7 +490,7 @@ class PaperAnalysisPipeline(
         rescued_count = 0
         for assoc in self.associations:
             gene = (assoc.get("gene") or "").strip()
-            variant = self._normalize_variant_value(assoc.get("variant", ""))
+            variant = self._normalize_variant_for_gene(gene, assoc.get("variant", ""))
             if not gene:
                 continue
             key = self._assoc_key(gene, variant)
@@ -479,12 +507,34 @@ class PaperAnalysisPipeline(
                 candidate_terms = [gene] + list(
                     self._as_string_set(meta.get("raw_gene_labels"))
                 )
-                gene_in_figures = any(
-                    term.lower() in figure_text_lower for term in candidate_terms if term
-                )
+                matched_figure_term = ""
+                matched_figure_snippet = ""
+                for term in candidate_terms:
+                    term_text = str(term or "").strip()
+                    if not term_text or term_text.lower() not in figure_text_lower:
+                        continue
+                    matched_figure_term = term_text
+                    for fig in self.figure_inputs or []:
+                        snippet = " ".join(
+                            str(part or "").strip()
+                            for part in (fig.get("label", ""), fig.get("caption", ""))
+                            if str(part or "").strip()
+                        )
+                        if term_text.lower() in snippet.lower():
+                            matched_figure_snippet = snippet[:500]
+                            break
+                    break
+                gene_in_figures = bool(matched_figure_term)
                 if gene_in_figures:
                     logging.debug(
                         f"Grounding check: passing '{gene}' (llm_figure — found in figure text)"
+                    )
+                    self._record_grounding_metadata(
+                        key,
+                        matched_figure_term,
+                        matched_figure_snippet,
+                        meta,
+                        source_override="figure_caption_or_label",
                     )
                     grounded.append(assoc)
                 else:
@@ -502,7 +552,14 @@ class PaperAnalysisPipeline(
             for raw_label in self._as_string_set(meta.get("raw_gene_labels")):
                 if raw_label and raw_label.upper() not in {t.upper() for t in terms}:
                     terms.append(raw_label)
-            if self._find_evidence_snippet(terms):
+            grounding_match, grounding_snippet = self._find_evidence_match(terms)
+            if grounding_snippet:
+                self._record_grounding_metadata(
+                    key,
+                    grounding_match,
+                    grounding_snippet,
+                    meta,
+                )
                 grounded.append(assoc)
             else:
                 # Primary (truncated) search failed.
@@ -512,7 +569,7 @@ class PaperAnalysisPipeline(
                 # so the identity check reliably gates the rescue branch.
                 if (self.original_paper_text
                         and self.paper_text != self.original_paper_text):
-                    rescue_snippet = self._find_evidence_snippet(
+                    rescue_match, rescue_snippet = self._find_evidence_match(
                         terms, text=self.original_paper_text
                     )
                     if rescue_snippet:
@@ -520,6 +577,13 @@ class PaperAnalysisPipeline(
                             self.candidate_meta[key]["truncation_rescued"] = True
                             self.candidate_meta[key]["validation_outcome"] = (
                                 "passed_untruncated_rescue"
+                            )
+                            self._record_grounding_metadata(
+                                key,
+                                rescue_match,
+                                rescue_snippet,
+                                meta,
+                                source_override="untruncated_text_rescue",
                             )
                         self._truncation_rescue_count += 1
                         rescued_count += 1
@@ -564,6 +628,51 @@ class PaperAnalysisPipeline(
                     "dropped_samples": pipeline_tracer.summarise(dropped_here),
                 },
             )
+
+    def _record_grounding_metadata(
+        self,
+        key: Tuple[str, str],
+        grounding_match: str,
+        grounding_snippet: str,
+        meta: Dict[str, Any],
+        source_override: str = "",
+    ) -> None:
+        if key not in self.candidate_meta:
+            return
+
+        match_text = str(grounding_match or "").strip()
+        normalized_records = list(meta.get("normalization_records") or [])
+        matched_record = None
+        for record in normalized_records:
+            if str(record.get("original_mention") or "").strip().upper() == match_text.upper():
+                matched_record = record
+                break
+
+        original_mentions = {
+            value.upper()
+            for value in self._as_string_list(meta.get("original_mentions"))
+        }
+        if source_override:
+            grounding_source = source_override
+        elif matched_record:
+            grounding_source = "normalized_evidence_index"
+        elif match_text.upper() in original_mentions:
+            grounding_source = "original_mentions_verified"
+        else:
+            grounding_source = "candidate_terms"
+
+        target = self.candidate_meta[key]
+        target["grounding_match"] = match_text
+        target["grounding_source"] = grounding_source
+        target["grounding_snippet"] = grounding_snippet
+        if matched_record:
+            target["normalization_rule"] = matched_record.get("normalization_rule", "")
+            target["evidence_sentence"] = (
+                target.get("evidence_sentence")
+                or matched_record.get("evidence_sentence", "")
+            )
+            if not target.get("normalization_applied"):
+                target["normalization_applied"] = matched_record.get("normalization_rule", "")
 
     def _run_validation_and_normalize(self) -> None:
         """Gene validation heuristics + ensure one gene-level row per gene."""
@@ -655,6 +764,7 @@ class PaperAnalysisPipeline(
         _t0 = time.time()
         _assoc_count_in = len(self.associations)
         extracted_info = self.extract_gene_info(column_descriptions)
+        self._reconcile_hla_detail_rows_to_candidates(extracted_info)
 
         # Merge duplicate rows: detail extraction can emit the same gene twice with different
         # fields filled (e.g. one row has Disease Association, another has Statistical Evidence).
@@ -679,9 +789,12 @@ class PaperAnalysisPipeline(
                     else (assoc[0] or "").strip()
                 )
                 variant = (
-                    self._normalize_variant_value(assoc.get("variant", ""))
+                    self._normalize_variant_for_gene(gene, assoc.get("variant", ""))
                     if isinstance(assoc, dict)
-                    else self._normalize_variant_value(assoc[1] if len(assoc) > 1 else "")
+                    else self._normalize_variant_for_gene(
+                        gene,
+                        assoc[1] if len(assoc) > 1 else "",
+                    )
                 )
                 if not gene:
                     continue
@@ -732,6 +845,42 @@ class PaperAnalysisPipeline(
 
         return extracted_info
 
+    def _reconcile_hla_detail_rows_to_candidates(
+        self,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        """Attach HLA allele variants to loose detail rows when candidate state is unambiguous."""
+        if not rows:
+            return
+
+        passed_outcomes = {"passed", "passed_deterministic_context", "passed_untruncated_rescue"}
+        by_gene: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {}
+        for (gene_key, variant_key), meta in self.candidate_meta.items():
+            if not str(gene_key or "").startswith("HLA-") or not variant_key:
+                continue
+            if str(meta.get("validation_outcome") or "") not in passed_outcomes:
+                continue
+            by_gene.setdefault(gene_key, []).append((variant_key, meta))
+
+        for row in rows:
+            gene = str(row.get("gene_name") or "").strip().upper()
+            if not gene.startswith("HLA-"):
+                continue
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
+            if variant:
+                continue
+            exact_key = self._assoc_key(gene, "")
+            if exact_key in self.candidate_meta:
+                continue
+
+            candidates = by_gene.get(gene) or []
+            if len(candidates) != 1:
+                continue
+
+            variant_key, _meta = candidates[0]
+            row["variant_name"] = variant_key
+            row["Candidate Reconciliation"] = "single_validated_hla_allele_variant"
+
     def _run_post_validation(
         self,
         df: pd.DataFrame,
@@ -752,11 +901,13 @@ class PaperAnalysisPipeline(
                     if not dropped_df.empty:
                         for _, row in dropped_df.iterrows():
                             row_dict = row.to_dict()
+                            gene_name = str(row_dict.get("gene_name") or "").strip()
                             self.strict_gate_drops.append(
                                 {
-                                    "gene": str(row_dict.get("gene_name") or "").strip(),
-                                    "variant": self._normalize_variant_value(
-                                        row_dict.get("variant_name", "")
+                                    "gene": gene_name,
+                                    "variant": self._normalize_variant_for_gene(
+                                        gene_name,
+                                        row_dict.get("variant_name", ""),
                                     ),
                                     "reason": "below_final_validation_threshold",
                                     "association_type": str(row_dict.get("Association Type") or ""),
@@ -778,11 +929,13 @@ class PaperAnalysisPipeline(
                     )
                     for _, row in df.iterrows():
                         row_dict = row.to_dict()
+                        gene_name = str(row_dict.get("gene_name") or "").strip()
                         self.strict_gate_drops.append(
                             {
-                                "gene": str(row_dict.get("gene_name") or "").strip(),
-                                "variant": self._normalize_variant_value(
-                                    row_dict.get("variant_name", "")
+                                "gene": gene_name,
+                                "variant": self._normalize_variant_for_gene(
+                                    gene_name,
+                                    row_dict.get("variant_name", ""),
                                 ),
                                 "reason": "missing_validation_confidence",
                                 "association_type": str(row_dict.get("Association Type") or ""),
@@ -872,7 +1025,7 @@ class PaperAnalysisPipeline(
                 variant_raw = assoc[1] if len(assoc) > 1 else ""
 
             gene_norm, _ = self._normalize_gene_symbol(gene_raw)
-            variant_norm = self._normalize_variant_value(variant_raw)
+            variant_norm = self._normalize_variant_for_gene(gene_norm, variant_raw)
             key = self._assoc_key(gene_norm, variant_norm)
 
             # Persist validation/provenance status in candidate metadata

@@ -1,6 +1,5 @@
 """Figure image fetching and Gemini vision gene discovery."""
 
-import json
 import logging
 import re
 import time
@@ -213,8 +212,9 @@ class FigureMixin:
         if not self.figure_inputs:
             return []
 
-        from google import genai  # type: ignore
         from google.genai import types  # type: ignore
+
+        from .gemini_client import FigureDiscoveryResponse
 
         model_name = config.GEMINI_CONFIG["gene_extraction_model"]
         max_figures = max(getattr(config, "FIGURE_MAX_IMAGES_PER_PAPER", 3), 0)
@@ -225,22 +225,7 @@ class FigureMixin:
             temperature=config.GEMINI_CONFIG["temperature"],
             thinking_config=types.ThinkingConfig(thinking_budget=0),
             response_mime_type="application/json",
-            response_schema=genai.types.Schema(
-                type=genai.types.Type.OBJECT,
-                required=["associations"],
-                properties={
-                    "associations": genai.types.Schema(
-                        type=genai.types.Type.ARRAY,
-                        items=genai.types.Schema(
-                            type=genai.types.Type.OBJECT,
-                            properties={
-                                "gene": genai.types.Schema(type=genai.types.Type.STRING),
-                                "variant": genai.types.Schema(type=genai.types.Type.STRING),
-                            },
-                        ),
-                    ),
-                },
-            ),
+            response_schema=FigureDiscoveryResponse,
         )
 
         discovered: List[Dict[str, str]] = []
@@ -288,20 +273,22 @@ class FigureMixin:
             fig_success = False
             for fig_attempt in range(fig_max_retries):
                 try:
-                    full_response_text = self._generate_content_text(
+                    response_json = self._generate_content_json(
                         model_name=model_name,
                         contents=contents,
                         generate_content_config=generate_content_config,
                         purpose=f"figure analysis {idx}",
                         optional=True,
                         reserved_required_calls=1,
+                        response_model=FigureDiscoveryResponse,
                     )
-                    if not full_response_text:
+                    if not response_json:
                         break
 
-                    response_json = json.loads(full_response_text) if full_response_text else {}
-                    associations = (
-                        response_json.get("associations", []) if isinstance(response_json, dict) else []
+                    associations = self._associations_from_structured_response(
+                        response_json,
+                        f"figure analysis {idx}",
+                        FigureDiscoveryResponse,
                     )
                     for assoc in associations:
                         if not isinstance(assoc, dict):

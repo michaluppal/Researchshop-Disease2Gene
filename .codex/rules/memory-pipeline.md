@@ -231,7 +231,7 @@ Validates against local HGNC snapshot first, then remote HGNC REST API, then MyG
 Adds confidence scores, validation source, and suggestions for near-misses.
 
 **Validation sources (priority order):**
-1. Local HGNC JSON (44,933 genes — fast, offline, no API call)
+1. Local HGNC JSON (44,943 genes — fast, offline, no API call)
 2. HGNC REST API — authoritative gene nomenclature
 3. MyGene.info — comprehensive gene/alias database
 4. Fuzzy matching — suggests similar valid symbols for review
@@ -267,7 +267,7 @@ citation text exists verbatim in the paper. Applied to all `{Field} Citation` co
   notation variations may not be caught. Known limitation; does not block pipeline.
 - Stale local HGNC snapshot: genes approved after the snapshot date won't validate locally;
   remote API fallback handles this but adds latency.
-- `memory-profile.md` records the snapshot as 44,933 genes — if regenerating, update that figure.
+- `memory-profile.md` records the snapshot as 44,943 genes — if regenerating, update that figure.
 - Citation validation always returns False/0.0 silently if `validate_citations()` is called with
   a row dict (non-string values cause TypeError in re.search, swallowed by inner try/except).
   Fixed in C19 — now uses explicit column pairing against string-only citation columns.

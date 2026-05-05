@@ -199,6 +199,18 @@ class EvidenceMixin:
 
         return ""
 
+    def _find_evidence_match(
+        self,
+        terms: List[str],
+        text: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """Return the first term and snippet that ground a candidate."""
+        for term in terms:
+            snippet = self._find_evidence_snippet([term], text=text)
+            if snippet:
+                return str(term), snippet
+        return "", ""
+
     def _deterministic_gene_context_evidence(
         self, gene: str, variant: str = ""
     ) -> Tuple[bool, str, str]:
@@ -356,18 +368,21 @@ class EvidenceMixin:
         all_data_cols = list(column_descriptions.keys()) + [
             f"{c} Citation" for c in column_descriptions
         ]
+        provenance_cols = ["Candidate Reconciliation"]
 
         for row in rows:
             gene = str(row.get("gene_name") or "").strip()
-            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
             key = (gene.upper(), variant.upper())
 
             if key not in merged:
-                merged[key] = dict(row)
+                normalized_row = dict(row)
+                normalized_row["variant_name"] = variant
+                merged[key] = normalized_row
                 order.append(key)
             else:
                 existing = merged[key]
-                for col in all_data_cols:
+                for col in all_data_cols + provenance_cols:
                     if not existing.get(col) and row.get(col):
                         existing[col] = row[col]
 
@@ -408,7 +423,7 @@ class EvidenceMixin:
             if not isinstance(row, dict):
                 continue
             gene = str(row.get("gene_name") or "").strip()
-            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
             if not gene:
                 continue
             all_row_keys.append((gene.upper(), variant.upper(), gene))
@@ -427,7 +442,7 @@ class EvidenceMixin:
                 continue
 
             gene = str(row.get("gene_name") or "").strip()
-            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
             if not gene:
                 continue
             gene_upper = gene.upper()
@@ -521,7 +536,7 @@ class EvidenceMixin:
             if not isinstance(row, dict):
                 continue
             gene = str(row.get("gene_name") or "").strip()
-            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
             if not gene:
                 continue
 
@@ -567,10 +582,15 @@ class EvidenceMixin:
         keep_mask = []
         for _, row in df.iterrows():
             row_dict = row.to_dict()
+            gene_name = str(row_dict.get("gene_name") or "").strip()
+            variant_name = self._normalize_variant_for_gene(
+                gene_name,
+                row_dict.get("variant_name", ""),
+            )
             # Per-source threshold: LLM rows carry inherent trust from translation
             key = self._assoc_key(
-                str(row_dict.get("gene_name") or "").strip(),
-                self._normalize_variant_value(row_dict.get("variant_name", "")),
+                gene_name,
+                variant_name,
             )
             meta = self.candidate_meta.get(key) or {}
             sources = self._as_string_set(meta.get("sources"))
@@ -598,8 +618,8 @@ class EvidenceMixin:
                 )
                 self.evidence_gate_drops.append(
                     {
-                        "gene": str(row_dict.get("gene_name") or "").strip(),
-                        "variant": self._normalize_variant_value(row_dict.get("variant_name", "")),
+                        "gene": gene_name,
+                        "variant": variant_name,
                         "reason": "insufficient_user_evidence",
                         "association_type": str(row_dict.get("Association Type") or ""),
                         "association_group": str(row_dict.get("Association Group") or ""),
