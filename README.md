@@ -125,6 +125,8 @@ paper_selection → oa_filter → paper_reading → candidate_discovery
                          output_writing ← validation ← detail_extraction
 ```
 
+The canonical step contract, including the normalization boundary between `paper_reading` and per-paper extraction, lives in [`docs/pipeline/pipeline-contract.md`](docs/pipeline/pipeline-contract.md).
+
 **Domain details:**
 
 | Domain | Module | Role |

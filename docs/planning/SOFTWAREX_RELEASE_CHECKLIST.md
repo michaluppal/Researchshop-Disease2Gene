@@ -5,8 +5,9 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 ## Required Before Submission
 
 - [ ] Freeze feature work for the submission branch.
-- [ ] Document the normalization boundary clearly: paper-level text normalization vs candidate-level gene/variant normalization.
+- [x] Document the normalization boundary clearly: paper-level text normalization vs candidate-level gene/variant normalization.
 - [ ] Rerun the PIMS/MIS-C gold-standard case with stable Gemini responses and confirm IFNG/HLA-C behavior in real output.
+  - Offline comparison helper added; fresh live rerun still requires `GEMINI_API_KEY` and `ENTREZ_EMAIL` exported in the shell.
 - [ ] Review output columns for publication readiness; every CSV/JSON/XLSX field should have an explicit reason to exist.
 - [ ] Do a final public-reader documentation sweep: `README.md` -> pipeline contract -> internals, without forcing readers through historical notes.
 - [ ] Continue consolidating Gemini extraction around one typed schema stack for candidate discovery, figures, and detail extraction.

@@ -4,6 +4,12 @@ This is the canonical public contract for the ResearchShop pipeline. It maps the
 
 Legacy names such as `stage5` and `gemini_extractor` are compatibility aliases only. The active per-paper architecture is `pipeline/modules/paper_analysis/` and `PaperAnalysisPipeline`.
 
+## Normalization Boundary
+
+Paper-level normalization is owned by `pipeline/modules/content_preparation.py` during `paper_reading`. It builds `PreparedPaperContent` with preserved raw text plus normalized citation/abstract text, table citation indexes, and deterministic `NormalizationRecord` entries. Those records are currently limited to a small, explicit set of paper-mention bridges: IFNG/TNF/MMP9 aliases and HLA class-I allele forms.
+
+Downstream `paper_analysis` code may use those normalized indexes for candidate seeding, grounding, citation validation, and evidence metadata. This boundary does not rewrite the raw paper text sent to Gemini, does not lower validation thresholds, and does not replace candidate-specific HGNC/variant normalization inside `PaperAnalysisPipeline` and `GeneValidator`.
+
 | Domain | Step | Function name | Input | Output | Description | Failure/skip behavior | Trace node |
 |---|---|---|---|---|---|---|---|
 | `paper_selection` | Run entry and configuration | `pipeline/run_pipeline.py:main()` | CLI args, `GEMINI_API_KEY`, `ENTREZ_EMAIL`, user columns, optional trace env vars | Parsed run request and initialized config | Validates process-level inputs and calls the Python orchestrator used by Electron. Secrets are read from environment variables. | Missing required config fails before analysis starts. Cancellation returns through the normal progress/log protocol. | None |

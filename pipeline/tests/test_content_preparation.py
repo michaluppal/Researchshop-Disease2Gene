@@ -84,3 +84,15 @@ def test_prepared_content_indexes_mmp9_hyphenated_alias():
     assert records[0].original_mention == "MMP-9"
     assert records[0].normalized_gene == "MMP9"
     assert records[0].normalization_rule == "protein_alias_mmp9"
+
+
+def test_prepared_content_does_not_perform_broad_clinical_alias_resolution():
+    raw_text = (
+        "BNP and NT-proBNP were measured as cardiac biomarkers in the cohort. "
+        "These clinical markers were not used as gene-expression evidence."
+    )
+
+    prepared = PreparedPaperContent.from_raw(raw_text)
+
+    assert prepared.raw_text == raw_text
+    assert prepared.records_for_gene("NPPB") == []

@@ -10,6 +10,8 @@ The frontend communicates with the Python pipeline via an IPC (Inter-Process Com
 
 The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
 
+A normalization boundary preserves raw full text for LLM prompting while exposing normalized citation, table, and biomedical-alias indexes to grounding and citation-validation code.
+
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
     \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{hutchins2016rcr} (primary) with Semantic Scholar~\cite{semantic_scholar_api} as fallback. Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$; user-curated PMID lists are taken 1:1 with no widening.
 

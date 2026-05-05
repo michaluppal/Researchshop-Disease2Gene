@@ -248,8 +248,8 @@ class PaperAnalysisPipeline(
         self._validate_required_gemini_call_budget()
 
         # Reset candidate tracking for this paper. Per-paper extraction owns candidate-level
-        # gene/variant normalization and HGNC alias caches; paper-level citation
-        # normalization lives in PreparedPaperContent upstream.
+        # gene/variant normalization and HGNC alias caches; paper-level citation/alias
+        # indexes live in PreparedPaperContent upstream.
         self.candidate_meta = {}
         self.dropped_candidates = []
         self.strict_gate_drops = []
@@ -322,6 +322,8 @@ class PaperAnalysisPipeline(
                 duration_ms=(time.time() - t0) * 1000.0,
             )
 
+        # Normalization records are a paper-level evidence index. They seed candidate tracking
+        # without changing the raw text sent to Gemini.
         normalization_candidates = []
         for record in self.prepared_content.normalization_records:
             if not record.normalized_gene:
