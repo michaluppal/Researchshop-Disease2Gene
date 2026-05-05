@@ -21,7 +21,7 @@ from .association_policy import (
 )
 from .content_preparation import PreparedPaperContent
 from .pubtator_tool import HybridExtractionResult, NCBIGeneTool, PubTatorTool
-from .stage5.pipeline import Stage5Pipeline
+from .paper_analysis.pipeline import PaperAnalysisPipeline
 
 
 class JobCancelledException(Exception):
@@ -154,7 +154,7 @@ def _run_pipeline_worker(
     table_inputs=None,
     pmid=None,
     prepared_content=None,
-    pipeline_factory=Stage5Pipeline,
+    pipeline_factory=PaperAnalysisPipeline,
 ):
     """Top-level worker function for multiprocessing pool (must be picklable).
 
@@ -211,7 +211,7 @@ def _run_pipeline_worker(
         return {"error": str(e)}
     finally:
         # Flush any tracer events this worker recorded before returning, even
-        # when Stage 5 raised after emitting partial trace events.
+            # when per-paper extraction raised after emitting partial trace events.
         try:
             pipeline_tracer.flush_worker_partial()
         except Exception:
@@ -1491,8 +1491,8 @@ def run_complete_pipeline(
 
     report_progress("Analyzing papers with AI", 70)
     emit_log("info", f"Analyzing {len(pmids_to_process)} papers with AI")
-    # Step 5: Process each paper using the Stage5Pipeline coordinator.
-    logging.info("STEP 5: Analyzing papers with Stage 5 extraction using Stage5Pipeline...")
+    # Step 5: Process each paper using the per-paper extraction coordinator.
+    logging.info("STEP 5: Analyzing papers with per-paper extraction pipeline...")
     all_results_df = pd.DataFrame()
     # Sanitize user columns to avoid collisions with core fields
     column_descriptions = _sanitize_user_columns(user_columns)

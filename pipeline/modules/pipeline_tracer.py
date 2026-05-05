@@ -645,7 +645,7 @@ def install_function_tracer(max_events: int = 5000) -> None:
                     arg_values: Dict[str, Any] = {}
                     for name in arg_names:
                         # Skip self/cls — their repr is always noisy
-                        # ("<modules.stage5.pipeline.Stage5Pipeline object at 0x…>")
+                        # ("<modules.paper_analysis.pipeline.PaperAnalysisPipeline object at 0x…>")
                         # and adds nothing to understanding a method's behaviour.
                         if name in ("self", "cls"):
                             continue

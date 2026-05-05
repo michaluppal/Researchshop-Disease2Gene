@@ -122,7 +122,7 @@ The output CSV contains one row per gene-paper pair with the following key colum
 ```
 PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
                                                               ↓
-                                          CSV Output ← Gene Validation ← Stage 5 Extraction
+                                      CSV Output ← Gene Validation ← Per-Paper Extraction
 ```
 
 **Stage details:**
@@ -133,7 +133,7 @@ PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
 | 2. Abstract Screening | `abstract_screener.py` | Keyword filter — removes non-genetics papers |
 | 3. Full Text Fetch | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback; `pubmed_parser` adapter for paragraphs/figure metadata |
 | 4. PubTator NER | `pubtator_tool.py` | NCBI NER — high-precision gene/variant tagging |
-| 5. Stage 5 Extraction | `stage5/` | Candidate discovery, Gemini structured extraction, grounding, validation, and evidence gates |
+| 5. Per-Paper Extraction | `paper_analysis/` | Candidate discovery, Gemini structured extraction, grounding, validation, and evidence gates |
 | 6. Gene Validation | `gene_validator.py` | HGNC validation, citation grounding (≥0.85 match) |
 | 7. CSV Output | `pipeline_orchestrator.py` | Deduplication, citation ranking, CSV write |
 
@@ -176,7 +176,7 @@ For any association you intend to report or build upon:
 
 ### Validation status
 
-ResearchShop includes offline unit and integration tests for the parser, PubTator integration, Stage 5 extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records historical benchmark experiments and known failure modes, but the current SoftwareX submission is framed as a software description and reproducibility paper rather than a definitive clinical accuracy benchmark.
+ResearchShop includes offline unit and integration tests for the parser, PubTator integration, per-paper extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records historical benchmark experiments and known failure modes, but the current SoftwareX submission is framed as a software description and reproducibility paper rather than a definitive clinical accuracy benchmark.
 
 The safest interpretation is: high-confidence rows are **prioritised candidates for expert review**, not validated biomedical facts. Precision and recall depend on paper type, full-text availability, user-defined columns, Gemini model behavior, and whether evidence appears in prose, tables, figures, or supplementary files.
 

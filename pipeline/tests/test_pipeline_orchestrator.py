@@ -64,7 +64,7 @@ def test_sanitize_user_columns_empty_input():
 def test_run_pipeline_worker_returns_records_on_success(sample_paper_text):
     """
     _run_pipeline_worker should return {"records": [...], "debug": ...} when
-    Stage 5 succeeds.
+    per-paper extraction succeeds.
     """
     fixture_df = pd.DataFrame([
         {"Gene/Group": "BRCA1", "Variant Name": "p.Glu1915Ter", "PMID": "34876594"},
@@ -114,7 +114,7 @@ def test_run_pipeline_worker_deduplicates_columns_before_records(sample_paper_te
 def test_run_pipeline_worker_returns_error_on_exception(sample_paper_text):
     """
     _run_pipeline_worker should return {"error": "..."} rather than raising
-    when Stage5Pipeline raises an exception.
+    when the per-paper extraction coordinator raises an exception.
     """
     from modules.pipeline_orchestrator import _run_pipeline_worker
     result = _run_pipeline_worker(

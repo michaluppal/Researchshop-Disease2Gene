@@ -110,7 +110,7 @@ immediately with one dict lookup.
   worker could not inherit the orchestrator's in-memory output directory.
 - Function tracing (`Trace fns`) emits `fn_call` and `fn_return` events with a
   `stage_id` when a semantic stage context is active. The function view shows
-  that stage chip so noisy Stage 5 helper calls can be grouped by pipeline step.
+  that stage chip so noisy per-paper extraction helper calls can be grouped by pipeline step.
 
 Only one paper can be traced per run. Trace data values go through `summarise()`
 which caps string lengths and list sizes — the trace file stays readable.

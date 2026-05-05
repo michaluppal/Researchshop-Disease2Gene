@@ -9,7 +9,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"modules/stage5/prompts.py" = ["E501"]
+"modules/paper_analysis/prompts.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

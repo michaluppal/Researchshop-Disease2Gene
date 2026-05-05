@@ -41,7 +41,7 @@ def validator():
 
 
 # ---------------------------------------------------------------------------
-# Helper: build a minimal GeneInfoPipeline without a real Gemini key.
+# Helper: build a minimal PaperAnalysisPipeline without a real Gemini key.
 # ---------------------------------------------------------------------------
 
 
@@ -83,10 +83,10 @@ class ResponseFixture:
 
 
 def _make_pipeline(paper_text: str = "", stream_texts: List[str] | None = None):
-    """Return a GeneInfoPipeline instance with no live Gemini dependency."""
-    from modules.gemini_extractor import GeneInfoPipeline
+    """Return a PaperAnalysisPipeline instance with no live Gemini dependency."""
+    from modules.paper_analysis.pipeline import PaperAnalysisPipeline
 
-    return GeneInfoPipeline(
+    return PaperAnalysisPipeline(
         paper_text=paper_text,
         abstract_text="",
         pubtator_genes=[],

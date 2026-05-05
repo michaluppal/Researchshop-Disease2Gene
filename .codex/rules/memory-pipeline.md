@@ -14,12 +14,12 @@
 ```
 UI: PubMed Search → Gene Relevance Scoring → User Selection
                                                      ↓
-Pipeline: Full Text Fetch → PubTator NER → Stage 5 Extraction → Gene Validation → CSV Output
+Pipeline: Full Text Fetch → PubTator NER → Per-Paper Extraction → Gene Validation → CSV Output
 ```
 
 Two precision layers:
 - **PubTator** (Stage 4): high precision / lower recall — forms the safety floor
-- **Stage 5 Gemini calls**: high recall / lower precision — extend coverage and add relationships
+- **Per-paper Gemini calls**: high recall / lower precision — extend coverage and add relationships
 - **Gene Validation** (Stage 6): final safety gate before any result reaches the user
 
 **UI-side screening:** Gene relevance scoring runs in the Electron renderer (`geneRelevanceScorer.ts`)
@@ -159,15 +159,15 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
 
 ---
 
-## Stage 5 — Extraction Package (`pipeline/modules/stage5/`)
+## Per-Paper Extraction Package (`pipeline/modules/paper_analysis/`)
 
 **What it does:** Per-paper candidate discovery, Gemini extraction, grounding, validation, evidence backfill, and metadata annotation.
 - Stage A: abstract-level gene discovery (fast, cheap — screens for gene-rich papers)
 - Stage B: full-text detailed extraction with user-defined schema columns
 
 **Architecture:**
-- `Stage5Pipeline` class: instantiated per paper by multiprocessing worker
-- `pipeline/modules/gemini_extractor.py` is only a compatibility shim exporting `GeneInfoPipeline = Stage5Pipeline`
+- `PaperAnalysisPipeline` class: instantiated per paper by multiprocessing worker
+- `pipeline/modules/gemini_extractor.py` is only a compatibility shim exporting legacy aliases to `PaperAnalysisPipeline`
 - Inputs: full text + abstract + PubTator seeds + figure metadata + user column schema
 - JSON schema prompting: Gemini is given the user's column definitions with BRCA1/TP53 examples
 
@@ -183,7 +183,7 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
   abbreviations (ESR mm/h, AST U/L, CRP mg/L) as genes. Works with corroboration gate (see C18/C21).
 
 **Stage 3 CRITICAL INSTRUCTIONS (in prompt — do not remove any):**
-These instructions in `pipeline/modules/stage5/prompts.py` are accumulated fixes for specific failure modes:
+These instructions in `pipeline/modules/paper_analysis/prompts.py` are accumulated fixes for specific failure modes:
 1. Independent row filling per gene (do not leave rows empty because another gene was filled)
 2. Verbatim numbers and units — no unit conversion, rounding, or substitution
 3. No ellipsis in citations (`...`, `[...]`) — quote only the specific clause, or leave empty
@@ -290,7 +290,7 @@ C19 (citation validator silent TypeError fixed), C22 (encoding normalization, ge
 deduplicates, ranks by citation count, and writes final CSV.
 
 **Worker pool:** 2–4 persistent processes (configurable via `AI_WORKER_POOL_SIZE`).
-Each worker creates a fresh `Stage5Pipeline` instance per paper.
+Each worker creates a fresh `PaperAnalysisPipeline` instance per paper.
 Per-paper timeout: 600 seconds (`AI_PER_PAPER_TIMEOUT_SECONDS`).
 
 **Deduplication:** `groupby(gene + pmid)` then `first()` strategy.
@@ -328,7 +328,7 @@ Stage 1 → [{pmid, title, abstract, authors, citation_count, ...}]  (user-selec
 Stage 2 → [{...record, screened: True, screen_score: N}]  (pass-through, forensic logging only)
 Stage 3 → [{...record, full_text: {sections}, figures: [...]}]
 Stage 4 → [{...record, pubtator_genes: [...], pubtator_variants: [...]}]
-Stage 5 → [HybridExtractionResult(rows=DataFrame, pubtator_genes=[...])]
+Per-paper extraction → [HybridExtractionResult(rows=DataFrame, pubtator_genes=[...])]
 Stage 6 → DataFrame with validation columns added
 Stage 7 → deduplicated, citation-ranked CSV
 ```

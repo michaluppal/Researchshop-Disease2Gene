@@ -38,7 +38,7 @@ for pmid in newly_done:
         payload = {"error": str(e)}
 ```
 
-**Problem.** Between `ready() == True` (line 1071) and `.get(timeout=0)` (line 1090), the worker process can crash. The bare `except Exception` swallows the real error and produces a generic `{"error": str(e)}` payload with no traceback. Worker segfaults, OOM kills, and `AssertionError`s inside `GeneInfoPipeline` all look identical to the caller.
+**Problem.** Between `ready() == True` (line 1071) and `.get(timeout=0)` (line 1090), the worker process can crash. The bare `except Exception` swallows the real error and produces a generic `{"error": str(e)}` payload with no traceback. Worker segfaults, OOM kills, and `AssertionError`s inside `PaperAnalysisPipeline` all look identical to the caller.
 
 **Impact.** Debugging a worker crash requires reproducing it locally because the production logs have no stack trace.
 
@@ -364,7 +364,7 @@ PARALLEL_ANALYSIS = os.getenv("PARALLEL_ANALYSIS", "false").lower() == "true"
 
 **File:** `python/modules/pipeline_orchestrator.py:538-539` (approximate)
 
-**Contract assumed:** `GeneInfoPipeline.run_pipeline()` always returns a DataFrame with `Gene/Group` column (even empty).
+**Contract assumed:** `PaperAnalysisPipeline.run_pipeline()` always returns a DataFrame with `Gene/Group` column (even empty).
 
 **What breaks it:** An edge case in `_run_detail_extraction` that returns `pd.DataFrame()` (the empty-no-columns case) — the caller hits KeyError on `.dropna().nunique()`.
 
@@ -447,8 +447,8 @@ Every `try/except` below catches an error without surfacing it. Grep for them an
 
 ## Section 8 — Multiprocessing Pickling Hazards
 
-### 8.1 `GeneInfoPipeline` state pickled across process boundary
-`pipeline_orchestrator.py:109-141` — Worker args include raw text, columns, figure bytes. `GeneInfoPipeline` holds regex compilations. Pickling validates nothing at submit time; errors only surface when the child process tries to rebuild the object.
+### 8.1 `PaperAnalysisPipeline` state pickled across process boundary
+`pipeline_orchestrator.py:109-141` — Worker args include raw text, columns, figure bytes. `PaperAnalysisPipeline` holds regex compilations. Pickling validates nothing at submit time; errors only surface when the child process tries to rebuild the object.
 
 ### 8.2 Figure bytes pickling cost
 `pipeline_orchestrator.py:1045-1055` — Figure inputs include base64-encoded image bytes. Multi-panel figures at high resolution can exceed 5 MB per figure × 3 figures per paper = 15 MB per submit. On a 32-bit Python build, pickle limits become relevant.
@@ -496,7 +496,7 @@ For finding 2.2 (circuit breaker): use a fixture-backed HGNC 503 response path a
 ## Cross-References
 
 - **Architecture overview:** [`internals.md` Part 1](./internals.md#part-1--architecture-overview)
-- **Stage 5 (Gemini) deep dive:** [`internals.md` Part 7](./internals.md#part-7--stage-5-gemini-extraction)
+- **Per-paper extraction deep dive:** [`internals.md` Part 7](./internals.md#part-7--per-paper-extraction-package)
 - **Config flag reference:** [`internals.md` Part 10](./internals.md#part-10--configuration-flag-reference)
 - **Historical bugs:** [`AUDIT.md`](../audit/AUDIT.md)
 - **Project rules:** [`AGENTS.md`](../../AGENTS.md)

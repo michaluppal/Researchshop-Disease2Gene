@@ -82,21 +82,21 @@ def test_collect_and_write_persists_function_events_and_summary(monkeypatch, tmp
                 }),
                 json.dumps({
                     "type": "fn_call",
-                    "module": "modules.stage5.pipeline",
+                    "module": "modules.paper_analysis.pipeline",
                     "function": "_run_detail_extraction",
                     "pmid": "123",
                     "stage_id": "detail_extraction",
                 }),
                 json.dumps({
                     "type": "fn_return",
-                    "module": "modules.stage5.pipeline",
+                    "module": "modules.paper_analysis.pipeline",
                     "function": "_run_detail_extraction",
                     "pmid": "123",
                     "stage_id": "detail_extraction",
                 }),
                 json.dumps({
                     "type": "fn_call",
-                    "module": "modules.stage5.pipeline",
+                    "module": "modules.paper_analysis.pipeline",
                     "function": "_run_detail_extraction",
                     "pmid": "999",
                     "stage_id": "detail_extraction",
@@ -114,7 +114,7 @@ def test_collect_and_write_persists_function_events_and_summary(monkeypatch, tmp
     assert payload["function_event_count"] == 2
     assert payload["function_trace_path"] == str(fn_path)
     assert payload["function_counts_by_stage"]["detail_extraction"] == 2
-    assert payload["function_counts_by_name"]["modules.stage5.pipeline._run_detail_extraction"] == 2
+    assert payload["function_counts_by_name"]["modules.paper_analysis.pipeline._run_detail_extraction"] == 2
     assert [event["type"] for event in _jsonl(fn_path)] == ["fn_call", "fn_return"]
 
 

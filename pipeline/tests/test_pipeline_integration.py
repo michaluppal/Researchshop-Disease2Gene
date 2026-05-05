@@ -2,7 +2,7 @@
 Fixture-backed pipeline output contract tests.
 
 These tests do not patch production modules or replace runtime boundaries. They
-exercise the output writer and deterministic Stage 5 helpers with representative
+exercise the output writer and deterministic per-paper extraction helpers with representative
 records shaped like orchestrator output.
 """
 
@@ -212,13 +212,13 @@ def test_column_order(tmp_path):
 
 def test_pmid_41017238_f12_regression():
     """Co-mentioned genes should retain co-mention metadata after backfill."""
-    from modules.gemini_extractor import GeneInfoPipeline
+    from modules.paper_analysis.pipeline import PaperAnalysisPipeline
 
     paper_text = (
         "Furthermore, ITPKC, CASP3, and FCGR2A contribute together to "
         "Kawasaki disease susceptibility."
     )
-    pipeline = GeneInfoPipeline(
+    pipeline = PaperAnalysisPipeline(
         paper_text=paper_text,
         abstract_text="",
         pubtator_genes=[],

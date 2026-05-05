@@ -1,7 +1,7 @@
 """
 Tests for F8a truncation rescue branch in _run_grounding_check.
 
-When Stage 5 full-text truncation drops a section containing a candidate gene,
+When per-paper extraction full-text truncation drops a section containing a candidate gene,
 the grounding check would previously reject that gene as "ungrounded". F8a adds
 a rescue step: if primary search in self.paper_text (truncated) fails AND
 self.paper_text != self.original_paper_text (truncation fired), retry the
@@ -36,10 +36,10 @@ class OfflineGeminiClient:
 
 
 def _make_pipeline(paper_text: str = ""):
-    """Return a GeneInfoPipeline instance with no live Gemini dependency."""
-    from modules.gemini_extractor import GeneInfoPipeline
+    """Return a PaperAnalysisPipeline instance with no live Gemini dependency."""
+    from modules.paper_analysis.pipeline import PaperAnalysisPipeline
 
-    return GeneInfoPipeline(
+    return PaperAnalysisPipeline(
         paper_text=paper_text,
         abstract_text="",
         pubtator_genes=[],

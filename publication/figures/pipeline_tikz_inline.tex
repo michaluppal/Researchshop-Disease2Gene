@@ -35,12 +35,12 @@
 % ── Row 2: Pipeline ───────────────────────────
 \node[stage=gray]   (s3) at (0,-2) {\textbf{Stage 3}\\Full-Text Fetch};
 \node[stage=orange] (s4) at (3.4,-2) {\textbf{Stage 4}\\PubTator3 NER};
-\node[stage=violet] (s5) at (6.8,-2) {\textbf{Stage 5}\\LLM Extraction};
+\node[stage=violet] (s5) at (6.8,-2) {\textbf{Per-Paper}\\Extraction};
 \node[db]           (wp) at (9.8,-2) {Worker Pool\\{\tiny 2--4 procs}};
 
 \node[lbl] at (0,-2.65) {full\_text\_fetcher.py};
 \node[lbl] at (3.4,-2.65) {pubtator\_tool.py};
-\node[lbl] at (6.8,-2.65) {gemini\_extractor.py};
+\node[lbl] at (6.8,-2.65) {paper\_analysis/pipeline.py};
 \node[lbl] at (9.8,-2.55) {orchestrator.py};
 
 \node[api] at (0,-1.35) {PMC OA / Europe PMC};

@@ -1,13 +1,13 @@
-"""Backward-compatible Stage 5 import shim.
+"""Backward-compatible Gemini extractor import shim.
 
-Historically the per-paper Stage 5 coordinator lived in this module as
-``GeneInfoPipeline``. New code should import ``Stage5Pipeline`` from
-``modules.stage5.pipeline``; this shim keeps old imports and test patches working.
+Historically the per-paper extraction coordinator lived in this module as
+``GeneInfoPipeline``. New code should import ``PaperAnalysisPipeline`` from
+``modules.paper_analysis.pipeline``; this shim keeps old imports and test patches working.
 """
 
 from . import config
-from .stage5.pipeline import Stage5Pipeline
+from .paper_analysis.pipeline import PaperAnalysisPipeline, Stage5Pipeline
 
-GeneInfoPipeline = Stage5Pipeline
+GeneInfoPipeline = PaperAnalysisPipeline
 
-__all__ = ["GeneInfoPipeline", "Stage5Pipeline", "config"]
+__all__ = ["GeneInfoPipeline", "PaperAnalysisPipeline", "Stage5Pipeline", "config"]

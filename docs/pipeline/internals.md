@@ -19,7 +19,7 @@
 - [Part 4 — Stage 2: Gene Relevance Scoring](#part-4--stage-2-gene-relevance-scoring)
 - [Part 5 — Stage 3: Full-Text Fetch](#part-5--stage-3-full-text-fetch)
 - [Part 6 — Stage 4: PubTator NER](#part-6--stage-4-pubtator-ner)
-- [Part 7 — Stage 5 Extraction Package](#part-7--stage-5-extraction-package)
+- [Part 7 — Per-Paper Extraction Package](#part-7--per-paper-extraction-package)
 - [Part 8 — Stage 6: Gene Validation](#part-8--stage-6-gene-validation)
 - [Part 9 — Stage 7: Orchestration & CSV Output](#part-9--stage-7-orchestration--csv-output)
 - [Part 10 — Configuration Flag Reference](#part-10--configuration-flag-reference)
@@ -37,7 +37,7 @@
 **Where it ends.** A multi-file artifact bundle under `data/output/` plus a row in `jobs.db`.
 
 **Main invariants** (things the pipeline assumes but does not always enforce):
-1. Every paper processed by `Stage5Pipeline` is independent. No cross-paper state.
+1. Every paper processed by `PaperAnalysisPipeline` is independent. No cross-paper state.
 2. Secrets flow only via environment variables, never CLI args.
 3. Every gene that reaches the CSV has `validation_confidence >= FINAL_VALIDATION_MIN_CONFIDENCE` (default 0.7) UNLESS `ENABLE_STRICT_VALIDATION_GATE=False`.
 4. Every gene that reaches the CSV has been grounded in the paper text UNLESS `ENABLE_GROUNDING_CHECK=False`.
@@ -104,8 +104,8 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 5: Extraction (worker pool)                    │
-│ stage5.pipeline.Stage5Pipeline                       │
+│ Per-Paper Extraction (worker pool)                   │
+│ paper_analysis.pipeline.PaperAnalysisPipeline        │
 │ → Abstract + 2-pass full-text + figures + PubTator   │
 │ → Grounding check → gene validation → detail extract │
 │ → Strict gate → citation validation → evidence gate  │
@@ -113,7 +113,7 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 6: Gene Validation (inside Stage 5)            │
+│ Stage 6: Gene Validation (inside per-paper extraction)│
 │ gene_validator.py                                    │
 │ → HGNC local → HGNC API → MyGene.info → fuzzy        │
 │ → Citation validation (dense match + encoding norm)  │
@@ -161,7 +161,7 @@ Everything in the pipeline is a tension between these three. The safeguards (gro
 - **No Stage 2 (relevance scoring):** users submit irrelevant papers, wasting Gemini quota.
 - **No Stage 3 (full text):** abstract-only degradation. Precision stays OK, recall tanks.
 - **No Stage 4 (PubTator):** precision floor removed. LLM-only output; hallucination risk up.
-- **No Stage 5 (Gemini):** no detail extraction, just PubTator gene list.
+- **No per-paper Gemini extraction:** no detail extraction, just PubTator gene list.
 - **No Stage 6 (Gene Validator):** invalid/misspelled genes reach output.
 - **No Stage 7 (Orchestrator):** no CSV, no aggregation, no confidence tiers.
 
@@ -435,7 +435,7 @@ In `abstract_screener.py` and mirrored in `geneRelevanceScorer.ts`: papers with 
 
 JATS XML is parsed into text sections by combining ResearchShop's abstract/table/supplement handling with `pubmed_parser` body paragraph extraction. If the adapter returns no useful body text, the existing JATS traversal is used as fallback.
 
-The section keys match `stage5/context.py:ContextMixin._SECTION_HEADER_PATTERNS` so downstream truncation can drop sections by name.
+The section keys match `paper_analysis/context.py:ContextMixin._SECTION_HEADER_PATTERNS` so downstream truncation can drop sections by name.
 
 ### 5.4 Figure extraction
 
@@ -502,17 +502,17 @@ PubTator provides the precision floor:
 
 ---
 
-## Part 7 — Stage 5 Extraction Package
+## Part 7 — Per-Paper Extraction Package
 
-### 7.1 Package: `pipeline/modules/stage5/`
+### 7.1 Package: `pipeline/modules/paper_analysis/`
 
 This package owns the per-paper extraction flow. `gemini_extractor.py` remains only as
-a backward-compatible shim exporting `GeneInfoPipeline = Stage5Pipeline`.
+a backward-compatible shim exporting legacy aliases to `PaperAnalysisPipeline`.
 
 ### 7.2 Class lifecycle
 
 ```python
-# stage5/pipeline.py:Stage5Pipeline.__init__
+# paper_analysis/pipeline.py:PaperAnalysisPipeline.__init__
 def __init__(self, paper_text, abstract_text="", pubtator_genes=None, figure_inputs=None, table_inputs=None):
     self.paper_text = paper_text              # mutable; truncated by context validation
     self.original_paper_text = paper_text     # immutable backup
@@ -534,7 +534,7 @@ State lifecycle through one paper:
 6. `_run_detail_extraction` — produces `extracted_info` list (not stored on self)
 7. `_run_post_validation` — returns DataFrame
 
-**Important:** Steps 2–7 all happen within a single `run_pipeline()` call. The worker pool creates a new `Stage5Pipeline` instance per paper, so state never leaks across papers.
+**Important:** Steps 2–7 all happen within a single `run_pipeline()` call. The worker pool creates a new `PaperAnalysisPipeline` instance per paper, so state never leaks across papers.
 
 ### 7.3 The `candidate_meta` dict
 
@@ -557,7 +557,7 @@ This dict is the single source of truth for provenance. Every gate decision (gro
 
 ### 7.4 The 4 module-level prompt constants
 
-Prompt constants live in `pipeline/modules/stage5/prompts.py`:
+Prompt constants live in `pipeline/modules/paper_analysis/prompts.py`:
 
 - `_GENE_DISCOVERY_INSTRUCTION_ABSTRACT` (lines 25-42) — abstract-level discovery
 - `_GENE_DISCOVERY_INSTRUCTION_FULLTEXT` (lines 44-59) — full-text discovery
@@ -618,7 +618,7 @@ Stage 3 detail extraction. All validated candidates go into ONE LLM call.
 After the 2026-04-07 refactor (C24), `run_pipeline()` is a 25-line orchestrator:
 
 ```python
-# stage5/pipeline.py:Stage5Pipeline.run_pipeline
+# paper_analysis/pipeline.py:PaperAnalysisPipeline.run_pipeline
 def run_pipeline(self, column_descriptions):
     context_validation = self._validate_and_prepare_paper_text()
     if context_validation["failed"]:
@@ -908,7 +908,7 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
 # pipeline_orchestrator.py:109
 def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, abstract_text=None, table_inputs=None):
     try:
-        inst = Stage5Pipeline(
+        inst = PaperAnalysisPipeline(
             text,
             abstract_text=abstract_text or "",
             pubtator_genes=pubtator_genes,
@@ -927,7 +927,7 @@ def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None, ab
         return {"error": str(e)}
 ```
 
-Every worker invocation creates a fresh `Stage5Pipeline` instance. No state leaks across papers.
+Every worker invocation creates a fresh `PaperAnalysisPipeline` instance. No state leaks across papers.
 
 ### 9.4 Sequential mode
 
@@ -1188,7 +1188,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 **Breakage point:** See [`bug-hunting.md` §7](./bug-hunting.md#section-7--missing-validation-gates) — `_prepare_paper_inputs` doesn't check for the `content` key.
 
-### 11.4 Stage 4 → Stage 5 (PubTator → Gemini)
+### 11.4 Stage 4 → Per-Paper Extraction (PubTator → Gemini)
 
 **Object:** Arguments to `_run_pipeline_worker`:
 
@@ -1207,7 +1207,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 **Breakage point:** `figure_inputs` contains raw image bytes. Large multi-panel figures can blow the pickle buffer. See [`bug-hunting.md` §8.2](./bug-hunting.md#82-figure-bytes-pickling-cost).
 
-### 11.5 Stage 5 → Stage 7 (Worker → Orchestrator)
+### 11.5 Per-Paper Extraction → Stage 7 (Worker → Orchestrator)
 
 **Object:** Worker return value:
 
@@ -1251,7 +1251,7 @@ Or on error:
 
 ## Part 12 — State Lifecycle
 
-### 12.1 `Stage5Pipeline` instance state across one paper
+### 12.1 `PaperAnalysisPipeline` instance state across one paper
 
 ```
 __init__ called
@@ -1351,7 +1351,7 @@ Each worker is a separate OS process. No shared memory. Data flows via pickle ac
 - **Out:** records (list of dicts), debug dict, gemini_api_calls int
 
 Workers hold their own:
-- `Stage5Pipeline` instance (fresh per paper)
+- `PaperAnalysisPipeline` instance (fresh per paper)
 - `GeneValidator` instance (cached HGNC DB)
 - `genai.Client` instance
 - Python module imports
@@ -1379,7 +1379,7 @@ See [`bug-hunting.md` §1.2](./bug-hunting.md#12-pool-restart-resets-per-paper-t
 
 ### 13.1 The 4 prompt constants
 
-All four live in `pipeline/modules/stage5/prompts.py` as module-level constants.
+All four live in `pipeline/modules/paper_analysis/prompts.py` as module-level constants.
 
 ### 13.2 `_GENE_DISCOVERY_INSTRUCTION_ABSTRACT` (lines 25-42)
 
@@ -1446,7 +1446,7 @@ A blocklist couldn't distinguish "ESR as lab value" from "ESR1 as gene". Replace
 
 Gemini preview models have thinking enabled by default. For 12k-token Stage 3 prompts, this caused hangs >600s.
 
-Fix: set `thinking_budget=0` on ALL `GenerateContentConfig` calls. This is checked in every LLM method in `pipeline/modules/stage5/gemini_client.py`.
+Fix: set `thinking_budget=0` on ALL `GenerateContentConfig` calls. This is checked in every LLM method in `pipeline/modules/paper_analysis/gemini_client.py`.
 
 ### 13.8 Why no static clinical blocklist
 
@@ -1497,7 +1497,7 @@ This is the single best source of truth for post-mortem analysis. When a paper p
 For each core file, see its git history for the change timeline:
 
 ```bash
-git log --oneline pipeline/modules/stage5/ pipeline/modules/gemini_extractor.py
+git log --oneline pipeline/modules/paper_analysis/ pipeline/modules/gemini_extractor.py
 git log --oneline pipeline/modules/pipeline_orchestrator.py
 git log --oneline pipeline/modules/gene_validator.py
 git log --oneline app/src/main/python-bridge.ts

@@ -4,6 +4,9 @@
 > Written collaboratively — each section reflects what has been discussed and verified.
 > Not a spec. Not a reference. A shared mental model.
 
+For the compact source-of-truth stage/function map, see
+[`pipeline-step-table.md`](./pipeline-step-table.md).
+
 ---
 
 ## 1. Paper Selection — Handoff from UI to Pipeline
@@ -880,7 +883,7 @@ pubtator_results[pmid]     → HybridExtractionResult(pubtator_genes, pubtator_v
 ```
 
 Plus the shared `columns` schema (the user-defined CSV columns) and the lazily-fetched
-citation counts. That's the input bundle for Stage 5.
+citation counts. That's the input bundle for per-paper extraction.
 
 ### 6.9 The visual
 
@@ -1035,7 +1038,7 @@ paper, assembled by `_prepare_paper_inputs(pmid, content_dict, paper_details, pu
 ### 7.6 Now — the Gemini abstract pass
 
 **Now** the abstract pass begins. Step 5 in the orchestrator hands each PMID to a worker
-in the multiprocessing pool, which instantiates a `GeneInfoPipeline` (Gemini) and runs:
+in the multiprocessing pool, which instantiates a `PaperAnalysisPipeline` and runs:
 
 1. **Abstract pass.** One Gemini Flash call per paper on just the abstract. Discovers
    candidate genes into a running list, tagged with source `llm_abstract`. Does *not*
@@ -1063,7 +1066,7 @@ flowchart TD
     Screen --> Forensic["screen_papers_with_decisions<br/>→ drop_debug_{hash}.json"]
     Screen --> Ready["pmids_to_process (final order)"]
 
-    Ready --> S5[["→ Section 8: Gemini Stage A (abstract pass)"]]
+    Ready --> S5[["→ Section 8: Abstract candidate pass"]]
 
     Ready -.->|"empty?"| Fallback["metadata_only_all_rejected_by_screening<br/>(unreachable today)"]
 
@@ -1083,7 +1086,7 @@ flowchart TD
 ## 8. The Abstract Pass — Fast Candidate Discovery
 
 The first LLM call for a paper. Cheap, focused, discovery-only. In the code this is
-**Step 0.5** inside `GeneInfoPipeline.run_pipeline()` (the per-paper orchestration method,
+**Step 0.5** inside `PaperAnalysisPipeline.run_pipeline()` (the per-paper orchestration method,
 not to be confused with the top-level `pipeline_orchestrator.run_pipeline`).
 
 ### 8.1 When it fires
@@ -1258,7 +1261,7 @@ The abstract pass is:
 ```mermaid
 flowchart TD
     Worker[["Worker process<br/>per paper"]]
-    Start["GeneInfoPipeline.run_pipeline(paper)"]
+    Start["PaperAnalysisPipeline.run_pipeline(paper)"]
 
     Worker --> Start
     Start --> Guard{"abstract_text<br/>non-empty?<br/>+ flag enabled?"}
@@ -2808,7 +2811,7 @@ Four things worth knowing:
   per-minute API request pressure on the user's Gemini quota.
 - **Workers are persistent.** They stay alive across multiple papers. The Python
   interpreter + heavy imports are paid once per worker, not once per paper. The
-  `GeneInfoPipeline` instance is re-instantiated per paper (different paper text,
+  `PaperAnalysisPipeline` instance is re-instantiated per paper (different paper text,
   different associations), but the process overhead is amortised.
 - **Parallel mode is opt-in.** `PARALLEL_ANALYSIS` (default `False`) is wired through
   from `Settings.tsx` via the spawn env var (see `memory-sessions.md` 2026-04-07). The
@@ -2867,7 +2870,7 @@ window saturates fast. Paid tier users benefit more.
 ```python
 def _run_pipeline_worker(text, cols, pubtator_genes=None, figure_inputs=None,
                         abstract_text=None, table_inputs=None):
-    pipeline = GeneInfoPipeline(
+    pipeline = PaperAnalysisPipeline(
         paper_text=text,
         abstract_text=abstract_text or "",
         pubtator_genes=pubtator_genes,

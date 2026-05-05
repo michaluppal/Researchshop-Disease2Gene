@@ -78,7 +78,7 @@
     {\tiny precision floor}};
 
 \node[widestagebox=violet, right=of pubtator] (gemini) {
-    \textbf{\footnotesize Stage 5: LLM Extraction}\\[-1pt]
+    \textbf{\footnotesize Per-Paper Extraction}\\[-1pt]
     {\scriptsize A: Abstract $\to$ B: Full-text}\\[-2pt]
     {\scriptsize + Figure analysis}};
 
@@ -90,7 +90,7 @@
 % File labels - Pipeline
 \node[filelabel, below=1pt of fulltext] {full\_text\_fetcher.py};
 \node[filelabel, below=1pt of pubtator] {pubtator\_tool.py};
-\node[filelabel, below=1pt of gemini] {modules/stage5/};
+\node[filelabel, below=1pt of gemini] {modules/paper\_analysis/};
 \node[filelabel, below=1pt of orch] {pipeline\_orchestrator.py};
 
 % API pills above pipeline boxes

@@ -2,7 +2,7 @@
 
 This module intentionally handles only paper text, citation text, abstracts,
 and table indexes. Candidate-specific gene/variant normalization remains in
-Stage 5, where provenance, HGNC aliases, and per-candidate caches are available.
+per-paper extraction, where provenance, HGNC aliases, and per-candidate caches are available.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ class TableCitationIndex:
 
 @dataclass
 class PreparedPaperContent:
-    """Paper-level normalized artifacts handed from preparation into Stage 5."""
+    """Paper-level normalized artifacts handed from preparation into per-paper extraction."""
 
     raw_text: str
     citation_text_normalized: str

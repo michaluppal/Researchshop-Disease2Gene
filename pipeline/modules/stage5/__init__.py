@@ -1,9 +1,9 @@
-"""Stage 5 per-paper extraction pipeline.
+"""Legacy import package for per-paper extraction.
 
-This package owns the per-paper candidate discovery, Gemini extraction,
-grounding, validation, evidence backfill, and metadata annotation flow.
+New code should import from ``modules.paper_analysis``. This package remains so
+older imports that reference the former ``modules.stage5`` path keep working.
 """
 
-from .pipeline import Stage5Pipeline
+from ..paper_analysis import PaperAnalysisPipeline, Stage5Pipeline
 
-__all__ = ["Stage5Pipeline"]
+__all__ = ["PaperAnalysisPipeline", "Stage5Pipeline"]

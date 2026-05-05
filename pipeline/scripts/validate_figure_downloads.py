@@ -13,7 +13,7 @@ from parser_ground_truth_common import (  # noqa: E402
     extract_current_article,
     load_articles,
 )
-from modules.stage5.figures import FigureMixin  # noqa: E402
+from modules.paper_analysis.figures import FigureMixin  # noqa: E402
 
 
 class FigureDownloadProbe(FigureMixin):
