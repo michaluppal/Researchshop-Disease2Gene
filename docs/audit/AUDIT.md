@@ -2243,3 +2243,49 @@ scientific safeguards apply.
 **Scientific tradeoff:** This pass changes candidate-discovery policy by making the
 full-text Gemini discovery call mandatory. It does not lower confidence thresholds,
 weaken grounding, disable the strict gate, or change output schemas.
+
+---
+
+## Implementation Note — Candidate Provenance and Structured Gemini Output (2026-05-05)
+
+**Context:** The PIMS/MIS-C gold-standard paper PMID `35177862` exposed two grounding
+misses and one structured-output robustness issue: `IFNG` was missed because the paper
+uses `IFN-gamma`, `HLA-C` was missed when the paper cited the allele shorthand `C*04`,
+and full-text Gemini candidate discovery could produce oversized/malformed JSON when
+asked for unbounded provenance.
+
+**Changes planned/implemented on `dev/pipeline_contract`:**
+
+- Paper-level content preparation now indexes deterministic normalization records for
+  cytokine aliases such as `IFN-gamma -> IFNG` and HLA class I allele shorthand such
+  as `A*02/B*35/C*04 -> HLA-A/HLA-B/HLA-C`.
+- Candidate grounding now records the exact grounding match, grounding source,
+  normalization rule, original paper mention, and evidence sentence, and output rows
+  disclose those provenance fields.
+- Gemini candidate discovery, figure discovery, and detail extraction use current
+  structured-output guidance: non-stream `generate_content`, Pydantic `response_schema`
+  models, SDK `response.parsed` when available, and app-side Pydantic validation of
+  parsed fallback JSON.
+- Candidate discovery keeps a flat Pydantic schema (`reported_gene`, `reported_variant`,
+  `original_mention`, `evidence_sentence`) to avoid nested-schema state explosion.
+- The previous 25-candidate structured-output cap was removed because large genomics,
+  RNA-seq, HLA, and cancer papers can legitimately contain more than 25 reportable
+  genes. Candidate discovery now avoids silent truncation and relies on relevance
+  instructions plus downstream grounding/HGNC/evidence gates.
+- Structured-output parsing now rejects malformed top-level shapes during mandatory
+  detail extraction instead of treating JSON objects/refusals as row arrays; optional
+  candidate paths validate the same Pydantic `associations` envelope.
+- Required Gemini calls now get one bounded retry for transient `503 UNAVAILABLE`
+  high-demand responses while keeping the default three-call per-paper budget.
+- HLA allele rows are reconciled to the validated allele candidate when Gemini emits
+  a loose HLA gene row and exactly one validated allele candidate exists; HLA shorthand
+  variants are canonicalized consistently (`C*04 -> HLA-C*04`) across candidate,
+  detail, evidence, and metadata paths. Direct and compact HLA allele forms such as
+  `HLA-C*04:01`, `HLA-C04`, and `Cw*06` are indexed as normalized provenance records.
+
+**Scientific tradeoff:** These changes improve recall and row-level provenance for
+known biomedical alias forms without weakening HGNC validation, grounding, citation
+validation, confidence thresholds, or OA-only policy. The latest PIMS/MIS-C live run
+on PMID `35177862` recovered all 16 curated expected genes after adding the `MMP-9`
+normalization rule; subsequent HLA de-duplication and structured-output hardening are
+covered by offline regression tests.

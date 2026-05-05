@@ -17,18 +17,27 @@ class MetadataMixin:
         """
         candidates: List[Dict[str, Any]] = []
         for meta in self.candidate_meta.values():
+            gene = str(meta.get("gene") or "")
+            variant = self._normalize_variant_for_gene(gene, meta.get("variant", ""))
             candidates.append(
                 {
-                    "gene": str(meta.get("gene") or ""),
-                    "variant": self._normalize_variant_value(meta.get("variant", "")),
+                    "gene": gene,
+                    "variant": variant,
                     "sources": self._as_sorted_strings(meta.get("sources")),
                     "raw_gene_labels": self._as_sorted_strings(meta.get("raw_gene_labels")),
+                    "original_mentions": self._as_string_list(meta.get("original_mentions")),
                     "candidate_terms": list(meta.get("candidate_terms") or []),
+                    "normalization_records": list(meta.get("normalization_records") or []),
                     "association_type": str(meta.get("association_type") or ""),
                     "association_group": association_group_for_type(
                         str(meta.get("association_type") or "")
                     ),
                     "normalization_applied": str(meta.get("normalization_applied") or ""),
+                    "normalization_rule": str(meta.get("normalization_rule") or ""),
+                    "grounding_match": str(meta.get("grounding_match") or ""),
+                    "grounding_source": str(meta.get("grounding_source") or ""),
+                    "grounding_snippet": str(meta.get("grounding_snippet") or ""),
+                    "evidence_sentence": str(meta.get("evidence_sentence") or ""),
                     "validation_confidence": meta.get("validation_confidence"),
                     "validation_source": str(meta.get("validation_source") or ""),
                     "validation_outcome": str(meta.get("validation_outcome") or ""),
@@ -60,11 +69,17 @@ class MetadataMixin:
             "truncation_rescue_count": self._truncation_rescue_count,
             "final_associations": [
                 {
-                    "gene": str((assoc.get("gene") if isinstance(assoc, dict) else assoc[0]) or ""),
-                    "variant": self._normalize_variant_value(
+                    "gene": str(
+                        (assoc.get("gene") if isinstance(assoc, dict) else assoc[0]) or ""
+                    ),
+                    "variant": self._normalize_variant_for_gene(
+                        str(
+                            (assoc.get("gene") if isinstance(assoc, dict) else assoc[0])
+                            or ""
+                        ),
                         assoc.get("variant", "")
                         if isinstance(assoc, dict)
-                        else (assoc[1] if len(assoc) > 1 else "")
+                        else (assoc[1] if len(assoc) > 1 else ""),
                     ),
                     "association_type": str(assoc.get("association_type", ""))
                     if isinstance(assoc, dict)
@@ -94,10 +109,15 @@ class MetadataMixin:
         df["Dropped By Gate"] = False
         df["Deterministic Context Reason"] = ""
         df["Deterministic Context Evidence"] = ""
+        df["Original Paper Mention"] = ""
+        df["Grounding Match"] = ""
+        df["Grounding Source"] = ""
+        df["Normalization Rule"] = ""
+        df["Evidence Sentence"] = ""
 
         for i, row in df.iterrows():
             gene = (row.get("gene_name") or "").strip()
-            variant = self._normalize_variant_value(row.get("variant_name", ""))
+            variant = self._normalize_variant_for_gene(gene, row.get("variant_name", ""))
             key = self._assoc_key(gene, variant)
             meta = self.candidate_meta.get(key)
             if not meta:
@@ -118,6 +138,12 @@ class MetadataMixin:
             df.at[i, "Deterministic Context Evidence"] = (
                 meta.get("deterministic_context_snippet", "") or ""
             )
+            original_mentions = self._as_string_list(meta.get("original_mentions"))
+            df.at[i, "Original Paper Mention"] = "; ".join(original_mentions)
+            df.at[i, "Grounding Match"] = meta.get("grounding_match", "") or ""
+            df.at[i, "Grounding Source"] = meta.get("grounding_source", "") or ""
+            df.at[i, "Normalization Rule"] = meta.get("normalization_rule", "") or ""
+            df.at[i, "Evidence Sentence"] = meta.get("evidence_sentence", "") or ""
 
     def _add_validation_metadata(self, df: pd.DataFrame):
         """
@@ -136,13 +162,19 @@ class MetadataMixin:
         df["Gene Biotype"] = "unknown"
 
         validation_by_key = {
-            self._assoc_key(result.gene, self._normalize_variant_value(result.variant)): result
+            self._assoc_key(
+                result.gene,
+                self._normalize_variant_for_gene(result.gene, result.variant),
+            ): result
             for result in self.validation_results
         }
 
         for i, row in df.iterrows():
             gene_name = str(row.get("gene_name", "") or "").strip().upper()
-            variant_name = self._normalize_variant_value(row.get("variant_name", ""))
+            variant_name = self._normalize_variant_for_gene(
+                gene_name,
+                row.get("variant_name", ""),
+            )
             key = self._assoc_key(gene_name, variant_name)
 
             # Look up gene biotype from local HGNC database
@@ -231,6 +263,12 @@ class MetadataMixin:
             "Association Type",
             "Association Group",
             "Dropped By Gate",
+            "Original Paper Mention",
+            "Grounding Match",
+            "Grounding Source",
+            "Normalization Rule",
+            "Evidence Sentence",
+            "Candidate Reconciliation",
         }
 
         # Find (content_col, citation_col) pairs: columns where {col} Citation also exists.

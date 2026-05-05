@@ -160,6 +160,33 @@ class TestCitationExistsInPaper:
         assert isinstance(exists, bool)
         assert 0.0 <= confidence <= 1.0
 
+    @pytest.mark.parametrize(
+        ("gene_symbol", "allele_alias", "citation"),
+        [
+            ("HLA-A", "A*02", "Carriers of A*02 showed durable response after treatment."),
+            ("HLA-B", "B*35", "Carriers of B*35 showed durable response after treatment."),
+            ("HLA-C", "C*04", "Carriers of C*04 showed durable response after treatment."),
+        ],
+    )
+    def test_hla_allele_aliases_are_literal_gene_context(
+        self, gene_symbol, allele_alias, citation
+    ):
+        """HLA allele shorthand aliases contain regex metacharacters and must stay literal."""
+        paper = (
+            "The cohort was stratified by classical HLA allele groups. "
+            f"{citation} The remaining participants did not share the same allele."
+        )
+
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation,
+            paper,
+            gene_symbol=gene_symbol,
+            gene_aliases=[allele_alias],
+        )
+
+        assert exists is True, reason
+        assert confidence >= 0.85
+
     # ------------------------------------------------------------------
     # F10a — Citation drift normalisation (soft-hyphen, line-break
     # hyphenation, Unicode dashes, ligatures) + tiered failure messages

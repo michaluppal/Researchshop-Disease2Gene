@@ -323,6 +323,8 @@ def _write_split_output(
         + [c for c in user_cols if c in df_clean.columns]
         + [
             "Confidence", "Confidence Note", "Association Group", "Association Type",
+            "Original Paper Mention", "Grounding Match", "Grounding Source",
+            "Normalization Rule",
             # F11: extraction_mode (llm / skeleton) and evidence_backfilled
             # visible in the primary CSV so researchers can see fallback
             # rows at a glance instead of having to consult the metadata CSV.

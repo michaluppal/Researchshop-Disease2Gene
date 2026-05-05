@@ -58,6 +58,7 @@ def _inject_candidate(pipeline, gene: str, variant: str, source: str) -> tuple:
 
     Returns the candidate_meta key so tests can introspect the entry.
     """
+    variant = pipeline._normalize_variant_for_gene(gene, variant)
     key = pipeline._assoc_key(gene, variant)
     entry = pipeline.candidate_meta.get(key)
     if entry is None:
@@ -477,3 +478,51 @@ def test_deterministic_context_rescue_rejects_methods_and_abbreviation_noise(
         drop["gene"] == gene and drop["reason"] == "deterministic_uncorroborated"
         for drop in pipeline.dropped_candidates
     )
+
+
+def test_grounding_uses_prepared_cytokine_normalization_records():
+    pipeline = _make_pipeline(
+        "Results: IFN-gamma, CXCL9, and CXCL10 were elevated in early MIS-C."
+    )
+    key = _inject_candidate(pipeline, "IFNG", "", "llm_text")
+
+    pipeline._run_grounding_check()
+
+    assert pipeline.associations == [{"gene": "IFNG", "variant": ""}]
+    meta = pipeline.candidate_meta[key]
+    assert meta["grounding_match"] == "IFN-gamma"
+    assert meta["grounding_source"] == "normalized_evidence_index"
+    assert meta["normalization_rule"] == "cytokine_alias_ifng"
+    assert "IFN-gamma" in meta["original_mentions"]
+
+
+def test_grounding_uses_hla_allele_shorthand_normalization_records():
+    pipeline = _make_pipeline(
+        "The association of MIS-C with HLA class I alleles A*02, B*35 and C*04 "
+        "suggested genetic susceptibility."
+    )
+    key = _inject_candidate(pipeline, "HLA-C", "C*04", "llm_text")
+
+    pipeline._run_grounding_check()
+
+    assert pipeline.associations == [{"gene": "HLA-C", "variant": "HLA-C*04"}]
+    meta = pipeline.candidate_meta[key]
+    assert meta["grounding_match"] == "C*04"
+    assert meta["grounding_source"] == "normalized_evidence_index"
+    assert meta["normalization_rule"] == "hla_class_i_allele_shorthand"
+    assert "C*04" in meta["original_mentions"]
+
+
+def test_grounding_uses_direct_hla_allele_normalization_records():
+    pipeline = _make_pipeline(
+        "Results: HLA-C*04:01 was enriched in the MIS-C subgroup."
+    )
+    key = _inject_candidate(pipeline, "HLA-C", "C04:01", "llm_text")
+
+    pipeline._run_grounding_check()
+
+    assert pipeline.associations == [{"gene": "HLA-C", "variant": "HLA-C*04:01"}]
+    meta = pipeline.candidate_meta[key]
+    assert meta["grounding_match"] == "HLA-C*04:01"
+    assert meta["grounding_source"] == "normalized_evidence_index"
+    assert meta["normalization_rule"] == "hla_direct_allele"

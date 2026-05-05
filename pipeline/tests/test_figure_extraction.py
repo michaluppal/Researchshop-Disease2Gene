@@ -50,9 +50,19 @@ class StreamChunkFixture:
         self.text = text
 
 
+class GenerateContentResponseFixture:
+    def __init__(self, text: str):
+        self.text = text
+        self.parsed = None
+
+
 class OfflineGeminiModels:
     def __init__(self, stream_texts: List[str] | None = None):
         self.stream_texts = list(stream_texts or [])
+
+    def generate_content(self, *_args, **_kwargs):
+        text = self.stream_texts.pop(0) if self.stream_texts else ""
+        return GenerateContentResponseFixture(text)
 
     def generate_content_stream(self, *_args, **_kwargs):
         text = self.stream_texts.pop(0) if self.stream_texts else ""
@@ -160,6 +170,27 @@ class TestGroundingBypassForFigureSource:
             "KRAS (llm_figure source) must survive the grounding check even though "
             "it is absent from paper prose text"
         )
+
+    def test_llm_figure_grounding_records_figure_metadata(self):
+        pipeline = _make_pipeline(
+            paper_text="This paragraph does not mention the figure-derived gene."
+        )
+        pipeline.figure_inputs = [
+            {
+                "label": "Figure 1",
+                "caption": "KRAS expression was highlighted in the heatmap.",
+            }
+        ]
+        pipeline._ingest_associations([{"gene": "KRAS", "variant": ""}], "llm_figure")
+
+        pipeline._run_grounding_check()
+
+        key = pipeline._assoc_key("KRAS", "")
+        meta = pipeline.candidate_meta[key]
+        assert pipeline.associations == [{"gene": "KRAS", "variant": ""}]
+        assert meta["grounding_match"] == "KRAS"
+        assert meta["grounding_source"] == "figure_caption_or_label"
+        assert "KRAS expression" in meta["grounding_snippet"]
 
 
 # ---------------------------------------------------------------------------
