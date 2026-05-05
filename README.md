@@ -10,13 +10,13 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 ## What it does
 
-1. Searches PubMed for relevant papers (or accepts a specific PMID list)
-2. Screens abstracts to filter out non-genetics papers
-3. Fetches full text for open-access papers via PubMed Central
-4. Runs PubTator NER for high-precision gene identification
-5. Extracts structured gene/variant associations using Google Gemini
-6. Validates all gene symbols against HGNC and scores citation evidence
-7. Exports a CSV with every extracted association, its evidence, and grounding score
+1. `paper_selection`: finds relevant PubMed papers or accepts a specific PMID list
+2. `oa_filter`: keeps open-access papers for full-text reading
+3. `paper_reading`: fetches full text via PubMed Central and Europe PMC fallback
+4. `candidate_discovery`: finds candidate genes with PubTator, deterministic scans, and mandatory full-text Gemini discovery
+5. `detail_extraction`: asks Gemini to fill the researcher-defined fields for each candidate
+6. `validation`: validates gene symbols against HGNC and scores citation evidence
+7. `output_writing`: exports CSV, metadata CSV, Excel, JSON, and debug artifacts
 
 ---
 
@@ -120,22 +120,22 @@ The output CSV contains one row per gene-paper pair with the following key colum
 ## Pipeline architecture
 
 ```
-PubMed Search → Abstract Screening → Full Text Fetch → PubTator NER
-                                                              ↓
-                                      CSV Output ← Gene Validation ← Per-Paper Extraction
+paper_selection → oa_filter → paper_reading → candidate_discovery
+                                                          ↓
+                         output_writing ← validation ← detail_extraction
 ```
 
-**Stage details:**
+**Domain details:**
 
-| Stage | Module | Role |
+| Domain | Module | Role |
 |-------|--------|------|
-| 1. PubMed Search | `pubmed_data_collector.py` | Fetches papers, ranks by citation count (iCite) |
-| 2. Abstract Screening | `abstract_screener.py` | Keyword filter — removes non-genetics papers |
-| 3. Full Text Fetch | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback; `pubmed_parser` adapter for paragraphs/figure metadata |
-| 4. PubTator NER | `pubtator_tool.py` | NCBI NER — high-precision gene/variant tagging |
-| 5. Per-Paper Extraction | `paper_analysis/` | Candidate discovery, Gemini structured extraction, grounding, validation, and evidence gates |
-| 6. Gene Validation | `gene_validator.py` | HGNC validation, citation grounding (≥0.85 match) |
-| 7. CSV Output | `pipeline_orchestrator.py` | Deduplication, citation ranking, CSV write |
+| `paper_selection` | `pubmed_data_collector.py`, renderer selection UI | Fetches candidate papers, ranks by citation count, and preserves user selections |
+| `oa_filter` | `pubmed_data_collector.py`, `full_text_fetcher.py` | Keeps the workflow limited to open-access papers where full text can be fetched legally |
+| `paper_reading` | `full_text_fetcher.py` | PMC JATS XML via Entrez; Europe PMC fallback; `pubmed_parser` adapter for paragraphs/figure metadata |
+| `candidate_discovery` | `pubtator_tool.py`, `paper_analysis/` | Finds candidate genes and variants with PubTator, deterministic scans, mandatory full-text Gemini discovery, and optional abstract/figure/recall passes |
+| `detail_extraction` | `paper_analysis/` | Uses Gemini to fill structured user-defined columns for validated candidates |
+| `validation` | `gene_validator.py`, `paper_analysis/` | HGNC validation, grounding, citation checks, confidence gates, and evidence gates |
+| `output_writing` | `pipeline_artifacts.py`, `pipeline_orchestrator.py` | Deduplication, citation ranking, CSV/metadata/Excel/JSON/debug artifact writes |
 
 ---
 
@@ -166,7 +166,7 @@ For any association you intend to report or build upon:
 
 - **Clinical biomarker papers.** Papers that report CRP, ESR, AST, ALT primarily as inflammatory/liver markers (not as gene expression data) can produce false gene extractions. The pipeline's disambiguation clause reduces but does not eliminate this. Example: an MIS-C cytokine paper produced false-positive ESR, CRP, and IL-6 extractions in early testing. Inspect `Candidate Source` — deterministic-only genes without LLM corroboration require additional scrutiny.
 
-- **Open-access papers only.** Full text is fetched only from PMC and Europe PMC. Approximately 40–60% of PubMed papers are paywalled; these receive abstract-only extraction with substantially lower recall. The `Candidate Source` column will show `pubtator` or `deterministic_lexicon` only for paywall papers, never `llm`.
+- **Open-access papers only.** Full text is fetched only from PMC and Europe PMC. Paywalled papers are excluded from extraction; if no OA full text is fetched, the output contains metadata-only rows for review.
 
 - **GWAS and pharmacogenomics papers require LLM.** Novel GWAS loci not yet indexed by PubTator's NER model depend entirely on Gemini extraction. Runs with an invalid or expired API key fall back to deterministic + PubTator mode, which has near-zero recall on GWAS papers.
 

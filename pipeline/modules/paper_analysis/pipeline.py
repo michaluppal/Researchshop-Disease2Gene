@@ -1,5 +1,6 @@
 """Per-paper extraction coordinator."""
 
+from dataclasses import dataclass
 import logging
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -15,6 +16,92 @@ from .evidence import EvidenceMixin
 from .figures import FigureMixin
 from .gemini_client import GeminiClientMixin
 from .metadata import MetadataMixin
+
+
+@dataclass(frozen=True)
+class PaperAnalysisStep:
+    sequence: int
+    key: str
+    label: str
+    required: bool
+    state: str
+
+
+PAPER_ANALYSIS_STEPS: Tuple[PaperAnalysisStep, ...] = (
+    PaperAnalysisStep(
+        sequence=10,
+        key="context_validation",
+        label="Context validation",
+        required=True,
+        state="Validate the fetched full text against model context limits before any Gemini calls.",
+    ),
+    PaperAnalysisStep(
+        sequence=20,
+        key="abstract_gemini_candidate_discovery",
+        label="Abstract Gemini candidate discovery",
+        required=False,
+        state="Optional abstract-only Gemini discovery when enabled and abstract text is present.",
+    ),
+    PaperAnalysisStep(
+        sequence=30,
+        key="fulltext_gemini_candidate_discovery",
+        label="Full-text Gemini candidate discovery",
+        required=True,
+        state=(
+            "Mandatory full-text Gemini discovery before detail extraction; valid empty "
+            "association output may continue, but call/parsing failures fail paper analysis."
+        ),
+    ),
+    PaperAnalysisStep(
+        sequence=40,
+        key="deterministic_hgnc_scan",
+        label="Deterministic HGNC scan",
+        required=True,
+        state="Scan full text for canonical HGNC symbols as deterministic candidate seeds.",
+    ),
+    PaperAnalysisStep(
+        sequence=50,
+        key="figure_gemini_candidate_discovery",
+        label="Figure Gemini candidate discovery",
+        required=False,
+        state="Optional multimodal Gemini discovery from PMC figure images and captions.",
+    ),
+    PaperAnalysisStep(
+        sequence=60,
+        key="pubtator_merge",
+        label="PubTator merge",
+        required=True,
+        state="Merge upstream PubTator NER genes into the per-paper candidate set when present.",
+    ),
+    PaperAnalysisStep(
+        sequence=70,
+        key="grounding_check",
+        label="Grounding check",
+        required=True,
+        state="Drop candidates that cannot be grounded in fetched paper text or accepted figure text.",
+    ),
+    PaperAnalysisStep(
+        sequence=80,
+        key="hgnc_validation",
+        label="HGNC validation",
+        required=True,
+        state="Validate and normalize candidates before asking Gemini for detailed fields.",
+    ),
+    PaperAnalysisStep(
+        sequence=90,
+        key="detail_extraction",
+        label="Detail extraction",
+        required=True,
+        state="Mandatory Gemini extraction of requested fields for validated associations.",
+    ),
+    PaperAnalysisStep(
+        sequence=100,
+        key="post_validation",
+        label="Post-validation",
+        required=True,
+        state="Apply strict confidence, citation, evidence, and metadata gates before output.",
+    ),
+)
 
 
 class PaperAnalysisPipeline(
@@ -54,6 +141,8 @@ class PaperAnalysisPipeline(
         self.dropped_candidates: List[Dict[str, Any]] = []
         self.strict_gate_drops: List[Dict[str, Any]] = []
         self.evidence_gate_drops: List[Dict[str, Any]] = []
+        self.candidate_discovery_status: str = "not_started"
+        self.candidate_discovery_error: str = ""
         self.detail_extraction_status: str = "not_started"
         self.detail_extraction_error: str = ""
         self.detail_extraction_rows: int = 0
@@ -85,20 +174,30 @@ class PaperAnalysisPipeline(
         self.gene_validator = GeneValidator()
         self.context_validator = ContextWindowValidator()
 
+    @staticmethod
+    def _validate_required_gemini_call_budget() -> None:
+        max_calls = int(getattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 0) or 0)
+        if 0 < max_calls < 2:
+            raise ValueError(
+                "Invalid GEMINI_MAX_CALLS_PER_PAPER="
+                f"{max_calls}: full-text paper analysis requires at least 2 Gemini "
+                "calls per paper (mandatory full-text candidate discovery + detail "
+                "extraction). Set GEMINI_MAX_CALLS_PER_PAPER=0 for unlimited or >=2."
+            )
+
     def run_pipeline(self, column_descriptions):
         """
         Run extraction end-to-end and return a DataFrame with gene and citation validation heuristics.
 
-        Stages:
-          0   — Context window validation and truncation
-          0.5–1.5 — Candidate discovery (abstract, full-text ×2, deterministic, figures, PubTator)
-          1.6 — Grounding check (drop hallucinated candidates)
-          2   — Gene validation heuristics + normalization
-          3   — Detail extraction (Stage 3 LLM call)
-          4   — Post-validation (strict gate, citation validation, evidence gate)
+        PAPER_ANALYSIS_STEPS is the canonical step table. Full-text Gemini
+        candidate discovery is mandatory:
+        one full-text Gemini candidate-discovery call must run before
+        detail extraction. Empty candidate output is allowed; call failures are not.
         """
-        # Step 0: Validate and prepare paper text for context windows
-        logging.info("Step 0: Validating paper text against model context limits")
+        self._validate_required_gemini_call_budget()
+
+        # Context preparation: validate and prepare paper text for context windows.
+        logging.info("Context preparation: validating paper text against model context limits")
         with pipeline_tracer.stage("context_validation"):
             context_validation = self._validate_and_prepare_paper_text()
 
@@ -106,24 +205,25 @@ class PaperAnalysisPipeline(
             logging.error("Context validation failed - cannot proceed with pipeline")
             return pd.DataFrame()
 
-        # Steps 0.5–1.5: Candidate discovery
+        # Candidate discovery: mandatory full-text Gemini plus deterministic,
+        # PubTator, and optional abstract/figure/recall sources.
         self._run_candidate_discovery()
 
-        # Step 1.6: Grounding check
+        # Grounding: drop candidates absent from fetched paper text.
         with pipeline_tracer.stage("grounding_check"):
             self._run_grounding_check()
 
-        # Step 2: Gene validation + normalization
+        # HGNC validation and normalization.
         with pipeline_tracer.stage("hgnc_validation"):
             self._run_validation_and_normalize()
 
-        # Step 3: Detail extraction
+        # Detail extraction.
         with pipeline_tracer.stage("detail_extraction"):
             extracted_info = self._run_detail_extraction(column_descriptions)
         if not extracted_info:
             return pd.DataFrame()
 
-        # Step 4: Post-validation (metadata, strict gate, citation, evidence gate)
+        # Post-validation: metadata, strict gate, citation validation, evidence gate.
         df = pd.DataFrame(extracted_info)
         if "variant_name" in df.columns:
             df["variant_name"] = df["variant_name"].apply(self._normalize_variant_value)
@@ -138,7 +238,9 @@ class PaperAnalysisPipeline(
         return counts
 
     def _run_candidate_discovery(self) -> None:
-        """Steps 0.5–1.5: Discover gene candidates from all sources."""
+        """Discover gene candidates from all configured sources."""
+        self._validate_required_gemini_call_budget()
+
         # Reset candidate tracking for this paper. Per-paper extraction owns candidate-level
         # gene/variant normalization and HGNC alias caches; paper-level citation
         # normalization lives in PreparedPaperContent upstream.
@@ -146,6 +248,8 @@ class PaperAnalysisPipeline(
         self.dropped_candidates = []
         self.strict_gate_drops = []
         self.evidence_gate_drops = []
+        self.candidate_discovery_status = "running"
+        self.candidate_discovery_error = ""
         self.detail_extraction_status = "not_started"
         self.detail_extraction_error = ""
         self.detail_extraction_rows = 0
@@ -153,10 +257,10 @@ class PaperAnalysisPipeline(
         self._candidate_terms_cache = {}
         self._citation_paper_text_cache = self.prepared_content.citation_text_normalized
 
-        # Step 0.5: Abstract gene discovery (independent pass, catches natural-language gene refs)
+        # Optional abstract gene discovery catches natural-language gene refs
         # e.g. abstract says "IL-6" / "IFN-γ" while full text says "interleukin-6" / "interferon-gamma"
         if getattr(config, "ENABLE_ABSTRACT_GENE_DISCOVERY", True) and self.abstract_text:
-            logging.info("Step 0.5: Extracting gene-variant associations from abstract")
+            logging.info("Candidate discovery: extracting gene-variant associations from abstract")
             t0 = time.time()
             with pipeline_tracer.stage("abstract_pass"):
                 abstract_associations = self.extract_gene_names_from_abstract()
@@ -178,51 +282,53 @@ class PaperAnalysisPipeline(
                     duration_ms=(time.time() - t0) * 1000.0,
                 )
 
-        # Step 1: Optional LLM gene discovery on full paper text. Free-tier
-        # defaults keep this off and rely on PubTator + deterministic seeding,
-        # saving the quota for the detail-extraction call that creates output.
-        if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False):
-            logging.info("Step 1: Extracting gene-variant associations from paper text (pass 1)")
-            t0 = time.time()
+        # Mandatory Gemini gene discovery on full paper text. This is the
+        # required recall pass before detail extraction; valid empty output may
+        # continue with PubTator and deterministic candidates, but API/parse
+        # failures should fail this paper analysis rather than silently skipping.
+        logging.info("Candidate discovery: running mandatory full-text Gemini gene discovery")
+        t0 = time.time()
+        try:
             with pipeline_tracer.stage("fulltext_pass_greedy"):
-                self.extract_gene_names()
-            pass1_count = len(self.associations)
-            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
-                pipeline_tracer.capture(
-                    "fulltext_pass_greedy",
-                    pmid=self.pmid,
-                    inputs={
-                        "paper_text_length": len(self.paper_text or ""),
-                        "pubtator_seeds": self.pubtator_genes[:20],
-                    },
-                    outputs={
-                        "associations_count_after_ingest": pass1_count,
-                        "candidate_meta_size": len(self.candidate_meta),
-                    },
-                    duration_ms=(time.time() - t0) * 1000.0,
-                )
-        else:
-            pass1_count = len(self.associations)
-            logging.info(
-                "Step 1: Skipping optional full-text Gemini gene discovery "
-                "(ENABLE_LLM_GENE_DISCOVERY=false)"
+                self.extract_gene_names(optional=False)
+        except Exception as e:
+            self.candidate_discovery_status = "failed_mandatory_fulltext_gemini"
+            self.candidate_discovery_error = str(e)
+            raise RuntimeError(
+                "Mandatory full-text Gemini candidate discovery failed"
+                f"{f' for PMID {self.pmid}' if self.pmid else ''}: {e}"
+            ) from e
+        pass1_count = len(self.associations)
+        self.candidate_discovery_status = "mandatory_fulltext_complete"
+        if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+            pipeline_tracer.capture(
+                "fulltext_pass_greedy",
+                pmid=self.pmid,
+                inputs={
+                    "paper_text_length": len(self.paper_text or ""),
+                    "pubtator_seeds": self.pubtator_genes[:20],
+                    "required": True,
+                },
+                outputs={
+                    "associations_count_after_ingest": pass1_count,
+                    "candidate_meta_size": len(self.candidate_meta),
+                },
+                duration_ms=(time.time() - t0) * 1000.0,
             )
 
-        # Step 1b: Second independent LLM pass at a higher temperature to actually diverge from
+        # Optional recall pass: second independent LLM pass at a higher temperature to diverge from
         # pass 1. temperature=0 (greedy) is nominally deterministic but Gemini's inference is not
         # bit-reproducible; in practice two greedy passes often return identical token sequences.
         # Running at temperature=0.4 forces the model to sample from different completions and
         # recover genes that the greedy pass missed (e.g. cytokines in a primarily cardiac paper).
-        if getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False) and getattr(
-            config, "ENABLE_SECOND_GENE_DISCOVERY_PASS", False
-        ):
+        if getattr(config, "ENABLE_SECOND_GENE_DISCOVERY_PASS", False):
             logging.info(
-                "Step 1b: Second gene discovery pass (temperature=0.4) for recall improvement"
+                "Candidate discovery: optional recall pass (temperature=0.4)"
             )
             try:
                 t0 = time.time()
                 with pipeline_tracer.stage("fulltext_pass_recall"):
-                    self.extract_gene_names(temperature=0.4)
+                    self.extract_gene_names(temperature=0.4, optional=True)
                 pass2_count = len(self.associations)
                 if pass2_count > pass1_count:
                     logging.info(
@@ -245,9 +351,9 @@ class PaperAnalysisPipeline(
                     f"Second gene discovery pass failed, continuing with pass-1 results: {e}"
                 )
         else:
-            logging.info("Step 1b: Skipping second Gemini gene discovery pass")
+            logging.info("Candidate discovery: optional recall pass disabled")
 
-        # Step 1.1: Deterministic lexicon candidates (HGNC symbols/aliases)
+        # Deterministic lexicon candidates (HGNC symbols/aliases).
         t0 = time.time()
         with pipeline_tracer.stage("deterministic_scan"):
             deterministic_candidates = self.extract_deterministic_candidates()
@@ -267,9 +373,9 @@ class PaperAnalysisPipeline(
                 duration_ms=(time.time() - t0) * 1000.0,
             )
 
-        # Step 1.25: Multimodal figure analysis (PMC figure images + captions)
+        # Optional multimodal figure analysis (PMC figure images + captions).
         if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
-            logging.info("Step 1.25: Extracting gene-variant associations from figures")
+            logging.info("Candidate discovery: extracting gene-variant associations from figures")
             t0 = time.time()
             with pipeline_tracer.stage("figure_analysis"):
                 figure_associations = self.extract_gene_names_from_figures()
@@ -287,7 +393,7 @@ class PaperAnalysisPipeline(
                     duration_ms=(time.time() - t0) * 1000.0,
                 )
 
-        # Step 1.5: HYBRID PIPELINE - Merge PubTator genes (ensures union)
+        # Merge PubTator genes to keep the union of NER and Gemini candidates.
         if self.pubtator_genes:
             with pipeline_tracer.stage("pubtator_merge"):
                 pre_merge_size = len(self.candidate_meta)
@@ -310,6 +416,7 @@ class PaperAnalysisPipeline(
                 )
 
         # Final candidate_meta snapshot after all sourcing
+        self.candidate_discovery_status = "complete"
         if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
             pipeline_tracer.capture(
                 "candidate_meta",
@@ -331,7 +438,7 @@ class PaperAnalysisPipeline(
             )
 
     def _run_grounding_check(self) -> None:
-        """Step 1.6: Drop candidates not found in the fetched paper text.
+        """Drop candidates not found in the fetched paper text.
 
         Flash sometimes hallucinates gene names it associates with the disease topic
         (e.g., cytokines for MIS-C papers) even when those genes are absent from the
@@ -348,7 +455,7 @@ class PaperAnalysisPipeline(
             return
 
         logging.info(
-            "Step 1.6: Grounding check — verifying candidates are present in paper text"
+            "Grounding check: verifying candidates are present in paper text"
         )
         grounded = []
         ungrounded_count = 0
@@ -459,18 +566,17 @@ class PaperAnalysisPipeline(
             )
 
     def _run_validation_and_normalize(self) -> None:
-        """Step 2: Gene validation heuristics + ensure one gene-level row per gene."""
+        """Gene validation heuristics + ensure one gene-level row per gene."""
         pre_validation_associations = list(self.associations)
 
-        # Step 2: Apply heuristics to validate extracted genes
-        logging.info("Step 2: Validating extracted genes against known databases")
+        # Apply heuristics to validate extracted genes.
+        logging.info("Validation: validating extracted genes against known databases")
         self._apply_gene_validation_heuristics()
 
         if (
             not self.associations
             and pre_validation_associations
             and getattr(config, "ENABLE_LLM_GENE_DISCOVERY_RESCUE", True)
-            and not getattr(config, "ENABLE_LLM_GENE_DISCOVERY", False)
         ):
             deterministic_drops = [
                 d
@@ -478,19 +584,23 @@ class PaperAnalysisPipeline(
                 if d.get("reason") == "deterministic_uncorroborated"
             ]
             if deterministic_drops and self._can_make_gemini_call(
-                "rescue gene discovery", optional=True
+                "rescue gene discovery", optional=True, reserved_required_calls=1
             ):
                 logging.info(
                     "No deterministic-only genes survived corroboration; "
                     "running one Gemini gene-discovery rescue pass"
                 )
                 rescue_before = len(self.associations)
-                self.extract_gene_names()
+                self.extract_gene_names(optional=True)
                 if (
                     getattr(config, "ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS", True)
-                    and self._can_make_gemini_call("rescue recall gene discovery", optional=True)
+                    and self._can_make_gemini_call(
+                        "rescue recall gene discovery",
+                        optional=True,
+                        reserved_required_calls=1,
+                    )
                 ):
-                    self.extract_gene_names(temperature=0.4)
+                    self.extract_gene_names(temperature=0.4, optional=True)
                 if len(self.associations) > rescue_before:
                     self._run_grounding_check()
                     self._apply_gene_validation_heuristics()
@@ -537,16 +647,16 @@ class PaperAnalysisPipeline(
     def _run_detail_extraction(
         self, column_descriptions: Dict[str, str]
     ) -> List[Dict[str, Any]]:
-        """Step 3: Detail extraction + merge + fallback + evidence backfill.
+        """Detail extraction + merge + fallback + evidence backfill.
 
         Returns the extracted_info list (may be empty).
         """
-        logging.info("Step 3: Extracting detailed information for validated associations")
+        logging.info("Detail extraction: extracting requested fields for validated associations")
         _t0 = time.time()
         _assoc_count_in = len(self.associations)
         extracted_info = self.extract_gene_info(column_descriptions)
 
-        # Merge duplicate rows: Stage 3 sometimes emits the same gene twice with different
+        # Merge duplicate rows: detail extraction can emit the same gene twice with different
         # fields filled (e.g. one row has Disease Association, another has Statistical Evidence).
         # Consolidate into one row per (gene_name, variant_name).
         if extracted_info and len(extracted_info) > 1:
@@ -628,7 +738,7 @@ class PaperAnalysisPipeline(
         column_descriptions: Dict[str, str],
         context_validation: Dict[str, Any],
     ) -> pd.DataFrame:
-        """Step 4: Add metadata, apply strict gate, citation validation, and evidence gate."""
+        """Add metadata, apply strict gate, citation validation, and evidence gate."""
         self._add_validation_metadata(df)
         self._add_candidate_provenance_metadata(df)
 

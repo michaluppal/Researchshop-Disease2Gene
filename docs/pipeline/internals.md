@@ -4,7 +4,7 @@
 >
 > **Companion docs:**
 > - [`bug-hunting.md`](./bug-hunting.md) — actionable audit cheatsheet. This doc tells you how the code works; that one tells you where it's suspect.
-> - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — stage-level overview for Codex sessions. This doc goes deeper.
+> - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level overview for Codex sessions. This doc goes deeper.
 > - [`AUDIT.md`](../audit/AUDIT.md) — historical bug log.
 > - [`AGENTS.md`](../../AGENTS.md) — project routing file.
 
@@ -15,15 +15,15 @@
 - [Part 0 — How to Read This Doc](#part-0--how-to-read-this-doc)
 - [Part 1 — Architecture Overview](#part-1--architecture-overview)
 - [Part 2 — Entry Points](#part-2--entry-points)
-- [Part 3 — Stage 1: PubMed Search & Citation Ranking](#part-3--stage-1-pubmed-search--citation-ranking)
-- [Part 4 — Stage 2: Gene Relevance Scoring](#part-4--stage-2-gene-relevance-scoring)
-- [Part 5 — Stage 3: Full-Text Fetch](#part-5--stage-3-full-text-fetch)
-- [Part 6 — Stage 4: PubTator NER](#part-6--stage-4-pubtator-ner)
-- [Part 7 — Per-Paper Extraction Package](#part-7--per-paper-extraction-package)
-- [Part 8 — Stage 6: Gene Validation](#part-8--stage-6-gene-validation)
-- [Part 9 — Stage 7: Orchestration & CSV Output](#part-9--stage-7-orchestration--csv-output)
+- [Part 3 — `paper_selection`: PubMed Search & Citation Ranking](#part-3--paper_selection-pubmed-search--citation-ranking)
+- [Part 4 — `paper_selection`: Gene Relevance Scoring](#part-4--paper_selection-gene-relevance-scoring)
+- [Part 5 — `paper_reading`: Full-Text Fetch](#part-5--paper_reading-full-text-fetch)
+- [Part 6 — `candidate_discovery`: PubTator NER](#part-6--candidate_discovery-pubtator-ner)
+- [Part 7 — Per-Paper Analysis Package](#part-7--per-paper-analysis-package)
+- [Part 8 — `validation`: Gene Validation](#part-8--validation-gene-validation)
+- [Part 9 — `output_writing`: Orchestration And Output Writing](#part-9--output_writing-orchestration-and-output-writing)
 - [Part 10 — Configuration Flag Reference](#part-10--configuration-flag-reference)
-- [Part 11 — Data Contracts Between Stages](#part-11--data-contracts-between-stages)
+- [Part 11 — Data Contracts Between Domains](#part-11--data-contracts-between-domains)
 - [Part 12 — State Lifecycle](#part-12--state-lifecycle)
 - [Part 13 — Prompt Engineering](#part-13--prompt-engineering)
 
@@ -51,22 +51,22 @@
 
 ## Part 1 — Architecture Overview
 
-### The 7 stages
+### The 7 domains
 
 ```
 User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 1: PubMed Search                               │
+│ paper_selection: PubMed search                       │
 │ pubmed_data_collector.py                             │
 │ → Entrez query + iCite citation ranking              │
-│ → OA filter (loattrfull text[sb])                    │
+│ → OA query constraint when enabled                   │
 └──────────────────────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 2: Gene Relevance Scoring (UI-side)            │
+│ paper_selection: Gene relevance scoring (UI-side)    │
 │ geneRelevanceScorer.ts (renderer)                    │
 │ → User sees relevance badges in paper selection      │
 │ → User clicks "Add to Pipeline"                      │
@@ -87,7 +87,7 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 3: Full-Text Fetch                             │
+│ paper_reading: Full-text fetch                       │
 │ full_text_fetcher.py                                 │
 │ → PMC JATS XML primary → Europe PMC fallback         │
 │ → pubmed_parser adapter for paragraphs + figures     │
@@ -96,7 +96,7 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 4: PubTator NER                                │
+│ candidate_discovery: PubTator NER                    │
 │ pubtator_tool.py                                     │
 │ → Batch API calls (10 PMIDs each)                    │
 │ → High-precision gene symbols (precision floor)      │
@@ -104,7 +104,8 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Per-Paper Extraction (worker pool)                   │
+│ candidate_discovery + detail_extraction + validation │
+│ Per-paper extraction (worker pool)                   │
 │ paper_analysis.pipeline.PaperAnalysisPipeline        │
 │ → Abstract + 2-pass full-text + figures + PubTator   │
 │ → Grounding check → gene validation → detail extract │
@@ -113,7 +114,7 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 6: Gene Validation (inside per-paper extraction)│
+│ validation: Gene validation                          │
 │ gene_validator.py                                    │
 │ → HGNC local → HGNC API → MyGene.info → fuzzy        │
 │ → Citation validation (dense match + encoding norm)  │
@@ -121,7 +122,7 @@ User types query in UI (renderer)
        │
        ▼
 ┌──────────────────────────────────────────────────────┐
-│ Stage 7: Orchestration & CSV Output                  │
+│ output_writing: Orchestration & CSV output           │
 │ pipeline_orchestrator.py                             │
 │ → Aggregate worker results                           │
 │ → Compute HIGH/MEDIUM/LOW/REVIEW confidence tiers    │
@@ -155,15 +156,15 @@ The sequential/parallel branching is in `pipeline_orchestrator.py` around line 9
 
 Everything in the pipeline is a tension between these three. The safeguards (grounding check, strict gate, evidence gate) exist to keep the LLM's recall from turning into hallucination.
 
-### What breaks if a stage is removed
+### What breaks if a domain is removed
 
-- **No Stage 1 (PubMed):** obvious, nothing to process.
-- **No Stage 2 (relevance scoring):** users submit irrelevant papers, wasting Gemini quota.
-- **No Stage 3 (full text):** abstract-only degradation. Precision stays OK, recall tanks.
-- **No Stage 4 (PubTator):** precision floor removed. LLM-only output; hallucination risk up.
-- **No per-paper Gemini extraction:** no detail extraction, just PubTator gene list.
-- **No Stage 6 (Gene Validator):** invalid/misspelled genes reach output.
-- **No Stage 7 (Orchestrator):** no CSV, no aggregation, no confidence tiers.
+- **No `paper_selection`:** obvious, nothing to process.
+- **No UI relevance scoring inside `paper_selection`:** users submit irrelevant papers, wasting Gemini quota.
+- **No `paper_reading`:** no extraction-ready full text; the run can only emit metadata-only rows.
+- **No PubTator inside `candidate_discovery`:** precision floor removed. LLM-only output; hallucination risk up.
+- **No `detail_extraction`:** no user-defined fields, just a candidate gene list.
+- **No `validation`:** invalid/misspelled genes reach output.
+- **No `output_writing`:** no CSV, no aggregation, no confidence tiers.
 
 ---
 
@@ -241,7 +242,7 @@ except Exception as e:
     sys.exit(1)
 ```
 
-The RESULT dict (when successful) contains `local_path`, `metadata_path`, `excel_path`, `json_path`, and `debug_path`. See [`pipeline_orchestrator.py:1363-1369`](#stage-7).
+The RESULT dict (when successful) contains `local_path`, `metadata_path`, `excel_path`, `json_path`, and `debug_path`. See [`pipeline_orchestrator.py:1363-1369`](#part-9--output_writing-orchestration-and-output-writing).
 
 ### 2.2 `src/main/python-bridge.ts` — Electron side
 
@@ -339,7 +340,7 @@ The preload exposes `window.api.pipeline.*` methods matching the handlers above.
 
 ---
 
-## Part 3 — Stage 1: PubMed Search & Citation Ranking
+## Part 3 — `paper_selection`: PubMed Search & Citation Ranking
 
 ### 3.1 Module: `pubmed_data_collector.py`
 
@@ -386,7 +387,7 @@ search results the modal fetches/renders, not how many get analysed.
 
 ---
 
-## Part 4 — Stage 2: Gene Relevance Scoring
+## Part 4 — `paper_selection`: Gene Relevance Scoring
 
 ### 4.1 UI-side scoring
 
@@ -418,7 +419,7 @@ In `abstract_screener.py` and mirrored in `geneRelevanceScorer.ts`: papers with 
 
 ---
 
-## Part 5 — Stage 3: Full-Text Fetch
+## Part 5 — `paper_reading`: Full-Text Fetch
 
 ### 5.1 Module: `full_text_fetcher.py` (1036 lines)
 
@@ -440,8 +441,8 @@ The section keys match `paper_analysis/context.py:ContextMixin._SECTION_HEADER_P
 ### 5.4 Figure extraction
 
 - PMC figure captions/labels/graphic refs parsed with `pubmed_parser`; ResearchShop still builds URL candidates, resolves PMC CDN fallbacks, and downloads images
-- Image downloaded if `ENABLE_FIGURE_ANALYSIS=True` (config.py:70)
-- Capped at `FIGURE_MAX_IMAGES_PER_PAPER=3` (config.py:71)
+- Image downloaded if `ENABLE_FIGURE_ANALYSIS=True` (default false)
+- Capped at `FIGURE_MAX_IMAGES_PER_PAPER=1` by default
 - Max bytes per image: `FIGURE_IMAGE_MAX_BYTES=5MB` (config.py:72)
 
 > **⚠️ See [`bug-hunting.md` §2.3](./bug-hunting.md#23-figure-url-dedup-loses-multi-panel-figure-detail)** — multi-panel figures (1A, 1B, 1C) that share a URL get deduped to a single entry.
@@ -452,7 +453,7 @@ Pre-W1 bug: non-ASCII characters were stripped, destroying Greek letters in vari
 
 ### 5.6 OA-only by design
 
-No paywall bypass, no Playwright. About 40–60% of PubMed papers are paywalled and degrade to abstract-only extraction. This is intentional:
+No paywall bypass, no Playwright. Paywalled papers are excluded from extraction; if no OA full text can be fetched, the run emits metadata-only rows. This is intentional:
 1. Legal clarity (no TOS violation)
 2. Reliability (no flaky browser automation)
 3. Explicit user consent (they know what the tool can and cannot fetch)
@@ -461,13 +462,13 @@ Query-mode widening (`PUBMED_RELEVANT_COUNT=200`, see §3.4) partially compensat
 
 ### 5.7 Failure modes
 
-- **PMC JATS 404.** Falls through to Europe PMC. If both fail, paper gets abstract-only.
+- **PMC JATS 404.** Falls through to Europe PMC. If both fail, the paper has no extraction-ready full text.
 - **Section parsing failure.** Returns raw concatenated text, losing structural signals (can't drop sections by priority).
 - **JATS parse error.** Returns `(None, [], [])` — indistinguishable from valid-but-empty. See [`bug-hunting.md` §3.3](./bug-hunting.md#33-jats-xml-parser-conflates-invalid-xml-with-empty-article).
 
 ---
 
-## Part 6 — Stage 4: PubTator NER
+## Part 6 — `candidate_discovery`: PubTator NER
 
 ### 6.1 Module: `pubtator_tool.py` (620 lines)
 
@@ -502,7 +503,7 @@ PubTator provides the precision floor:
 
 ---
 
-## Part 7 — Per-Paper Extraction Package
+## Part 7 — Per-Paper Analysis Package
 
 ### 7.1 Package: `pipeline/modules/paper_analysis/`
 
@@ -534,7 +535,7 @@ State lifecycle through one paper:
 6. `_run_detail_extraction` — produces `extracted_info` list (not stored on self)
 7. `_run_post_validation` — returns DataFrame
 
-**Important:** Steps 2–7 all happen within a single `run_pipeline()` call. The worker pool creates a new `PaperAnalysisPipeline` instance per paper, so state never leaks across papers.
+**Important:** All domains above happen within a single `run_pipeline()` call. The worker pool creates a new `PaperAnalysisPipeline` instance per paper, so state never leaks across papers.
 
 ### 7.3 The `candidate_meta` dict
 
@@ -562,7 +563,7 @@ Prompt constants live in `pipeline/modules/paper_analysis/prompts.py`:
 - `_GENE_DISCOVERY_INSTRUCTION_ABSTRACT` (lines 25-42) — abstract-level discovery
 - `_GENE_DISCOVERY_INSTRUCTION_FULLTEXT` (lines 44-59) — full-text discovery
 - `_FIGURE_ANALYSIS_INSTRUCTION` (lines 61-68) — figure multimodal analysis
-- `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` (lines 70-86) — Stage 3 detail extraction rules (9 accumulated rules)
+- `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` (lines 70-86) — `detail_extraction` rules (9 accumulated rules)
 
 **Do NOT change wording without evaluating hallucination impact.** Each rule exists for a specific failure mode (see Part 13).
 
@@ -593,7 +594,7 @@ Full-text pass. Runs TWICE in `_run_candidate_discovery`:
 
 #### 7.5.3 `extract_gene_names_from_figures()` (lines ~973-1167)
 
-Multimodal. One LLM call per figure (capped at `FIGURE_MAX_IMAGES_PER_PAPER=3`).
+Multimodal. One LLM call per figure (capped at `FIGURE_MAX_IMAGES_PER_PAPER=1` by default).
 
 - Max 3 retries per figure
 - Rate-limit aware: parses `retry-after` header from 429 responses
@@ -603,7 +604,7 @@ Genes extracted here get source `llm_figure` and are subject to a lighter ground
 
 #### 7.5.4 `extract_gene_info()` (lines ~1169-1315)
 
-Stage 3 detail extraction. All validated candidates go into ONE LLM call.
+`detail_extraction`. All validated candidates go into ONE LLM call.
 
 - Prompt includes all user-defined columns with descriptions
 - Prompt includes all validated gene-variant associations
@@ -611,7 +612,7 @@ Stage 3 detail extraction. All validated candidates go into ONE LLM call.
 - Prompt ends with `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` (the 9 rules)
 - Max 3 retries, exponential backoff
 
-**Gotcha.** Because all genes go in one prompt, the detail extraction can exceed the context window on gene-dense papers. The 80% threshold in `_validate_and_prepare_paper_text` tries to prevent this by truncating sections in priority order before Stage 3 runs.
+**Gotcha.** Because all genes go in one prompt, the detail extraction can exceed the context window on gene-dense papers. The 80% threshold in `_validate_and_prepare_paper_text` tries to prevent this by truncating sections in priority order before `detail_extraction` runs.
 
 ### 7.6 The 5 run_pipeline sub-methods (post-refactor)
 
@@ -640,7 +641,7 @@ def run_pipeline(self, column_descriptions):
 
 #### 7.6.1 `_run_candidate_discovery()` (~line 1361)
 
-Steps 0.5–1.5. Resets state and runs all discovery sources:
+`candidate_discovery`. Resets state and runs all discovery sources:
 1. Reset `candidate_meta`, `dropped_candidates`, `strict_gate_drops`, `evidence_gate_drops`, `associations`
 2. Abstract discovery (`extract_gene_names_from_abstract`) if enabled
 3. Full-text pass 1 at temperature=0.0
@@ -651,7 +652,7 @@ Steps 0.5–1.5. Resets state and runs all discovery sources:
 
 #### 7.6.2 `_run_grounding_check()` (~line 1430)
 
-Step 1.6. Two paths:
+`validation` grounding gate. Two paths:
 - `sources == {"llm_figure"}` → light check: search figure captions for the gene name
 - Otherwise → full prose grounding via `_find_evidence_snippet`
 
@@ -661,19 +662,19 @@ Genes not grounded are marked `validation_outcome = "rejected_ungrounded"` and d
 
 #### 7.6.3 `_run_validation_and_normalize()` (~line 1504)
 
-Step 2. Runs `_apply_gene_validation_heuristics()` (which calls the gene validator), then normalizes to one gene-level row per gene.
+`validation`. Runs `_apply_gene_validation_heuristics()` (which calls the gene validator), then normalizes to one gene-level row per gene.
 
 Has a fallback path: if validation filters out all associations AND `ENABLE_STRICT_VALIDATION_GATE=False`, restores the pre-validation list. See [`bug-hunting.md` §2.6](./bug-hunting.md#26-validation-fallback-trusts-pre-validation-on-empty-result).
 
 #### 7.6.4 `_run_detail_extraction()` (~line 1551)
 
-Step 3. Calls `extract_gene_info()`, merges duplicate rows, generates fallback rows if extraction returned empty, runs evidence backfill.
+`detail_extraction`. Calls `extract_gene_info()`, merges duplicate rows, generates fallback rows if extraction returned empty, runs evidence backfill.
 
 **Fallback row logic:** if the LLM returned no rows but associations exist (e.g., all genes were in tables, no prose to extract), emit minimal `{gene_name, variant_name}` rows with empty user columns. Marks `detail_extraction_status = "association_only_fallback_no_rows"`.
 
 #### 7.6.5 `_run_post_validation()` (~line 1597)
 
-Step 4. Adds metadata columns, applies strict gate, citation validation, evidence gate, context metadata.
+`validation`. Adds metadata columns, applies strict gate, citation validation, evidence gate, context metadata.
 
 **Strict gate:** drops rows where `validation_confidence < FINAL_VALIDATION_MIN_CONFIDENCE` (default 0.7). Logs each drop to `strict_gate_drops` for the debug artifact.
 
@@ -691,7 +692,7 @@ Step 4. Adds metadata columns, applies strict gate, citation validation, evidenc
 | `_ingest_associations` | ~541 | Merge new associations into `candidate_meta` with provenance tracking |
 | `_candidate_terms_for_row` | ~206 | Build grounding lookup terms (canonical + HGNC aliases) |
 | `_find_evidence_snippet` | ~246 | 240-char window fuzzy match in paper text |
-| `_merge_duplicate_gene_rows` | ~284 | Collapse duplicate Stage 3 rows by (gene, variant) |
+| `_merge_duplicate_gene_rows` | ~284 | Collapse duplicate `detail_extraction` rows by (gene, variant) |
 | `_backfill_sparse_row_evidence` | ~323 | Fill empty Key Finding rows with auto-snippets |
 | `_apply_evidence_gate` | ~365 | Drop rows below per-source evidence thresholds |
 | `_collect_debug_artifact` | ~434 | Build the drop_debug JSON blob |
@@ -751,7 +752,7 @@ All retries use `client.models.generate_content_stream()`. Streaming means parti
 
 ---
 
-## Part 8 — Stage 6: Gene Validation
+## Part 8 — `validation`: Gene Validation
 
 ### 8.1 Module: `gene_validator.py` (1122 lines)
 
@@ -826,11 +827,11 @@ Pre-W3 bug: token estimation was wildly wrong. Fixed to use a reasonable ratio.
 
 ---
 
-## Part 9 — Stage 7: Orchestration & CSV Output
+## Part 9 — `output_writing`: Orchestration And Output Writing
 
 ### 9.1 Module: `pipeline_orchestrator.py` (1686 lines)
 
-Main entry: `run_complete_pipeline()` around line 500+. Coordinates all stages, manages the worker pool, writes output artifacts.
+Main entry: `run_complete_pipeline()` around line 500+. Coordinates all domains, manages the worker pool, writes output artifacts.
 
 ### 9.2 `_compute_row_confidence()` — the full decision tree
 
@@ -1004,14 +1005,14 @@ Columns in the primary CSV (typical):
 |---|---|---|
 | `Gene/Group` | canonical HGNC symbol | from validator |
 | `Variant Name` | HGVS or empty | normalized |
-| `{user_col}` | from Stage 3 extraction | user-defined |
+| `{user_col}` | from `detail_extraction` | user-defined |
 | `{user_col} Citation` | direct quote | verbatim |
 | `validation_confidence` | 0.0–1.0 | from validator |
 | `Confidence` | HIGH/MEDIUM/LOW/REVIEW | from `_compute_row_confidence` |
 | `Confidence Note` | explanation | human-readable |
 | `Gene Source` | pubtator/llm_text/both | for HIGH tier gate |
 | `Candidate Source` | full source list | for figure-only detection |
-| `Study Title`, `Authors`, `Publication Year`, `Journal Name`, `PMID` | metadata | from Stage 1 |
+| `Study Title`, `Authors`, `Publication Year`, `Journal Name`, `PMID` | metadata | from `paper_selection` |
 
 ---
 
@@ -1047,7 +1048,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 | `SUPPLEMENTARY_MAX_FILES` | `3` | Cap on supplementary files per paper |
 | `SUPPLEMENTARY_MAX_CHARS` | `200000` | Char limit per supplementary file |
 
-### 10.4 Abstract screening
+### 10.4 `paper_selection` relevance scoring
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -1058,7 +1059,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `ENABLE_PUBTATOR_EXTRACTION` | `True` | Run PubTator NER stage |
+| `ENABLE_PUBTATOR_EXTRACTION` | `True` | Run PubTator NER during `candidate_discovery` |
 | `PUBTATOR_BATCH_SIZE` | `10` | PMIDs per API batch |
 | `ENABLE_NCBI_ENRICHMENT` | `True` | Enrich with NCBI Gene metadata |
 
@@ -1066,12 +1067,12 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `GEMINI_CONFIG["gene_extraction_model"]` | `"gemini-3-flash-preview"` | Fast model for candidate discovery |
-| `GEMINI_CONFIG["data_extraction_model"]` | `"gemini-3-flash-preview"` | Detail extraction model |
+| `GEMINI_CONFIG["gene_extraction_model"]` | `"gemini-2.5-flash-lite"` | Candidate discovery model |
+| `GEMINI_CONFIG["data_extraction_model"]` | `"gemini-2.5-flash-lite"` | Detail extraction model |
 | `GEMINI_CONFIG["temperature"]` | `0.0` | Default sampling temperature |
-| `ENABLE_ABSTRACT_GENE_DISCOVERY` | `True` | Run abstract-only LLM pass |
-| `ENABLE_FIGURE_ANALYSIS` | `True` | Run multimodal figure analysis |
-| `FIGURE_MAX_IMAGES_PER_PAPER` | `3` | Cap on figures per paper |
+| `ENABLE_ABSTRACT_GENE_DISCOVERY` | `False` | Optional abstract-only Gemini candidate discovery |
+| `ENABLE_FIGURE_ANALYSIS` | `False` | Optional multimodal figure candidate discovery |
+| `FIGURE_MAX_IMAGES_PER_PAPER` | `1` | Cap on figures per paper |
 | `FIGURE_IMAGE_MAX_BYTES` | `5 MB` | Per-image size limit |
 
 ### 10.7 Hybrid pipeline gates
@@ -1137,9 +1138,9 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 ---
 
-## Part 11 — Data Contracts Between Stages
+## Part 11 — Data Contracts Between Domains
 
-### 11.1 Stage 1 → Stage 2 (PubMed → UI scoring)
+### 11.1 `paper_selection`: PubMed → UI scoring
 
 **Object:** Per-paper dict:
 
@@ -1161,7 +1162,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 **Breakage point:** If `pmid` is missing or empty, the paper is silently dropped in the UI.
 
-### 11.2 Stage 2 → Stage 3 (UI → Python pipeline)
+### 11.2 `paper_selection` → `paper_reading` (UI → Python pipeline)
 
 **Object:** List of PMIDs passed via `--pmids` CLI arg (JSON string).
 
@@ -1169,7 +1170,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 **Breakage point:** `json.loads(args.pmids)` will accept anything valid-JSON. Non-string entries cause downstream errors.
 
-### 11.3 Stage 3 → Stage 4 (Full text → PubTator)
+### 11.3 `paper_reading` → `candidate_discovery` (Full text → PubTator)
 
 **Object:** `content_dict[pmid]` dict:
 
@@ -1180,15 +1181,15 @@ All flags from `python/modules/config.py`. Grouped by purpose.
     "sections": Dict[str, str],
     "figures": List[Dict],
     "tables": List[Dict],
-    "fetch_outcome": str,        # "pmc_jats", "europe_pmc", "abstract_only"
+    "fetch_outcome": str,        # "pmc_jats", "europe_pmc", "no_oa_full_text"
 }
 ```
 
-**Contract:** `content` key must exist. Empty string is OK (degrades to abstract-only processing).
+**Contract:** `content` key must exist. Empty string is OK only as a no-full-text signal; per-paper analysis will emit a metadata-only row instead of running extraction.
 
 **Breakage point:** See [`bug-hunting.md` §7](./bug-hunting.md#section-7--missing-validation-gates) — `_prepare_paper_inputs` doesn't check for the `content` key.
 
-### 11.4 Stage 4 → Per-Paper Extraction (PubTator → Gemini)
+### 11.4 `candidate_discovery` → `detail_extraction` (PubTator → Gemini)
 
 **Object:** Arguments to `_run_pipeline_worker`:
 
@@ -1207,7 +1208,7 @@ All flags from `python/modules/config.py`. Grouped by purpose.
 
 **Breakage point:** `figure_inputs` contains raw image bytes. Large multi-panel figures can blow the pickle buffer. See [`bug-hunting.md` §8.2](./bug-hunting.md#82-figure-bytes-pickling-cost).
 
-### 11.5 Per-Paper Extraction → Stage 7 (Worker → Orchestrator)
+### 11.5 Per-paper analysis → `output_writing` (Worker → Orchestrator)
 
 **Object:** Worker return value:
 
@@ -1229,7 +1230,7 @@ Or on error:
 
 **Breakage point:** See [`bug-hunting.md` §1.1](./bug-hunting.md#11-parallel-mode-ready---gettimeout0-race-swallows-worker-errors) — the silent error wrapping can produce error payloads that look identical to real failures.
 
-### 11.6 Stage 7 → Electron (Python → bridge)
+### 11.6 `output_writing` → Electron (Python → bridge)
 
 **Object:** RESULT line JSON:
 
@@ -1408,11 +1409,11 @@ Very short. Key constraint: "Do not guess genes that are not explicitly shown."
 
 ### 13.5 `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` (lines 70-86)
 
-Purpose: Stage 3 detail extraction. The 9 accumulated rules.
+Purpose: `detail_extraction`. The accumulated rules.
 
 Each rule exists for a specific failure mode that was observed in production:
 
-1. **Use exact values from Associations JSON** — prevent the LLM from inventing new gene names at Stage 3
+1. **Use exact values from Associations JSON** — prevent the LLM from inventing new gene names during `detail_extraction`
 2. **Empty variant_name → empty string** — prevent "null"/"N/A" placeholders
 3. **Each gene is INDEPENDENT** — prevents the LLM from leaving rows empty because "the same fact applies to gene A"
 4. **One gene-only row per gene** — ensures every gene has a base row
@@ -1444,7 +1445,7 @@ A blocklist couldn't distinguish "ESR as lab value" from "ESR1 as gene". Replace
 
 ### 13.7 Thinking mode disabled (C20)
 
-Gemini preview models have thinking enabled by default. For 12k-token Stage 3 prompts, this caused hangs >600s.
+Gemini preview models have thinking enabled by default. For 12k-token `detail_extraction` prompts, this caused hangs >600s.
 
 Fix: set `thinking_budget=0` on ALL `GenerateContentConfig` calls. This is checked in every LLM method in `pipeline/modules/paper_analysis/gemini_client.py`.
 
@@ -1452,7 +1453,7 @@ Fix: set `thinking_budget=0` on ALL `GenerateContentConfig` calls. This is check
 
 See 13.6. The FDA auditor story is documented in `docs/audit/AUDIT.md` at the C18 entry.
 
-### 13.9 Stage 3 instruction accumulation
+### 13.9 `detail_extraction` instruction accumulation
 
 The 14 rules in `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` accumulate. Each new constraint is appended without removing previous ones. Current count is 14. At higher counts, prompt engineering yields diminishing returns and a post-extraction validation schema becomes more reliable.
 
@@ -1510,6 +1511,6 @@ Key refactor: commit `df674fe` (2026-04-07) — pre-package readability refactor
 ## Cross-References
 
 - [`bug-hunting.md`](./bug-hunting.md) — actionable audit cheatsheet
-- [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — stage-level routing for Codex
+- [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level routing for Codex
 - [`AUDIT.md`](../audit/AUDIT.md) — historical bug log
 - [`AGENTS.md`](../../AGENTS.md) — project routing file

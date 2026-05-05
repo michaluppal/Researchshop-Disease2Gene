@@ -2216,3 +2216,30 @@ could still hit 429s because request pacing happened per symbol rather than per 
 **Scientific tradeoff:** These changes are intended to improve interpretability and reduce
 known false-positive/noisy operational paths without lowering validation thresholds or
 disabling grounding/evidence gates.
+
+---
+
+## Implementation Note — Code Clarity Refactor (2026-05-05)
+
+**Context:** The active pipeline had accumulated numbered-stage language and a large
+`pipeline_orchestrator.py`, making it hard to understand the real workflow and where
+scientific safeguards apply.
+
+**Changes planned/implemented on `dev/code_clarity`:**
+
+- Active pipeline docs, logs, and viewer labels now use domain names: paper selection,
+  OA filtering, paper reading, candidate discovery, detail extraction, validation, and
+  output writing.
+- `PipelineRunState` and `PipelineEmitters` make run data, progress, logging, and
+  cancellation explicit instead of hidden in a long local-variable flow.
+- Paper selection, paper reading/PubTator collection, worker scheduling, result
+  enrichment, and artifact writing are split into focused modules behind the existing
+  `run_complete_pipeline(...)` entrypoint.
+- Per-paper analysis exposes a canonical step table and requires one full-text Gemini
+  candidate-discovery call before detail extraction for every analyzed full-text paper.
+- `GEMINI_MAX_CALLS_PER_PAPER` now fails early when set to `1`, because mandatory
+  candidate discovery plus detail extraction require at least two calls.
+
+**Scientific tradeoff:** This pass changes candidate-discovery policy by making the
+full-text Gemini discovery call mandatory. It does not lower confidence thresholds,
+weaken grounding, disable the strict gate, or change output schemas.

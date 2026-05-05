@@ -77,7 +77,7 @@
   .lane-detail  .node-header { background: var(--lane-detail); }
   .lane-output  .node-header { background: var(--lane-output); }
 
-  .lane-label { position: absolute; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
+  .lane-label { position: absolute; max-width: 220px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; line-height: 1.25; color: var(--muted); padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; white-space: normal; }
 
   aside.panel { width: 480px; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 20px; }
   aside.panel h2 { font-size: 18px; margin: 0 0 6px; }
@@ -142,7 +142,7 @@
   aside.panel .inspect-btn { display: inline-block; margin-top: 6px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: #f6f8fa; cursor: pointer; font-size: 11px; color: var(--accent); }
   aside.panel .inspect-btn:hover { background: #eaeef2; border-color: var(--accent); }
 
-  /* View toggle (Stages / Functions) — must never be squeezed by the run bar */
+  /* View toggle (Domains / Functions) — must never be squeezed by the run bar */
   .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-right: 8px; flex-shrink: 0; }
   .view-toggle button { padding: 5px 12px; border: none; background: #f6f8fa; font-size: 12px; cursor: pointer; color: var(--ink); white-space: nowrap; flex-shrink: 0; }
   .view-toggle button.active { background: var(--accent); color: white; font-weight: 600; }
@@ -188,7 +188,7 @@
   <span class="tagline">Interactive viewer</span>
 
   <div class="view-toggle">
-    <button id="viewStages" class="active">Stages</button>
+    <button id="viewStages" class="active">Domains</button>
     <button id="viewFunctions">Functions</button>
   </div>
 
@@ -311,32 +311,32 @@
     <div id="panelContent">
       <div class="panel-section">
         <p>This is an interactive view of the ResearchShop extraction pipeline.
-          Each box is a function or stage in the Python code. Connections show data flow.</p>
+          Each box is a function or pipeline domain in the Python code. Connections show data flow.</p>
       </div>
       <div class="panel-section">
         <h3>How to use</h3>
         <p>1. <strong>Click any node</strong> to see its description, inputs, outputs, and config flags.</p>
         <p>2. <strong>Generate a trace</strong> by running the pipeline with <code>--trace-pmid &lt;PMID&gt;</code>.</p>
-        <p>3. <strong>Load the trace file</strong> with the button above to see actual data flowing through each stage for that paper.</p>
+        <p>3. <strong>Load the trace file</strong> with the button above to see actual data flowing through each domain for that paper.</p>
         <p>4. <strong>Or try the demo</strong> — <a href="#" id="loadDemo">load the bundled <code>demo_trace.json</code></a> to see a populated view.</p>
       </div>
       <div class="panel-section">
         <h3>Related docs</h3>
         <p>Full narrative: <code>docs/pipeline/understanding.md</code><br>
            Audit findings: <code>docs/audit/final-audit.md</code><br>
-           Stage reference: <code>.codex/rules/memory-pipeline.md</code></p>
+           Domain reference: <code>.codex/rules/memory-pipeline.md</code></p>
       </div>
     </div>
   </aside>
 </main>
 
 <div class="legend">
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-fetch);"></div>Fetch</div>
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-ner);"></div>NER / pre-LLM</div>
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-llm);"></div>LLM / candidate source</div>
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-gate);"></div>Gate / filter</div>
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-detail);"></div>Detail extraction</div>
-  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-output);"></div>Output</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-fetch);"></div>paper_selection / oa_filter / paper_reading</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-ner);"></div>candidate_discovery prep</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-llm);"></div>candidate_discovery</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-gate);"></div>validation</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-detail);"></div>detail_extraction</div>
+  <div class="legend-row"><div class="legend-swatch" style="background: var(--lane-output);"></div>output_writing</div>
   <div class="legend-row" style="margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px;"><div class="legend-swatch" style="background: var(--trace-ok); border-radius: 50%;"></div>has trace data</div>
 </div>
 
@@ -348,9 +348,10 @@
 // ─────────────────────────────────────────────────────────────────
 // NODE DEFINITIONS — the pipeline graph. Ordered by execution lane.
 // Each node: { id, label, stage_id, lane, row, desc, inputs, outputs, config, docs_section, audit_findings }
+// stage_id is the existing trace-file field name; domain wording is used in the UI.
 // ─────────────────────────────────────────────────────────────────
 const NODES = {
-  // LANE 0 — Fetch
+  // LANE 0 — paper_selection + oa_filter + paper_reading
   user_selection: { lane: 0, row: 0, label: "User selection", stage_id: "QueryBuilder → IPC", laneClass: "lane-fetch",
     desc: "PMIDs merged from topic search + pasted list + author search. Deduplicated.",
     inputs: ["topicPapers[]", "specificPapers[]", "authorPapers[]"],
@@ -364,11 +365,11 @@ const NODES = {
     inputs: ["PMID[]"],
     outputs: ["paper_details: {pmid → metadata}"],
     config: ["ENTREZ_EMAIL", "ENTREZ_API_KEY"],
-    docs: "§3.2 Step A — Metadata + abstract",
+    docs: "§3.2 paper_selection metadata + abstract",
     audit: ["F4: Redundant with UI esummary fetch"]
   },
   full_text_fetch: { lane: 0, row: 2, label: "Full-text fetch", stage_id: "run_fetching", laneClass: "lane-fetch",
-    desc: "PMC efetch (JATS XML) with Europe PMC fallback. Writes gzipped pickle.",
+    desc: "oa_filter / paper_reading: PMC efetch (JATS XML) with Europe PMC fallback. Writes gzipped pickle.",
     inputs: ["PMID[]"],
     outputs: ["content_dict: {pmid → body, figures[], tables[]}"],
     config: ["ENABLE_EUROPE_PMC_FALLBACK", "REQUEST_TIMEOUT"],
@@ -392,7 +393,7 @@ const NODES = {
     audit: ["F4: UI already fetched this"]
   },
 
-  // LANE 1 — NER + pre-LLM
+  // LANE 1 — candidate_discovery prep
   pubtator_ner: { lane: 1, row: 0, label: "PubTator NER", stage_id: "PubTatorTool.extract_from_pmids", laneClass: "lane-ner",
     desc: "NCBI PubTator3 BioC JSON. High-precision gene + variant NER. Batched 10 PMIDs/request.",
     inputs: ["scraped PMIDs"],
@@ -401,8 +402,8 @@ const NODES = {
     docs: "§6.5 PubTator NER",
     audit: ["F5: Chemical/Disease/Species annotations discarded"]
   },
-  abstract_screening: { lane: 1, row: 1, label: "Abstract screening", stage_id: "has_genetic_content", laneClass: "lane-ner",
-    desc: "Pass-through forensic scoring (filtering moved to UI 2026-03-02). Records would_pass per paper.",
+  abstract_screening: { lane: 1, row: 1, label: "Forensic relevance scoring", stage_id: "has_genetic_content", laneClass: "lane-ner",
+    desc: "paper_selection diagnostics only (filtering moved to UI 2026-03-02). Records would_pass per paper.",
     inputs: ["abstract, title"],
     outputs: ["forensic_screening[] (no filtering)"],
     config: ["ENABLE_ABSTRACT_SCREENING"],
@@ -418,8 +419,8 @@ const NODES = {
     audit: ["F8a: Truncation × grounding"]
   },
 
-  // LANE 2 — Candidate sourcing (LLM + deterministic)
-  abstract_pass: { lane: 2, row: 0, label: "Optional abstract LLM pass (0.5)", stage_id: "extract_gene_names_from_abstract", laneClass: "lane-llm",
+  // LANE 2 — candidate_discovery sources (LLM + deterministic)
+  abstract_pass: { lane: 2, row: 0, label: "Optional abstract LLM pass", stage_id: "extract_gene_names_from_abstract", laneClass: "lane-llm",
     desc: "Optional Gemini Flash call on abstract + title only. Enabled by config when extra recall is worth the API call.",
     inputs: ["abstract", "title"],
     outputs: ["associations[] tagged llm_abstract"],
@@ -427,7 +428,7 @@ const NODES = {
     docs: "§8 The Abstract Pass",
     audit: []
   },
-  fulltext_pass_greedy: { lane: 2, row: 1, label: "Optional full-text LLM pass (1)", stage_id: "extract_gene_names(temp=0)", laneClass: "lane-llm",
+  fulltext_pass_greedy: { lane: 2, row: 1, label: "Optional full-text LLM pass", stage_id: "extract_gene_names(temp=0)", laneClass: "lane-llm",
     desc: "Optional Gemini Flash call on full paper text. Free-tier defaults keep this off and reserve quota for detail extraction.",
     inputs: ["paper_text", "pubtator_genes[:20]"],
     outputs: ["associations[] tagged llm_text"],
@@ -435,7 +436,7 @@ const NODES = {
     docs: "§9.2 Full-text pass",
     audit: []
   },
-  fulltext_pass_recall: { lane: 2, row: 2, label: "Optional recall retry (1b)", stage_id: "extract_gene_names(temp=0.4)", laneClass: "lane-llm",
+  fulltext_pass_recall: { lane: 2, row: 2, label: "Optional recall retry", stage_id: "extract_gene_names(temp=0.4)", laneClass: "lane-llm",
     desc: "Optional second full-text Gemini call at temperature 0.4. Useful for recall experiments, expensive for free-tier runs.",
     inputs: ["paper_text", "pubtator_genes[:20]"],
     outputs: ["associations[] tagged llm_text"],
@@ -443,7 +444,7 @@ const NODES = {
     docs: "§9.5 Recall pass",
     audit: ["Passes don't corroborate each other (Section 9.6b)"]
   },
-  deterministic_scan: { lane: 2, row: 3, label: "Deterministic scan (1.1)", stage_id: "extract_deterministic_candidates", laneClass: "lane-llm",
+  deterministic_scan: { lane: 2, row: 3, label: "Deterministic scan", stage_id: "extract_deterministic_candidates", laneClass: "lane-llm",
     desc: "Regex match against canonical HGNC symbols. Candidate metadata materializes aliases/search terms for later gates. Token shape filter + 120-candidate cap.",
     inputs: ["paper_text", "local HGNC DB"],
     outputs: ["associations[] tagged deterministic_lexicon"],
@@ -451,7 +452,7 @@ const NODES = {
     docs: "§10 Deterministic Lexicon Scan",
     audit: ["F9: Can't distinguish table-only genes from biomarker FPs"]
   },
-  figure_analysis: { lane: 2, row: 4, label: "Optional figure LLM analysis (1.25)", stage_id: "extract_gene_names_from_figures", laneClass: "lane-llm",
+  figure_analysis: { lane: 2, row: 4, label: "Optional figure LLM analysis", stage_id: "extract_gene_names_from_figures", laneClass: "lane-llm",
     desc: "Optional multimodal Gemini on PMC figure images. Figure URLs/downloads are always available to the fetcher; this node is the extra AI pass.",
     inputs: ["figure_inputs[]"],
     outputs: ["associations[] tagged llm_figure"],
@@ -459,7 +460,7 @@ const NODES = {
     docs: "§11 Figure Analysis",
     audit: []
   },
-  pubtator_merge: { lane: 2, row: 5, label: "PubTator merge (1.5)", stage_id: "_ingest_associations(pubtator)", laneClass: "lane-llm",
+  pubtator_merge: { lane: 2, row: 5, label: "PubTator merge", stage_id: "_ingest_associations(pubtator)", laneClass: "lane-llm",
     desc: "Ingest PubTator genes as candidates. Zero new API calls — reuses §6 fetch. Precision floor.",
     inputs: ["pubtator_results[pmid]"],
     outputs: ["associations[] tagged pubtator"],
@@ -468,7 +469,7 @@ const NODES = {
     audit: []
   },
 
-  // LANE 3 — Accumulator + gates
+  // LANE 3 — candidate_discovery accumulator
   candidate_meta: { lane: 3, row: 2, label: "candidate_meta", stage_id: "shared per-paper dict", laneClass: "lane-gate",
     desc: "The accumulator. Keyed by (gene, variant). Each entry has sources set, raw_gene_labels set, validation_outcome.",
     inputs: ["all candidate sources"],
@@ -477,7 +478,7 @@ const NODES = {
     docs: "§9.6 _ingest_associations",
     audit: []
   },
-  grounding_check: { lane: 4, row: 0, label: "Grounding check (1.6)", stage_id: "_run_grounding_check", laneClass: "lane-gate",
+  grounding_check: { lane: 4, row: 0, label: "Grounding check", stage_id: "_run_grounding_check", laneClass: "lane-gate",
     desc: "First gate. Drop candidates whose gene / aliases / raw-labels don't appear in paper text. llm_figure-only: check captions.",
     inputs: ["candidate_meta", "paper_text", "figure captions"],
     outputs: ["grounded associations (tag: rejected_ungrounded)"],
@@ -485,7 +486,7 @@ const NODES = {
     docs: "§12 Grounding Check",
     audit: ["F8: truncation + fuzzy blind spot + no variant check"]
   },
-  hgnc_validation: { lane: 4, row: 1, label: "HGNC validation (2)", stage_id: "gene_validator.validate_associations", laneClass: "lane-gate",
+  hgnc_validation: { lane: 4, row: 1, label: "HGNC validation", stage_id: "gene_validator.validate_associations", laneClass: "lane-gate",
     desc: "Resolve to canonical HGNC. Confidence: 1.0 (gene+variant) / 0.7 (gene only) / <0.7 (fuzzy / murine). Local DB + HGNC REST + MyGene.",
     inputs: ["grounded associations"],
     outputs: ["validation_results[] per association"],
@@ -510,8 +511,8 @@ const NODES = {
     audit: ["F9: Can't distinguish table-only genes from biomarker FPs"]
   },
 
-  // LANE 5 — Detail extraction + post-validation
-  detail_extraction: { lane: 5, row: 0, label: "Detail extraction (3)", stage_id: "extract_gene_info", laneClass: "lane-detail",
+  // LANE 5 — detail_extraction
+  detail_extraction: { lane: 5, row: 0, label: "Detail extraction", stage_id: "extract_gene_info", laneClass: "lane-detail",
     desc: "BIG Gemini call. All candidates + full paper text + user column schema in ONE prompt. Returns array of rows.",
     inputs: ["validated_associations[]", "paper_text", "user_columns[]"],
     outputs: ["extracted_info[] (rows w/ user columns filled)"],
@@ -560,8 +561,8 @@ const NODES = {
     audit: ["F10c: Per-tier thresholds not user-visible"]
   },
 
-  // LANE 7 — Output pipeline
-  ncbi_enrichment: { lane: 7, row: 0, label: "NCBI enrichment (5.5)", stage_id: "NCBIGeneTool.enrich_gene_symbols", laneClass: "lane-output",
+  // LANE 7 — output_writing
+  ncbi_enrichment: { lane: 7, row: 0, label: "NCBI enrichment", stage_id: "NCBIGeneTool.enrich_gene_symbols", laneClass: "lane-output",
     desc: "NCBI efetch(db=gene) for unique symbols. Adds Gene Full Name, Aliases, Chromosome. Backfills NCBI Gene ID for LLM-only genes.",
     inputs: ["surviving rows"],
     outputs: ["rows + Gene Full Name / Aliases / Chromosome / NCBI Gene ID"],
@@ -586,7 +587,7 @@ const NODES = {
     audit: []
   },
   column_reorder: { lane: 7, row: 3, label: "Column reorder", stage_id: "final DataFrame reshape", laneClass: "lane-output",
-    desc: "Gene info → paper metadata → user cols → metadata/validation suffixes. Last step before writing.",
+    desc: "Gene info → paper metadata → user cols → metadata/validation suffixes. Last operation before writing.",
     inputs: ["deduplicated DataFrame"],
     outputs: ["reordered DataFrame"],
     config: ["(column order hardcoded)"],
@@ -649,14 +650,14 @@ const LANE_WIDTH = 260;
 const NODE_HEIGHT = 110;
 const NODE_V_GAP = 40;
 const LANE_LABELS = {
-  0: "Fetch",
-  1: "NER / pre-LLM",
-  2: "Candidate sources",
-  3: "Accumulator",
-  4: "Gates",
-  5: "Detail extraction",
-  6: "Post-validation gates",
-  7: "Output",
+  0: "paper_selection / oa_filter / paper_reading",
+  1: "candidate_discovery prep",
+  2: "candidate_discovery",
+  3: "candidate_discovery state",
+  4: "validation",
+  5: "detail_extraction",
+  6: "validation gates",
+  7: "output_writing",
 };
 
 function computeLayout() {
@@ -986,7 +987,7 @@ document.getElementById("traceLoader").addEventListener("change", async (e) => {
 
 function applyTrace(parsed) {
   TRACE = parsed;
-  document.getElementById("traceStatus").textContent = `Loaded: PMID ${TRACE.pmid || "?"} · ${Object.keys(TRACE.nodes || {}).length} stages captured`;
+  document.getElementById("traceStatus").textContent = `Loaded: PMID ${TRACE.pmid || "?"} · ${Object.keys(TRACE.nodes || {}).length} domains captured`;
   document.getElementById("traceStatus").classList.add("loaded");
   document.getElementById("instructions").style.display = "none";
   document.querySelectorAll(".node").forEach(el => {
@@ -1258,7 +1259,7 @@ function handleServerEvent(evt) {
     return;
   }
   if (evt.type === "trace") {
-    // Trace events can be either stage events (have node_id) or
+    // Trace events can be either domain/node events (have node_id) or
     // function events (fn_call/fn_return, no node_id).
     const inner = evt.event || {};
     if (inner.type === "fn_call" || inner.type === "fn_return") {
@@ -1324,7 +1325,7 @@ function handleTraceEvent(event) {
   const el = document.querySelector(`.node[data-node-id="${nid}"]`);
   if (el) el.classList.add("has-trace");
 
-  document.getElementById("traceStatus").textContent = `Live: ${Object.keys(TRACE.nodes).length} stages captured`;
+  document.getElementById("traceStatus").textContent = `Live: ${Object.keys(TRACE.nodes).length} domains captured`;
 
   // Mark the next-downstream nodes as "running" (best-effort visual cue)
   const downstream = EDGES.filter(([s]) => s === nid).map(([, t]) => t);
@@ -1491,7 +1492,7 @@ function buildFnRow(evt, idx) {
     ? `<span class="fn-duration">${evt._duration_ms.toFixed(1)}ms</span>`
     : "";
   const stageChip = evt.stage_id
-    ? `<span class="fn-stage" title="Semantic stage">${escapeHtml(evt.stage_id)}</span>`
+    ? `<span class="fn-stage" title="Semantic domain">${escapeHtml(evt.stage_id)}</span>`
     : "";
   // Eye icon marks rows where we captured actual arg/return values — click to inspect.
   const hasValues = (evt.arg_values && Object.keys(evt.arg_values).length)
@@ -1550,7 +1551,7 @@ function renderFnDetail(evt) {
   let html = `<div class="panel-section">
     <div class="kv">
       <span class="k">type</span><span class="v">${escapeHtml(evt.type)}</span>
-      ${evt.stage_id ? `<span class="k">stage</span><span class="v">${escapeHtml(evt.stage_id)}</span>` : ""}
+      ${evt.stage_id ? `<span class="k">domain</span><span class="v">${escapeHtml(evt.stage_id)}</span>` : ""}
       <span class="k">module</span><span class="v">${escapeHtml(evt.module || "")}</span>
       <span class="k">function</span><span class="v">${escapeHtml(evt.function || "")}</span>
       <span class="k">depth</span><span class="v">${evt.depth || 0}</span>

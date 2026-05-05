@@ -40,11 +40,12 @@ ABSTRACT_SCREENING_THRESHOLD = int(os.getenv("ABSTRACT_SCREENING_THRESHOLD", "5"
 # optional recall paths below via environment variables.
 GEMINI_USAGE_PROFILE = os.getenv("GEMINI_USAGE_PROFILE", "free").lower()
 
-# FIX #5 (Revised): optional LLM candidate discovery.
-# Free-tier default OFF: PubTator + deterministic HGNC scanning seed candidate
-# genes, and Gemini is reserved for the detail-extraction call. This avoids
-# spending 2-4 calls per paper before the output-producing step even starts.
+# Gemini candidate discovery controls.
+# Full-text Gemini candidate discovery is mandatory for every analyzed full-text
+# paper. These flags only govern optional abstract, recall, and rescue passes.
 ENABLE_ABSTRACT_GENE_DISCOVERY = os.getenv("ENABLE_ABSTRACT_GENE_DISCOVERY", "false").lower() == "true"
+# Deprecated compatibility flag: kept for older scripts, but no longer disables
+# the mandatory full-text Gemini candidate-discovery call.
 ENABLE_LLM_GENE_DISCOVERY = os.getenv("ENABLE_LLM_GENE_DISCOVERY", "false").lower() == "true"
 ENABLE_SECOND_GENE_DISCOVERY_PASS = os.getenv("ENABLE_SECOND_GENE_DISCOVERY_PASS", "false").lower() == "true"
 ENABLE_LLM_GENE_DISCOVERY_RESCUE = (
@@ -54,7 +55,7 @@ ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS = (
     os.getenv("ENABLE_LLM_GENE_DISCOVERY_RESCUE_RECALL_PASS", "true").lower() == "true"
 )
 
-# Grounding check: drop candidate genes not found in the fetched paper text before Stage 3.
+# Grounding check: drop candidate genes not found in the fetched paper text before detail extraction.
 # Prevents hallucinated genes (recalled from training knowledge, not from the text) from
 # generating empty rows in the final CSV. Set to "false" to disable, e.g. when debugging.
 ENABLE_GROUNDING_CHECK = os.getenv("ENABLE_GROUNDING_CHECK", "true").lower() == "true"

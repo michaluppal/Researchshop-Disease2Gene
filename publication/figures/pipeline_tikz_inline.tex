@@ -3,10 +3,10 @@
 
 \begin{tikzpicture}[
     every node/.style={font=\sffamily\footnotesize},
-    stage/.style={draw=#1!60, fill=#1!8, rounded corners=2pt,
+    domain/.style={draw=#1!60, fill=#1!8, rounded corners=2pt,
                   minimum width=2.4cm, minimum height=0.9cm, align=center,
                   line width=0.5pt},
-    stage/.default=black,
+    domain/.default=black,
     db/.style={draw=gray!50, dashed, rounded corners=2pt,
                minimum width=1.8cm, minimum height=0.7cm, align=center,
                font=\sffamily\scriptsize},
@@ -17,10 +17,10 @@
 ]
 
 % ── Row 1: UI ──────────────────────────────────
-\node[stage=blue] (s1) at (0,0) {\textbf{Stage 1}\\Query \& Schema};
-\node[stage=blue] (s2) at (3.4,0) {\textbf{Stage 2}\\Relevance Scoring};
+\node[domain=blue] (s1) at (0,0) {\textbf{paper\_selection}\\Query \& Schema};
+\node[domain=blue] (s2) at (3.4,0) {\textbf{paper\_selection}\\Relevance Scoring};
 \node[db]          (ipc) at (6.4,0) {IPC Bridge};
-\node[stage=blue] (out) at (9.4,0) {\textbf{Output}\\Results Explorer};
+\node[domain=blue] (out) at (9.4,0) {\textbf{output\_writing}\\Results Explorer};
 
 \node[lbl] at (0,-0.65) {QueryBuilder.tsx};
 \node[lbl] at (3.4,-0.65) {geneRelevanceScorer.ts};
@@ -33,9 +33,9 @@
 \draw[arr] (s2) -- (ipc);
 
 % ── Row 2: Pipeline ───────────────────────────
-\node[stage=gray]   (s3) at (0,-2) {\textbf{Stage 3}\\Full-Text Fetch};
-\node[stage=orange] (s4) at (3.4,-2) {\textbf{Stage 4}\\PubTator3 NER};
-\node[stage=violet] (s5) at (6.8,-2) {\textbf{Per-Paper}\\Extraction};
+\node[domain=gray]   (s3) at (0,-2) {\textbf{oa\_filter}\\paper\_reading};
+\node[domain=orange] (s4) at (3.4,-2) {\textbf{candidate\_discovery}\\PubTator3 NER};
+\node[domain=violet] (s5) at (6.8,-2) {\textbf{detail\_extraction}\\Gemini};
 \node[db]           (wp) at (9.8,-2) {Worker Pool\\{\tiny 2--4 procs}};
 
 \node[lbl] at (0,-2.65) {full\_text\_fetcher.py};
@@ -59,10 +59,10 @@
        {deterministic seeds} (s5.south);
 
 % ── Row 3: Validation ─────────────────────────
-\node[stage=green!60!black] (v1) at (0,-4) {\textbf{6a} Gene\\Validation};
-\node[stage=green!60!black] (v2) at (3.0,-4) {\textbf{6b} Citation\\Cross-Ref};
-\node[stage=green!60!black] (v3) at (6.0,-4) {\textbf{6c} Variant\\Matching};
-\node[stage=red, minimum width=2.2cm] (gate) at (9.0,-4) {\textbf{Strict Gate}\\$C \geq 0.7$};
+\node[domain=green!60!black] (v1) at (0,-4) {\textbf{validation}\\Gene};
+\node[domain=green!60!black] (v2) at (3.0,-4) {\textbf{validation}\\Citation};
+\node[domain=green!60!black] (v3) at (6.0,-4) {\textbf{validation}\\Variant};
+\node[domain=red, minimum width=2.2cm] (gate) at (9.0,-4) {\textbf{validation}\\Strict Gate};
 
 \node[lbl] at (0,-4.65) {gene\_validator.py};
 \node[lbl] at (3.0,-4.65) {SequenceMatcher};

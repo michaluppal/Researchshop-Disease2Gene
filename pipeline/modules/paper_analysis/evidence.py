@@ -345,7 +345,7 @@ class EvidenceMixin:
         """
         Merge rows that share the same (gene_name, variant_name).
 
-        Stage 3 sometimes returns the same gene twice with different fields filled —
+        Detail extraction sometimes returns the same gene twice with different fields filled —
         e.g. one entry has Disease Association populated, another has Statistical Evidence.
         For each field we take the first non-empty value encountered.
         Row order is preserved (first occurrence of each gene determines position).
@@ -374,7 +374,7 @@ class EvidenceMixin:
         merged_count = len(rows) - len(order)
         if merged_count > 0:
             logging.info(
-                f"Merged {merged_count} duplicate Stage 3 row(s) into their parent gene entries"
+                f"Merged {merged_count} duplicate detail-extraction row(s) into their parent gene entries"
             )
         return [merged[k] for k in order]
 

@@ -69,6 +69,30 @@ def test_collect_and_write_merges_live_stage_events(monkeypatch, tmp_path):
     assert payload["nodes"]["deterministic_scan"]["stage_id"] == "deterministic_scan"
 
 
+def test_collect_and_write_keeps_viewer_payload_shape(monkeypatch, tmp_path):
+    tracer = _reload_tracer(monkeypatch, tmp_path)
+
+    tracer.capture("pubmed_metadata", pmid="123", outputs={"retrieved_count": 1})
+    trace_path = tracer.collect_and_write("123", tmp_path / "trace_123.json")
+
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert set(payload) == {
+        "pmid",
+        "generated_at",
+        "node_count",
+        "nodes",
+        "function_event_count",
+        "function_trace_path",
+        "function_counts_by_stage",
+        "function_counts_by_name",
+    }
+    assert payload["pmid"] == "123"
+    assert payload["node_count"] == 1
+    assert payload["nodes"]["pubmed_metadata"]["node_id"] == "pubmed_metadata"
+    assert payload["function_event_count"] == 0
+    assert payload["function_trace_path"] == ""
+
+
 def test_collect_and_write_persists_function_events_and_summary(monkeypatch, tmp_path):
     tracer = _reload_tracer(monkeypatch, tmp_path)
     live_file = tmp_path / "live_events.jsonl"

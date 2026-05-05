@@ -23,8 +23,8 @@ Build configs live in `config/`. `package.json` scripts pass explicit config pat
 | Layer | File | Purpose |
 |---|---|---|
 | Entry | `pipeline/run_pipeline.py` | CLI spawned by Electron |
-| Orchestration | `pipeline/modules/pipeline_orchestrator.py` | chains all stages |
-| Extraction | `pipeline/modules/paper_analysis/` | Per-paper candidate discovery, Gemini extraction, validation, and evidence gates |
+| Orchestration | `pipeline/modules/pipeline_orchestrator.py` | chains all pipeline domains |
+| Extraction | `pipeline/modules/paper_analysis/` | Per-paper `candidate_discovery`, `detail_extraction`, `validation`, and evidence gates |
 | Validation | `pipeline/modules/gene_validator.py` | HGNC + remote APIs |
 | NER | `pipeline/modules/pubtator_tool.py` | high-precision gene NER |
 | Config | `pipeline/modules/config.py` | all pipeline feature flags |
@@ -59,7 +59,7 @@ These constraints exist for scientific accuracy and must not be overridden witho
 - Do not lower confidence thresholds. `FINAL_VALIDATION_MIN_CONFIDENCE=0.7` is a medical accuracy decision, not a performance knob.
 - Do not disable pipeline safeguards. Grounding check, deterministic seeding, and strict validation gate are hallucination controls.
 - Do not weaken validation logic silently. If a validation rule is relaxed, document it in `docs/audit/AUDIT.md` with reasoning and tradeoff.
-- False negatives at abstract screening are silent failures. A paper dropped there cannot be recovered.
+- False negatives in `paper_selection` relevance scoring are silent failures. A paper dropped there cannot be recovered.
 - Keep `docs/audit/AUDIT.md` synchronized. Any pipeline behavior change requires an audit update.
 - Secrets via env vars only. Never pass secrets as CLI args because they can be visible in process listings.
 - OA papers only. No paywall bypass and no automated browser scraping for restricted full text.
@@ -106,6 +106,6 @@ The old Claude slash commands have Codex-readable replacements in `.codex/tasks/
 Python stdout lines: `PROGRESS:{json}` | `LOG:{json}` | `RESULT:{json}`.
 Secrets are passed as env vars in spawn options, never CLI args.
 
-## Pipeline Stages
+## Pipeline Domains
 
-PubMed search -> abstract screening -> full-text fetch -> PubTator NER -> Gemini extraction -> gene validation -> CSV output
+`paper_selection` -> `oa_filter` -> `paper_reading` -> `candidate_discovery` -> `detail_extraction` -> `validation` -> `output_writing`

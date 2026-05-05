@@ -1,9 +1,9 @@
 # Pipeline Viewer
 
 Interactive, self-contained HTML view of the ResearchShop extraction pipeline.
-Each box is a function or stage; connections show data flow. Click a node for its
+Each box is a function or pipeline domain; connections show data flow. Click a node for its
 schema, config flags, and audit cross-references. Load a trace file to see actual
-data that flowed through each stage for one example paper.
+data that flowed through each domain for one example paper.
 
 ## Two modes
 
@@ -11,7 +11,7 @@ data that flowed through each stage for one example paper.
    the pipeline schema with clickable nodes. Drag a `trace_<pmid>.json` file onto
    the page to populate nodes with real data from a past run.
 2. **Live mode** — start `serve.py`, open `http://localhost:8765/`. Type a PMID,
-   click **Run pipeline**. Nodes light up in real time as stages complete:
+   click **Run pipeline**. Nodes light up in real time as domains complete:
    grey (waiting) → yellow (running) → green (done) → red (failed). Clicking a
    node at any time shows the actual values that flowed through. Figure images
    render inline; click a thumbnail for a full-size modal viewer.
@@ -21,7 +21,7 @@ data that flowed through each stage for one example paper.
 Open `index.html` in any modern browser. No build step, no server, no
 dependencies. Everything is inline.
 
-Without a trace file, the viewer shows the static pipeline schema. Every stage
+Without a trace file, the viewer shows the static pipeline schema. Every domain
 links to its section in `docs/pipeline/understanding.md` and any related audit
 findings in `docs/audit/final-audit.md`.
 
@@ -105,23 +105,24 @@ immediately with one dict lookup.
 - **Live mode only** — when `TRACE_LIVE_FILE` is also set (by `serve.py`), every
   `capture()` additionally appends a JSON line to that single shared file. The
   server tails it and forwards each line as an SSE event to the browser.
-- The final merge also reads the live file as a safety net, so worker stage
+- The final merge also reads the live file as a safety net, so worker domain
   events seen by the browser are preserved in the persisted trace even if a
   worker could not inherit the orchestrator's in-memory output directory.
 - Function tracing (`Trace fns`) emits `fn_call` and `fn_return` events with a
-  `stage_id` when a semantic stage context is active. The function view shows
-  that stage chip so noisy per-paper extraction helper calls can be grouped by pipeline step.
+  `stage_id` when a semantic domain context is active. The function view shows
+  that domain chip so noisy per-paper extraction helper calls can be grouped by pipeline domain.
+  The field name stays `stage_id` for trace-file compatibility.
 
 Only one paper can be traced per run. Trace data values go through `summarise()`
 which caps string lengths and list sizes — the trace file stays readable.
 
-## Instrumented stages (current)
+## Instrumented Domains (Current)
 
 Already emitting trace events:
 
 - `user_selection` · `pubmed_metadata` · `full_text_fetch` · `text_cleaning`
 - `pubtator_ner` · `citation_fetch`
-- `context_validation` (function events via `stage_id`; compact stage event is
+- `context_validation` (function events via `stage_id`; compact domain event is
   still schema-only unless a capture call is added)
 - `abstract_pass` · `fulltext_pass_greedy` · `fulltext_pass_recall`
 - `deterministic_scan` · `figure_analysis` · `pubtator_merge` · `candidate_meta`
@@ -142,4 +143,4 @@ at the appropriate site. Keep node IDs in sync with the `NODES` table in
 
 - `docs/pipeline/understanding.md` — full narrative trace of the pipeline
 - `docs/audit/final-audit.md` — findings (F1–F10) the viewer cross-references
-- `.codex/rules/memory-pipeline.md` — stage-level reference for Codex sessions
+- `.codex/rules/memory-pipeline.md` — domain-level reference for Codex sessions

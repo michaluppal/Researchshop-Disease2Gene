@@ -36,6 +36,44 @@ def test_orchestrator_module_imports():
     from modules.pipeline_orchestrator import _run_pipeline_worker, run_complete_pipeline  # noqa: F401
 
 
+def test_pipeline_run_state_exposes_run_data_carrier():
+    from modules.pipeline_state import PipelineRunState
+
+    state = PipelineRunState(
+        query="BRCA1",
+        specific_pmids=["34876594"],
+        specific_authors=[],
+        user_columns={"Key Finding": "main finding"},
+        top_n_cited=1,
+    )
+
+    assert state.query == "BRCA1"
+    assert state.specific_pmids == ["34876594"]
+    assert state.pipeline_stats["papers_found"] == 0
+    assert state.paper_debug_artifacts == []
+    assert state.all_results_df.empty
+
+
+def test_run_complete_pipeline_rejects_too_small_gemini_budget(monkeypatch):
+    from modules import config
+    from modules.pipeline_orchestrator import run_complete_pipeline
+
+    monkeypatch.setattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 1)
+
+    with pytest.raises(ValueError) as excinfo:
+        run_complete_pipeline(
+            query="",
+            specific_pmids=["34876594"],
+            specific_authors=[],
+            user_columns={"Key Finding": "main finding"},
+            top_n_cited=1,
+        )
+
+    message = str(excinfo.value)
+    assert "GEMINI_MAX_CALLS_PER_PAPER=1" in message
+    assert "at least 2 Gemini calls" in message
+
+
 def test_sanitize_user_columns_removes_reserved_names():
     """_sanitize_user_columns should rename columns that collide with core fields."""
     from modules.pipeline_orchestrator import _sanitize_user_columns
