@@ -18,7 +18,7 @@ Design notes:
 - Node IDs match the ``NODES`` table in
   ``publication/figures/pipeline-viewer/index.html``.  Keep them in sync.
 - Each node is captured at most once per PMID per process.  If a stage fires
-  multiple times for the same paper (e.g. Step 1 + Step 1b both tagged
+  multiple times for the same paper (e.g. full-text + recall discovery both tagged
   ``fulltext_pass_*``), give each call a distinct node_id.
 - Values in ``inputs`` / ``outputs`` / ``meta`` must be JSON-serialisable.
   Use :func:`summarise` to reduce large blobs (paper text, DataFrames) to
@@ -34,6 +34,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import Lock, local
 from typing import Any, Dict, Iterable, Optional
+
+from .trace_artifacts import TraceArchive
 
 
 _target_pmid: Optional[str] = os.environ.get("TRACE_PMID") or None
@@ -200,70 +202,7 @@ def collect_and_write(pmid: str, output_path: os.PathLike) -> Optional[Path]:
     if not sources:
         return None
 
-    nodes: Dict[str, Dict[str, Any]] = {}
-    function_events: list[Dict[str, Any]] = []
-    function_counts_by_stage: Dict[str, int] = {}
-    function_counts_by_name: Dict[str, int] = {}
-    for p in sources:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except Exception:
-                    continue
-                event_type = ev.get("type")
-                if event_type in {"fn_call", "fn_return"}:
-                    event_pmid = str(ev.get("pmid") or "").strip()
-                    if event_pmid and event_pmid != str(pmid).strip():
-                        continue
-                    function_events.append(ev)
-                    stage = str(ev.get("stage_id") or "unscoped")
-                    name = ".".join(
-                        part
-                        for part in [
-                            str(ev.get("module") or "").strip(),
-                            str(ev.get("function") or "").strip(),
-                        ]
-                        if part
-                    ) or "unknown"
-                    function_counts_by_stage[stage] = function_counts_by_stage.get(stage, 0) + 1
-                    function_counts_by_name[name] = function_counts_by_name.get(name, 0) + 1
-                    continue
-
-                nid = ev.get("node_id")
-                if not nid:
-                    continue
-                # Last-write-wins for same node_id (re-runs within same PMID are rare)
-                nodes[nid] = ev
-
-    out_path = Path(output_path)
-    function_trace_path = out_path.with_name(f"{out_path.stem}_functions.jsonl")
-    if function_events:
-        function_trace_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(function_trace_path, "w", encoding="utf-8") as f:
-            for ev in function_events:
-                f.write(json.dumps(ev, ensure_ascii=False, default=str) + "\n")
-
-    out = {
-        "pmid": pmid,
-        "generated_at": time.time(),
-        "node_count": len(nodes),
-        "nodes": nodes,
-        "function_event_count": len(function_events),
-        "function_trace_path": str(function_trace_path) if function_events else "",
-        "function_counts_by_stage": dict(
-            sorted(function_counts_by_stage.items(), key=lambda item: (-item[1], item[0]))
-        ),
-        "function_counts_by_name": dict(
-            sorted(function_counts_by_name.items(), key=lambda item: (-item[1], item[0]))[:200]
-        ),
-    }
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2, ensure_ascii=False, default=str)
+    out_path = TraceArchive.from_sources(pmid, sources).write(Path(output_path))
 
     # Clean up partials after successful merge
     for p in partials:
@@ -472,7 +411,7 @@ _FN_TRACER_VALUE_CAPTURE = frozenset({
     "extract_gene_names",
     "extract_gene_names_from_figures",
     "extract_deterministic_candidates",
-    "extract_gene_info",                        # Step 3 — batched detail
+    "extract_gene_info",                        # batched detail extraction
     "_ingest_associations",
     "_run_candidate_discovery",
     "_run_grounding_check",

@@ -16,8 +16,8 @@
                 minimum height=1.1cm, align=center, font=\sffamily\small,
                 line width=0.6pt},
     box/.default=gray!60,
-    stagebox/.style={box=#1, minimum width=2.6cm},
-    widestagebox/.style={box=#1, minimum width=4.0cm},
+    domainbox/.style={box=#1, minimum width=2.6cm},
+    widedomainbox/.style={box=#1, minimum width=4.0cm},
     smallpill/.style={rounded corners=5pt, draw=gray!40, fill=white,
                       font=\sffamily\tiny, inner sep=2pt, inner ysep=1pt},
     layerlabel/.style={font=\sffamily\scriptsize\bfseries, anchor=north west},
@@ -30,12 +30,12 @@
 % ============================================================
 %  ROW 1: ELECTRON UI
 % ============================================================
-\node[stagebox=blue] (query) {
-    \textbf{\footnotesize Stage 1}\\[-1pt]
+\node[domainbox=blue] (query) {
+    \textbf{\footnotesize paper\_selection}\\[-1pt]
     Query \& Schema};
 
-\node[stagebox=blue, right=of query] (relevance) {
-    \textbf{\footnotesize Stage 2}\\[-1pt]
+\node[domainbox=blue, right=of query] (relevance) {
+    \textbf{\footnotesize paper\_selection}\\[-1pt]
     Gene Relevance\\[-2pt]
     Scoring};
 
@@ -43,8 +43,8 @@
       dashed, minimum height=0.9cm, font=\sffamily\scriptsize] (ipc) {
     IPC Bridge};
 
-\node[stagebox=blue, right=4.5cm of relevance] (results) {
-    \textbf{\footnotesize Output}\\[-1pt]
+\node[domainbox=blue, right=4.5cm of relevance] (results) {
+    \textbf{\footnotesize output\_writing}\\[-1pt]
     Results Explorer};
 
 % File labels - UI
@@ -67,19 +67,20 @@
 % ============================================================
 %  ROW 2: PYTHON PIPELINE
 % ============================================================
-\node[stagebox=gray, below=1.4cm of query] (fulltext) {
-    \textbf{\footnotesize Stage 3}\\[-1pt]
-    Full-Text\\[-2pt]
+\node[domainbox=gray, below=1.4cm of query] (fulltext) {
+    \textbf{\footnotesize oa\_filter}\\[-1pt]
+    {\scriptsize paper\_reading}\\[-2pt]
+    Full-Text
     Acquisition};
 
-\node[stagebox=orange, right=of fulltext] (pubtator) {
-    \textbf{\footnotesize Stage 4}\\[-1pt]
+\node[domainbox=orange, right=of fulltext] (pubtator) {
+    \textbf{\footnotesize candidate\_discovery}\\[-1pt]
     PubTator3 NER\\[-2pt]
     {\tiny precision floor}};
 
-\node[widestagebox=violet, right=of pubtator] (gemini) {
-    \textbf{\footnotesize Per-Paper Extraction}\\[-1pt]
-    {\scriptsize A: Abstract $\to$ B: Full-text}\\[-2pt]
+\node[widedomainbox=violet, right=of pubtator] (gemini) {
+    \textbf{\footnotesize detail\_extraction}\\[-1pt]
+    {\scriptsize Gemini structured extraction}\\[-2pt]
     {\scriptsize + Figure analysis}};
 
 \node[box=gray, right=of gemini, minimum width=2.0cm,
@@ -119,18 +120,18 @@
 % ============================================================
 %  ROW 3: VALIDATION FRAMEWORK
 % ============================================================
-\node[stagebox=green, below=1.4cm of fulltext] (geneval) {
-    \textbf{\footnotesize Stage 6a}\\[-1pt]
+\node[domainbox=green, below=1.4cm of fulltext] (geneval) {
+    \textbf{\footnotesize validation}\\[-1pt]
     Gene Validation\\[-2pt]
     {\tiny HGNC (44,943 genes)}};
 
-\node[stagebox=green, right=of geneval] (citeval) {
-    \textbf{\footnotesize Stage 6b}\\[-1pt]
+\node[domainbox=green, right=of geneval] (citeval) {
+    \textbf{\footnotesize validation}\\[-1pt]
     Citation\\[-2pt]
     Cross-Reference};
 
-\node[stagebox=green, right=of citeval] (vareval) {
-    \textbf{\footnotesize Stage 6c}\\[-1pt]
+\node[domainbox=green, right=of citeval] (vareval) {
+    \textbf{\footnotesize validation}\\[-1pt]
     Variant\\[-2pt]
     Matching};
 

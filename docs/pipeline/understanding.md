@@ -4,7 +4,7 @@
 > Written collaboratively — each section reflects what has been discussed and verified.
 > Not a spec. Not a reference. A shared mental model.
 
-For the compact source-of-truth stage/function map, see
+For the compact source-of-truth domain/function map, see
 [`pipeline-step-table.md`](./pipeline-step-table.md).
 
 ---
@@ -73,7 +73,7 @@ The pipeline is **selection-agnostic**. It doesn't know:
 This means every filter the pipeline applies downstream (OA check, full-text fetch success,
 PubTator coverage, grounding check) runs independently of what the UI told the user — and any
 per-paper expectation set by the UI is not re-validated inside the pipeline. If the UI said
-"Full text" and PMC actually returns nothing, the pipeline silently degrades to abstract-only.
+"Full text" and PMC actually returns nothing, the pipeline emits a metadata-only row rather than running extraction.
 
 ### What to remember for later sections
 
@@ -110,7 +110,7 @@ banana
 
 The line "banana" is intentional — it's how we trace error paths.
 
-### Step 1 — Parsing (`parseIdentifiers`, client-side only)
+### Input parsing (`parseIdentifiers`, client-side only)
 
 On click of **Validate**, `parseIdentifiers()` (a pure regex classifier, no network)
 splits the text and tags each line as one of four types:
@@ -129,7 +129,7 @@ splits the text and tags each line as one of four types:
 Unknowns are collected into an `invalid` list and surfaced in the UI as "we couldn't parse
 these" — they do not proceed.
 
-### Step 2 — Enrichment (only PMIDs get looked up)
+### PMID metadata enrichment (only PMIDs get looked up)
 
 The validator then calls `window.api.pubmed.fetchDetails(pmids)` — an IPC round-trip to the
 main process, which calls NCBI esummary and returns `{ title, doi, pmc, journal, url, ... }`
@@ -155,7 +155,7 @@ papers = [
 
 The user sees all 7 parsed items in the validated-papers panel and clicks **"Use these"**.
 
-### Step 3 — The silent filter
+### Silent PMID-only filter
 
 [`SmartInput.tsx:184`](app/src/renderer/components/SmartInput.tsx:184) `useValid()`:
 
@@ -170,7 +170,7 @@ The **DOI-only and PMC-only entries are dropped** — they have no `pmid` field.
 This is a real gap: a user who pastes a valid PMC ID or DOI expects that paper to be analysed.
 It won't be. (Worth a separate audit entry — adding as **F3** below.)
 
-### Step 4 — Into `QueryBuilder` state
+### Into `QueryBuilder` state
 
 [`QueryBuilder.tsx:134`](app/src/renderer/pages/QueryBuilder.tsx:134)
 `handleSpecificPapersChange(pmids, papers)` stores both:
@@ -183,7 +183,7 @@ setSpecificPapers(papers)  // all 7, for UI display
 The UI shows the full validated list (including DOI/PMC items) back to the user — reinforcing
 the false impression that all 7 will be processed.
 
-### Step 5 — Final merge on "Run"
+### Final merge on "Run"
 
 When the user clicks **Run**, [`QueryBuilder.tsx:161–167`](app/src/renderer/pages/QueryBuilder.tsx:161)
 does its second filter:
@@ -199,7 +199,7 @@ const allPmids = Array.from(new Set([
 Only PMIDs survive. The `new Set([...])` also deduplicates (the two `PMC9035072` rows above
 would have collapsed anyway if they'd resolved to a PMID).
 
-### Step 6 — Spawn
+### Spawn
 
 [`python-bridge.ts:80`](app/src/main/python-bridge.ts:80) passes the 3 PMIDs as a JSON CLI
 argument:
@@ -216,7 +216,7 @@ python run_pipeline.py \
 
 Secrets go through `env`. See Section 1 for the security reasoning.
 
-### Step 7 — Into the pipeline
+### Into the pipeline
 
 [`pipeline_orchestrator.run_pipeline(specific_pmids=[...], query="", ...)`](pipeline/modules/pipeline_orchestrator.py:551):
 
@@ -230,7 +230,7 @@ Secrets go through `env`. See Section 1 for the security reasoning.
 
 ### End-to-end summary
 
-| Stage | Count in / count out | Note |
+| Domain / UI step | Count in / count out | Note |
 |---|---|---|
 | User paste | 8 lines | 1 "banana" visibly rejected |
 | `parseIdentifiers` | 8 → 7 classified | 3 PMID, 2 PMC, 2 DOI |
@@ -252,17 +252,17 @@ is the only identifier that ties them together.
 
 ### 3.1 The three lookups, in order
 
-| Step | Function | What it fetches | API hit |
+| Lookup | Function | What it fetches | API hit |
 |---|---|---|---|
 | **A** | [`pubmed_data_collector.fetch_paper_details(pmids)`](pipeline/modules/pubmed_data_collector.py:249) | Metadata + abstract | NCBI Entrez `efetch` (db=pubmed, rettype=medline) |
 | **B** | [`full_text_fetcher.run_fetching(pmids, path)`](pipeline/modules/full_text_fetcher.py) | Full text + figures + tables | NCBI Entrez `efetch` (db=pmc) → Europe PMC `fullTextXML` fallback → `pubmed_parser` adapter for paragraphs/figure metadata |
 | **C** | [`pubmed_data_collector.fetch_citation_counts_with_fallback(pmids)`](pipeline/modules/pubmed_data_collector.py:388) | Citation counts | iCite (NIH) → Semantic Scholar fallback |
 
-Steps A and B are called back-to-back in `run_pipeline` ([orchestrator.py:718, 738](pipeline/modules/pipeline_orchestrator.py:718)).
-Step C runs on demand — it's used later for ranking when `query` mode is active, and as a
+Metadata and full-text lookup are called back-to-back in `run_pipeline` ([orchestrator.py:718, 738](pipeline/modules/pipeline_orchestrator.py:718)).
+Citation lookup runs on demand — it's used later for ranking when `query` mode is active, and as a
 fallback when full-text fetch fails entirely.
 
-### 3.2 Step A — Metadata + abstract (what you get per PMID)
+### 3.2 `paper_selection`: Metadata + abstract (what you get per PMID)
 
 `fetch_paper_details` batches PMIDs (50 at a time), POSTs to NCBI `efetch` with
 `rettype=medline&retmode=text`, and parses the response with `Bio.Medline.parse`. For
@@ -287,7 +287,7 @@ The last two fields are pipeline-added forensics: every record is scored against
 completeness test (title / year / journal / authors / abstract present) and warnings are
 surfaced in the final output for audit.
 
-### 3.3 Step B — Full text, figures, tables
+### 3.3 `paper_reading`: Full text, figures, tables
 
 `full_text_fetcher.run_fetching` writes a gzipped pickle (`content_dict_{hash}.pkl.gz`)
 keyed by PMID. For each PMID it tries two paths:
@@ -332,7 +332,7 @@ ContentExtractionResult(
 If both paths fail, you get a stub with `extraction_method="no_oa_full_text"` and empty
 content (the silent-drop case discussed in F2).
 
-### 3.4 Step C — Citation counts (lazy, for ranking)
+### 3.4 `paper_selection`: Citation counts (lazy, for ranking)
 
 `fetch_citation_counts_with_fallback` batches PMIDs to iCite
 (`https://icite.od.nih.gov/api/pubs?pmids=...`, up to 200 per request), then falls back to
@@ -373,7 +373,7 @@ External services hit during the PMID-list flow:
 4. **Semantic Scholar Graph API** — citation fallback. Rate-limited (429s), handled with
    5s backoff.
 
-Later stages (PubTator, Gemini, HGNC/MyGene validation) hit additional services but those
+Later domains (`candidate_discovery`, `detail_extraction`, `validation`) hit additional services but those
 are downstream of the PMID-list bundle — they consume the content_dict and metadata, not
 PubMed directly.
 
@@ -491,29 +491,29 @@ What it does, in order:
 4. **Normalises whitespace** while preserving table structure — tabs stay (columns),
    newlines stay (rows/paragraphs), runs of spaces collapse.
 
-This is the W1 fix from [`AUDIT.md`](../audit/AUDIT.md). Pre-W1, step 3 ran without
-step 1: `α-globin` would be silently stripped to `-globin`. For haematology papers that
+This is the W1 fix from [`AUDIT.md`](../audit/AUDIT.md). Pre-W1, non-ASCII stripping ran
+without Greek-letter transliteration: `α-globin` would be silently stripped to `-globin`. For haematology papers that
 discuss α-thalassemia, β-globin, γ-heavy chain — whole disease-gene associations were
-being mangled at the fetch boundary. `memory-pipeline.md` §Stage 3 documents this as
+being mangled at the fetch boundary. `memory-pipeline.md` §`paper_reading` documents this as
 medical-accuracy-critical.
 
 The cleaned content is what gets pickled into `content_dict[pmid]["content"]`. **Every
-downstream stage sees transliterated, ASCII-only body text.** PubTator gets the raw JATS
+downstream domain sees transliterated, ASCII-only body text.** PubTator gets the raw JATS
 via its own API (separate path), but Gemini reads whatever's in the pickle.
 
 ### 4.4b The asymmetry — abstracts skip this cleaning
 
-One important subtlety: the abstract that Gemini sees in Step 0.5 (Section 8) **does not
+One important subtlety: the abstract that Gemini sees in the abstract candidate pass (Section 8) **does not
 come from the pickled full text.** It comes from `paper_details[pmid]["abstract"]`, which
-was populated in Step 3.3 from the Medline `AB` field — a separate fetch that never
+was populated from the Medline `AB` field during metadata fetch — a separate path that never
 passes through `_clean_and_validate_content`.
 
 Consequence:
 
 | Text the LLM sees | Source | Greek letters? |
 |---|---|---|
-| Abstract (Step 0.5 abstract pass) | Medline `AB` via `fetch_paper_details` | **Raw** — `α-globin` preserved |
-| Body text (Step 1 full-text passes) | JATS XML via `_clean_and_validate_content` | **Transliterated** — `alpha-globin` |
+| Abstract (`candidate_discovery` abstract pass) | Medline `AB` via `fetch_paper_details` | **Raw** — `α-globin` preserved |
+| Body text (`candidate_discovery` full-text passes) | JATS XML via `_clean_and_validate_content` | **Transliterated** — `alpha-globin` |
 
 Most of the time this doesn't matter — Gemini handles both forms, and the final
 normalisation happens at HGNC validation. But it creates a specific failure mode in the
@@ -928,7 +928,7 @@ The instinct is that the next step is "the abstract pass" (Gemini looking at the
 abstracts). Not quite. Before any LLM call, three small but load-bearing steps run. They
 produce the final ordered list of papers the LLM will actually see.
 
-### 7.1 Step 4 — Citation fetch for scraped PMIDs
+### 7.1 Citation fetch for scraped PMIDs
 
 ```python
 citation_records = pubmed_data_collector.fetch_citation_counts_with_fallback(scraped_pmids)
@@ -947,7 +947,7 @@ survived full-text fetch.
 This is the redundancy flagged in [F4](../audit/final-audit.md#f4--redundant-fetches-across-the-uipipeline-boundary).
 It's the single clearest "zero-value duplicate API call" in the run.
 
-### 7.2 Step 4 (cont.) — Building `pmids_to_process`
+### 7.2 Building `pmids_to_process`
 
 With citation counts attached, the orchestrator builds the final processing order:
 
@@ -972,7 +972,7 @@ fetch in 7.1 was done purely to populate a CSV column — not to drive any decis
 This is a second angle on F4: for curated-list runs, the citation fetch is not just
 redundant with the UI — it also has no downstream effect on the ordering.
 
-### 7.3 Step 4.5 — Abstract screening (forensic only)
+### 7.3 `paper_selection` relevance scoring (forensic only)
 
 ```python
 if getattr(config, "ENABLE_ABSTRACT_SCREENING", True):
@@ -986,8 +986,8 @@ if getattr(config, "ENABLE_ABSTRACT_SCREENING", True):
     pipeline_stats["papers_screened_passed"] = len(pmids_to_process)
 ```
 
-This step used to be a real filter. Per the 2026-03-02 decision
-(`memory-decisions.md` — "Abstract screening moved from pipeline to UI"), screening moved
+This relevance check used to be a real filter. Per the 2026-03-02 decision
+(`memory-decisions.md` — "`paper_selection` relevance scoring moved from pipeline to UI"), scoring moved
 to the Electron renderer where users can see the relevance score before submitting. The
 Python module was kept as **pass-through** — it scores every paper, logs whether they
 *would have* passed, and lets them all through anyway.
@@ -1003,7 +1003,7 @@ Why keep it:
 Scoring uses [`abstract_screener.has_genetic_content`](pipeline/modules/abstract_screener.py)
 — the same weighted keyword algorithm as the UI scorer (`geneRelevanceScorer.ts`), with
 positive/negative weights and a molecular-context precision gate. See
-`memory-pipeline.md` §Stage 2 for the scoring rubric.
+`memory-pipeline.md` §`paper_selection` for the scoring rubric.
 
 ### 7.4 The no-survivors fallback
 
@@ -1019,7 +1019,7 @@ Both 7.1 and 7.3 have an escape hatch:
 Neither fires in the happy path, but they're why the pipeline doesn't crash on
 pathological inputs (e.g., every PMID paywalled, or every abstract missing).
 
-### 7.5 What's in memory when Step 5 starts
+### 7.5 What's in memory when `candidate_discovery` starts
 
 After 7.3, the orchestrator has:
 
@@ -1037,7 +1037,7 @@ paper, assembled by `_prepare_paper_inputs(pmid, content_dict, paper_details, pu
 
 ### 7.6 Now — the Gemini abstract pass
 
-**Now** the abstract pass begins. Step 5 in the orchestrator hands each PMID to a worker
+**Now** the abstract pass begins. The orchestrator hands each PMID to a worker
 in the multiprocessing pool, which instantiates a `PaperAnalysisPipeline` and runs:
 
 1. **Abstract pass.** One Gemini Flash call per paper on just the abstract. Discovers
@@ -1057,12 +1057,12 @@ Next section traces the abstract pass specifically.
 flowchart TD
     Start["scraped_pmids<br/>+ pubtator_results"]
 
-    Start --> Cite["7.1 Step 4<br/>fetch_citation_counts_with_fallback<br/>(iCite — redundant with UI, see F4)"]
+    Start --> Cite["7.1 citation fetch<br/>fetch_citation_counts_with_fallback<br/>(iCite — redundant with UI, see F4)"]
     Cite --> DF["all_papers_df<br/>indexed by PMID, citations column attached"]
 
     DF --> Rank["7.2 Build pmids_to_process<br/>mandatory first (user order)<br/>then ranked by citations desc"]
 
-    Rank --> Screen["7.3 Abstract screening<br/>has_genetic_content()<br/><b>pass-through only</b> — no filtering"]
+    Rank --> Screen["7.3 paper_selection relevance scoring<br/>has_genetic_content()<br/><b>pass-through only</b> — no filtering"]
     Screen --> Forensic["screen_papers_with_decisions<br/>→ drop_debug_{hash}.json"]
     Screen --> Ready["pmids_to_process (final order)"]
 
@@ -1086,7 +1086,7 @@ flowchart TD
 ## 8. The Abstract Pass — Fast Candidate Discovery
 
 The first LLM call for a paper. Cheap, focused, discovery-only. In the code this is
-**Step 0.5** inside `PaperAnalysisPipeline.run_pipeline()` (the per-paper orchestration method,
+the abstract candidate branch inside `PaperAnalysisPipeline.run_pipeline()` (the per-paper orchestration method,
 not to be confused with the top-level `pipeline_orchestrator.run_pipeline`).
 
 ### 8.1 When it fires
@@ -1094,7 +1094,7 @@ not to be confused with the top-level `pipeline_orchestrator.run_pipeline`).
 In [`gemini_extractor.py:1375`](pipeline/modules/gemini_extractor.py:1375):
 
 ```python
-# Step 0.5: Abstract gene discovery
+# candidate_discovery: abstract gene discovery
 if getattr(config, "ENABLE_ABSTRACT_GENE_DISCOVERY", True) and self.abstract_text:
     abstract_associations = self.extract_gene_names_from_abstract()
     if abstract_associations:
@@ -1167,7 +1167,7 @@ so Gemini must emit valid JSON matching:
 ```
 
 Two fields only: `gene` (HGNC symbol) and `variant` (HGVS/rsID or empty). No citation, no
-context, no confidence. This is *discovery*, not extraction — the detail-extraction stage
+context, no confidence. This is *discovery*, not extraction — `detail_extraction`
 later will fill in user columns for each of these genes.
 
 ### 8.5 Gemini config quirks that matter
@@ -1213,14 +1213,14 @@ The source tag matters downstream:
 
 `llm_abstract` specifically is a weak but useful source — it catches natural-language gene
 names that the full-text pass sometimes misses (e.g., the abstract says "IL-6" but the
-body uses "interleukin-6" in prose that gets missed by Step 1's greedy pass).
+body uses "interleukin-6" in prose that gets missed by the greedy full-text pass).
 
 ### 8.7 What the abstract pass does *not* do
 
 Important, because I described it wrongly in an earlier draft of Section 7.6:
 
 - **It does NOT filter the paper out.** An empty `associations` list does not stop the
-  pipeline. Step 1 (full-text extraction) runs unconditionally.
+  pipeline. The full-text candidate pass runs unconditionally.
 - **It does NOT decide anything.** No gating, no downstream "skip this paper" branch.
 - **The log message is misleading.** [Line 733](pipeline/modules/gemini_extractor.py:733)
   emits:
@@ -1252,7 +1252,7 @@ The abstract pass is:
 - The first place the clinical-vs-molecular disambiguation clause is applied — it runs
   again in the full-text pass with a nearly-identical prompt
   (`_GENE_DISCOVERY_INSTRUCTION_FULLTEXT`).
-- One of *five* candidate-sourcing steps (abstract, two full-text passes at different
+- One of *five* candidate sources (abstract, two full-text passes at different
   temperatures, deterministic HGNC lexicon, figure analysis). All feed the same
   `self.associations` list, tagged by source.
 
@@ -1271,10 +1271,10 @@ flowchart TD
     Build --> Prompt["_GENE_DISCOVERY_INSTRUCTION_ABSTRACT<br/>+ disambiguation clause"]
     Prompt --> Call["Gemini Flash<br/>temp=0, thinking_budget=0<br/>response_mime=application/json"]
     Call -->|success| Parse["parse { associations: [...] }"]
-    Call -->|error x2| Fail["self.associations = []<br/>(proceed to Step 1 anyway)"]
+    Call -->|error x2| Fail["self.associations = []<br/>(proceed to full-text pass anyway)"]
 
     Parse --> Ingest["_ingest_associations(source='llm_abstract')<br/>dedupe by (gene, variant)<br/>tag with source"]
-    Skip --> Next[["→ Step 1: full-text pass"]]
+    Skip --> Next[["→ full-text candidate pass"]]
     Fail --> Next
     Ingest --> Next
 
@@ -1289,7 +1289,7 @@ flowchart TD
 
 ---
 
-## 9. The Full-Text Pass — Step 1 and the Recall Retry (Step 1b)
+## 9. `candidate_discovery`: Full-Text Candidate Pass and Recall Retry
 
 Immediately after the abstract pass, the first heavyweight Gemini call runs. This is
 where the bulk of candidate-gene discovery happens. It runs **twice** per paper — once
@@ -1298,7 +1298,7 @@ candidate list.
 
 ### 9.1 Pre-flight — context window check and truncation
 
-Before Step 1 fires, [`_validate_and_prepare_paper_text`](pipeline/modules/gemini_extractor.py:2068)
+Before the full-text candidate pass fires, [`_validate_and_prepare_paper_text`](pipeline/modules/gemini_extractor.py:2068)
 runs (called earlier at line 1331 in `run_pipeline`). It ensures the paper will fit in
 Gemini Flash's context window.
 
@@ -1319,10 +1319,10 @@ The logic, in order:
 4. **If still > 95% after truncation** → emit a user-visible warning, set
    `context_truncated=True`. The paper still proceeds, but the metadata CSV flags it.
 
-The reassembled `self.paper_text` is what Step 1 actually sees. A paper that went in at
+The reassembled `self.paper_text` is what the full-text pass actually sees. A paper that went in at
 180k tokens might come out at 110k after methods + supplementary are dropped.
 
-### 9.2 What Step 1 sends to Gemini
+### 9.2 What the full-text pass sends to Gemini
 
 The prompt is `_GENE_DISCOVERY_INSTRUCTION_FULLTEXT`
 ([`gemini_extractor.py:44`](pipeline/modules/gemini_extractor.py:44)) — nearly identical
@@ -1364,7 +1364,7 @@ Two constraints:
 
 ### 9.3 The response contract
 
-Same JSON schema as Step 0.5:
+Same JSON schema as the abstract candidate pass:
 
 ```json
 {
@@ -1379,11 +1379,11 @@ No citations, no confidence, no context. Discovery-only. Detail extraction comes
 
 ### 9.4 Gemini config differences vs the abstract pass
 
-| | Step 0.5 (abstract) | Step 1 (full-text) |
+| | Abstract candidate pass | Full-text candidate pass |
 |---|---|---|
 | Model | `gene_extraction_model` (Flash) | `gene_extraction_model` (Flash) — same |
 | `thinking_budget` | `0` | `0` — same |
-| `temperature` | config default (0) | config default (0) on first call; **0.4** on Step 1b |
+| `temperature` | config default (0) | config default (0) on first call; **0.4** on recall retry |
 | `max_retries` | 2 | **3** |
 | `retry_delay` | 3s | **5s, exponential backoff** (delay *= 2) |
 | Retries on empty | No | **Yes** — empty `[]` is treated as a retryable error |
@@ -1403,9 +1403,9 @@ Three differences worth flagging:
    output from the failed attempt corrupts the retry. Line 827 does reset. This is the
    F1 fix from `docs/audit/AUDIT.md`.
 
-### 9.5 Step 1b — the temperature=0.4 recall pass
+### 9.5 Recall retry — the temperature=0.4 pass
 
-Immediately after Step 1 completes,
+Immediately after the full-text pass completes,
 [`gemini_extractor.py:1392–1405`](pipeline/modules/gemini_extractor.py:1392) calls
 `extract_gene_names(temperature=0.4)` a second time.
 
@@ -1420,11 +1420,11 @@ The code comment explains it plainly:
 
 Two greedy passes of Gemini on the same prompt → almost always the same output. That's
 the problem. Temperature 0.4 forces different sampling paths, so the second pass explores
-completions the greedy pass skipped. Any gene found in pass 1b that wasn't in pass 1 gets
+completions the greedy pass skipped. Any gene found in the recall retry that wasn't in the greedy pass gets
 added to `candidate_meta` with the same `llm_text` source tag — the dedup logic handles
 overlaps.
 
-**Logged as recall-improvement only.** If pass 1b finds zero additional genes, it's
+**Logged as recall-improvement only.** If the recall retry finds zero additional genes, it's
 silently not-logged. If it adds even one, you get:
 
 ```
@@ -1433,7 +1433,7 @@ Second pass added 3 additional genes (total: 47)
 
 ### 9.6 `_ingest_associations` — where all sources meet
 
-Both Step 1 and Step 1b funnel through [`_ingest_associations(parsed_associations, "llm_text")`](pipeline/modules/gemini_extractor.py:541).
+Both full-text passes funnel through [`_ingest_associations(parsed_associations, "llm_text")`](pipeline/modules/gemini_extractor.py:541).
 This is the accumulator that every candidate-sourcing step calls. Worth understanding
 because it's the junction point for the whole hybrid pipeline.
 
@@ -1458,10 +1458,10 @@ downstream gates run:
   self-corroborating.
 - **Evidence gate** — per-source thresholds for citation backfill requirements.
 
-So Step 1 and Step 1b don't just contribute candidates — they contribute **source
+So the full-text pass and recall retry don't just contribute candidates — they contribute **source
 votes** that later gates use to decide what reaches the CSV.
 
-### 9.6b What happens when Step 1 and Step 1b disagree
+### 9.6b What happens when the full-text pass and recall retry disagree
 
 Important — because the intuition "two passes = a vote" is wrong here.
 
@@ -1472,21 +1472,21 @@ detection. Both pass outputs flow into the same `_ingest_associations` call with
 
 Five concrete cases:
 
-| Case | Pass 1 | Pass 1b | Result in `candidate_meta` |
+| Case | Greedy pass | Recall retry | Result in `candidate_meta` |
 |---|---|---|---|
-| 1. Step 1b finds new gene | `{BRCA1}` | `{BRCA1, CXCL9}` | `BRCA1` (sources=`{llm_text}`), `CXCL9` (sources=`{llm_text}`). This is the *point* of Step 1b. |
+| 1. Recall retry finds new gene | `{BRCA1}` | `{BRCA1, CXCL9}` | `BRCA1` (sources=`{llm_text}`), `CXCL9` (sources=`{llm_text}`). This is the *point* of the recall retry. |
 | 2. Both find the same gene | `{BRCA1}` | `{BRCA1}` | One entry, sources=`{llm_text}`. **No corroboration weight added** — `set.add("llm_text")` is a no-op on the second call. |
 | 3. Same gene, different variant | `{(BRCA1, "")}` | `{(BRCA1, "c.5266dupC")}` | Two separate entries. No deduplication at gene level. |
-| 4. Step 1b omits what Step 1 found | `{BRCA1, FAKEGENE1}` | `{BRCA1}` | Both entries survive. **Pass 1b cannot remove candidates** — omission is not contradiction. `FAKEGENE1` is dropped later by the grounding check, not by Step 1b. |
-| 5. Step 1 fails, Step 1b succeeds | `[]` (all retries exhausted) | `{BRCA1, TP53}` | Step 1b's output becomes the only LLM contribution. Step 1b is wrapped in try/except at [line 1392](pipeline/modules/gemini_extractor.py:1392) — if it fails too, pass-1 results (if any) are preserved. |
+| 4. Recall retry omits what the greedy pass found | `{BRCA1, FAKEGENE1}` | `{BRCA1}` | Both entries survive. **The recall retry cannot remove candidates** — omission is not contradiction. `FAKEGENE1` is dropped later by the grounding check, not by the recall retry. |
+| 5. Greedy pass fails, recall retry succeeds | `[]` (all retries exhausted) | `{BRCA1, TP53}` | The recall retry's output becomes the only LLM contribution. The recall retry is wrapped in try/except at [line 1392](pipeline/modules/gemini_extractor.py:1392) — if it fails too, greedy-pass results (if any) are preserved. |
 
 **The non-obvious consequence:** two LLM passes agreeing on a gene produces the same
 downstream signal as one LLM pass finding it once. Because `sources` is a Python `set`
 and both passes tag with `"llm_text"`, agreement collapses into a single source tag.
 
-This matters for the **corroboration gate** (later stage, not yet documented). That gate
+This matters for the **corroboration gate** (later `validation` gate, not yet documented here). That gate
 looks at `len(sources)` to decide whether a candidate has enough independent backing.
-A gene found only by pass 1 and pass 1b has `sources={"llm_text"}` — len 1. It needs
+A gene found only by the greedy pass and recall retry has `sources={"llm_text"}` — len 1. It needs
 some other source (PubTator, abstract pass, deterministic lexicon, figure analysis) to
 gain corroboration weight. Two LLM passes independently confirming the same gene **do
 not add to corroboration**; they just widen the `raw_gene_labels` set if the passes
@@ -1494,9 +1494,9 @@ used different spellings.
 
 Put differently:
 
-- Step 1b's **recall** contribution (Case 1) is real and load-bearing. It's why the
+- The recall retry's **recall** contribution (Case 1) is real and load-bearing. It's why the
   function exists.
-- Step 1b's **precision** contribution (Cases 2 and 4 — confirming pass 1 findings or
+- The recall retry's **precision** contribution (Cases 2 and 4 — confirming greedy-pass findings or
   declining to repeat hallucinations) is architecturally invisible. The union-with-set-tags
   pattern discards the signal.
 
@@ -1504,7 +1504,7 @@ This is a design choice, not a bug — the downstream grounding check and corrob
 gate exist precisely because the LLM passes are not treated as precision signals. But
 it's worth knowing, because readers of the code often assume "two passes, must be a vote."
 
-### 9.7 State after Step 1 + Step 1b
+### 9.7 State after the full-text pass and recall retry
 
 `self.candidate_meta` now contains entries like:
 
@@ -1520,7 +1520,7 @@ it's worth knowing, because readers of the code often assume "two passes, must b
   ("CXCL9", ""): {
     "gene": "CXCL9",
     "variant": "",
-    "sources": {"llm_text"},               # only Step 1b found it
+    "sources": {"llm_text"},               # only recall retry found it
     "raw_gene_labels": {"CXCL9", "CXCL-9"},
   },
   ...
@@ -1535,14 +1535,14 @@ temperature=0.4 pass — the recall boost justifying its existence.
 
 Remaining candidate-sourcing steps run in order:
 
-- **Step 1.1 — Deterministic lexicon scan.** Regex-matches canonical HGNC symbols against
+- **Deterministic lexicon scan.** Regex-matches canonical HGNC symbols against
   the paper text. Source tag: `deterministic_lexicon`. Intentionally **does not** use
   aliases — alias collisions on clinical abbreviations (ESR, AST, CRP) were the
   motivation for the corroboration gate.
-- **Step 1.25 — Figure analysis.** If the paper has figures and
+- **Figure analysis.** If the paper has figures and
   `ENABLE_FIGURE_ANALYSIS=True`, each figure image is downloaded and sent to Gemini
   multimodal with `_FIGURE_ANALYSIS_INSTRUCTION`. Source tag: `llm_figure`.
-- **Step 1.5 — PubTator merge.** The PubTator-fetched genes from Section 6 are ingested
+- **PubTator merge.** The PubTator-fetched genes from Section 6 are ingested
   directly as candidates. Source tag: `pubtator`. This is the precision floor.
 
 After all five sources have contributed, the pipeline runs the grounding check, the
@@ -1562,19 +1562,19 @@ flowchart TD
     Seeds -->|yes| PromptHybrid["prompt =<br/>instruction + 'include these: BRCA1, TP53, ...'<br/>+ paper_text<br/>(≤20 seed genes)"]
     Seeds -->|no| PromptPlain["prompt =<br/>instruction + paper_text"]
 
-    PromptHybrid --> Call1["Step 1: Gemini Flash<br/>temp=0 (greedy)<br/>thinking_budget=0<br/>max_retries=3, 5s exp backoff"]
+    PromptHybrid --> Call1["full-text Gemini pass<br/>temp=0 (greedy)<br/>thinking_budget=0<br/>max_retries=3, 5s exp backoff"]
     PromptPlain --> Call1
 
     Call1 -->|success| Ing1["_ingest_associations(source='llm_text')"]
     Call1 -->|empty []| Retry1["retry (treated as flaky)"]
     Retry1 --> Call1
 
-    Ing1 --> Call1b["Step 1b: same call<br/>temp=0.4 (diverge from greedy)"]
+    Ing1 --> Call1b["recall retry<br/>same call, temp=0.4<br/>(diverge from greedy)"]
     Call1b --> Ing1b["_ingest_associations(source='llm_text')<br/>dedup by (gene, variant)<br/>merges into same candidate_meta"]
 
     Ing1b --> Accumulator["self.candidate_meta<br/>{(gene,variant): {sources: {...}, raw_labels: {...}}}"]
 
-    Accumulator --> Next[["→ Step 1.1 deterministic<br/>→ Step 1.25 figures<br/>→ Step 1.5 PubTator merge<br/>→ grounding / corroboration / evidence gates<br/>→ detail extraction"]]
+    Accumulator --> Next[["→ deterministic scan<br/>→ figure analysis<br/>→ PubTator merge<br/>→ grounding / corroboration / evidence gates<br/>→ detail_extraction"]]
 
     classDef pre fill:#fff3cd,stroke:#ffc107,color:#856404
     classDef call fill:#d4edda,stroke:#28a745,color:#155724
@@ -1589,7 +1589,7 @@ flowchart TD
 
 ---
 
-## 10. Step 1.1 — Deterministic Lexicon Scan
+## 10. `candidate_discovery`: Deterministic Lexicon Scan
 
 After two LLM passes, the pipeline runs a **non-LLM** candidate source: a regex scan of
 the paper text against the local HGNC symbol database. Cheap, fast, bounded, and
@@ -1606,7 +1606,7 @@ The deterministic scan is a **safety floor** that catches anything in the text m
 an HGNC canonical symbol. It's the simplest possible "did the LLM miss something obvious?"
 check.
 
-This is distinct from PubTator (Step 1.5) — PubTator is NER on the *abstract + title*
+This is distinct from PubTator candidate merge — PubTator is NER on the *abstract + title*
 done by NCBI's servers. The deterministic scan is regex on the *full body text*, locally.
 They cover different surfaces.
 
@@ -1689,7 +1689,7 @@ anything genuinely discussed; anything past that is probably list noise.
 
 ### 10.6 What runs before this, what gets tagged
 
-Note: Step 1.1 runs on the **already-truncated** `self.paper_text`. If `_validate_and_prepare_paper_text`
+The deterministic scan runs on the **already-truncated** `self.paper_text`. If `_validate_and_prepare_paper_text`
 dropped Methods and Supplementary (Section 9.1), deterministic scan only sees what's
 left. That's intentional — the sections most likely to contain gene-symbol noise are
 exactly the ones dropped first.
@@ -1711,7 +1711,7 @@ is too high.
 
 On a typical paper:
 
-- **Existing in `candidate_meta` before Step 1.1:** genes from abstract pass + full-text
+- **Existing in `candidate_meta` before deterministic scan:** genes from abstract pass + full-text
   passes. Say 15 genes, all tagged `{llm_abstract, llm_text}`.
 - **Deterministic scan finds:** 30 HGNC-matching tokens in the body text.
 - **Of those 30:** 13 are already in `candidate_meta` (same genes the LLM found). They
@@ -1754,11 +1754,11 @@ unless `ENABLE_DETERMINISTIC_CANDIDATES=False`, which the docs advise against.
 
 ### 10.10 What's next
 
-- **Step 1.25** — Figure analysis (multimodal Gemini on figure images + captions).
+- **Figure analysis** — multimodal Gemini on figure images + captions.
   Source tag: `llm_figure`.
-- **Step 1.5** — PubTator merge. The pubtator genes from Section 6 are ingested as
+- **PubTator merge** — the pubtator genes from Section 6 are ingested as
   candidates here. Source tag: `pubtator`.
-- **Step 1.6** — Grounding check. First gate: drop candidates whose gene/alias/raw-label
+- **Grounding check** — first gate: drop candidates whose gene/alias/raw-label
   doesn't appear in the paper text.
 - Then: corroboration gate, evidence gate, detail extraction, validation, output.
 
@@ -1789,7 +1789,7 @@ flowchart TD
 
     Ingest --> Accumulator["candidate_meta<br/>existing entries gain 'deterministic_lexicon' source<br/>new entries tagged {deterministic_lexicon} only<br/>(→ corroboration gate watches these)"]
 
-    Accumulator --> Next[["→ Step 1.25: figure analysis<br/>→ Step 1.5: PubTator merge<br/>→ Step 1.6: grounding check"]]
+    Accumulator --> Next[["→ figure analysis<br/>→ PubTator merge<br/>→ grounding check"]]
 
     Skip --> Next
 
@@ -1806,7 +1806,7 @@ flowchart TD
 
 ---
 
-## 11. Step 1.25 — Figure Analysis (Multimodal Gemini)
+## 11. `candidate_discovery`: Figure Analysis (Multimodal Gemini)
 
 After the deterministic scan, the next candidate source is **figures**. For each paper
 with figures, images are downloaded from PMC and fed to Gemini Flash in multimodal
@@ -1840,13 +1840,13 @@ if getattr(config, "ENABLE_FIGURE_ANALYSIS", True) and self.figure_inputs:
     figure_associations = self.extract_gene_names_from_figures()
 ```
 
-- `ENABLE_FIGURE_ANALYSIS` (default True) — global config flag.
+- `ENABLE_FIGURE_ANALYSIS` (default false) — global config flag.
 - `self.figure_inputs` — must be non-empty. Populated from the content_dict back in
   Section 6 — so a paper where PMC JATS XML had no `<fig>` elements just skips this step.
 
 ### 11.3 Per-figure processing loop
 
-For each figure in `self.figure_inputs[:FIGURE_MAX_IMAGES_PER_PAPER]` (default cap: 3):
+For each figure in `self.figure_inputs[:FIGURE_MAX_IMAGES_PER_PAPER]` (default cap: 1):
 
 1. **Inter-call delay** — between figures, `time.sleep(FIGURE_INTER_CALL_DELAY_SECONDS)`
    (default 4s). Prevents back-to-back vision calls from re-saturating the rate limit
@@ -1918,9 +1918,9 @@ Notable: this prompt is **much shorter** than the text-extraction prompts. No di
 clause, no CRITICAL INSTRUCTIONS. The figure context is bounded (one image at a time),
 so the bulk of the guardrails aren't needed.
 
-### 11.6 Rate-limit handling — smarter than other stages
+### 11.6 Rate-limit handling — smarter than other Gemini paths
 
-Figure analysis has a **unique retry strategy** because it's the most likely stage to
+Figure analysis has a **unique retry strategy** because it's the most likely Gemini path to
 hit rate limits (vision API RPM/TPM caps are tighter on free tier).
 
 On a 429 or `RESOURCE_EXHAUSTED`:
@@ -1933,7 +1933,7 @@ wait = min(max(suggested + 3, fig_retry_delay), 120)
 
 It **parses Gemini's suggested `retryDelay` out of the error message** and waits at
 least that long (+3 s buffer) before retrying. This is a real optimisation — other
-stages use fixed exponential backoff; figure analysis respects the API's own hint.
+other Gemini paths use fixed exponential backoff; figure analysis respects the API's own hint.
 
 Max 3 attempts. If the 3rd also rate-limits, that figure is silently skipped and the
 loop moves to the next one.
@@ -2003,9 +2003,9 @@ contribute 0 (no labelled genes on the plot).
 
 ### 11.11 What's next
 
-- **Step 1.5** — PubTator merge. The pubtator genes fetched in Section 6 get ingested
+- **PubTator merge** — the pubtator genes fetched in Section 6 get ingested
   as candidates. Source tag: `pubtator`. This is the precision floor.
-- **Step 1.6** — Grounding check. First gate, drops hallucinated candidates.
+- **Grounding check** — first gate, drops hallucinated candidates.
 
 ### 11.12 The visual
 
@@ -2046,7 +2046,7 @@ flowchart TD
 
     Ingest --> Accumulator["candidate_meta<br/>figure-derived genes need caption/label<br/>grounding (not full-text grounding)"]
 
-    Accumulator --> NextStep[["→ Step 1.5: PubTator merge<br/>→ Step 1.6: grounding check"]]
+    Accumulator --> NextStep[["→ PubTator merge<br/>→ grounding check"]]
 
     classDef process fill:#d4edda,stroke:#28a745,color:#155724
     classDef scrape fill:#ffe5b4,stroke:#ff8c00,color:#8b4513
@@ -2063,7 +2063,7 @@ flowchart TD
 
 ---
 
-## 12. Step 1.6 — The Grounding Check (First Gate)
+## 12. `validation`: Grounding Check (First Gate)
 
 After every candidate source has contributed (abstract pass, full-text passes, deterministic
 scan, figure analysis, PubTator merge), the pipeline runs its **first filter**: drop
@@ -2260,9 +2260,9 @@ flowchart TD
 
 ---
 
-## 13. Step 2 — Validation Heuristics + The Corroboration Gate
+## 13. `validation`: Validation Heuristics + The Corroboration Gate
 
-After grounding (Step 1.6) drops hallucinations, the pipeline runs `_apply_gene_validation_heuristics`.
+After grounding drops hallucinations, the pipeline runs `_apply_gene_validation_heuristics`.
 Despite the generic name, this function contains **three distinct gates** applied in
 order. The middle one is what we've been calling the "corroboration gate."
 
@@ -2298,7 +2298,7 @@ artifact. Rejected entries go to `self.dropped_candidates` with a `reason` field
 ### 13.2 What HGNC validation does (short version)
 
 [`gene_validator.validate_associations`](pipeline/modules/gene_validator.py) attempts to
-resolve each gene symbol through the multi-source chain from `memory-pipeline.md` §Stage 6:
+resolve each gene symbol through the multi-source chain from `memory-pipeline.md` §`validation`:
 
 1. Local HGNC JSON (44,943 genes, bundled, offline)
 2. HGNC REST API
@@ -2398,8 +2398,8 @@ specifically designed to catch the case where:
   corroborating evidence. (Though in practice, a deterministic scanner wouldn't
   produce a variant — it only outputs `{gene, variant=""}` pairs. So this case is
   theoretical.)
-- It does **not** re-check HGNC aliases. `sources` comes from the accumulation during
-  Steps 0.5–1.5; the gate trusts that accounting.
+- It does **not** re-check HGNC aliases. `sources` comes from `candidate_discovery`
+  accumulation; the gate trusts that accounting.
 
 ### 13.7 Silent failure modes
 
@@ -2433,18 +2433,18 @@ Per-paper drop counts vary wildly:
   scanner picks up hundreds of genes in reference lists; most are also picked up by
   the LLM passes, so they pass. A few list-only mentions get culled.
 
-### 13.9 Interaction with the later "strict validation gate" (Step 4)
+### 13.9 Interaction with the later strict validation gate
 
 Worth noting because the two gates are sometimes confused:
 
-- **Corroboration gate (here, Step 2):** asks "is this gene uniquely from the
+- **Corroboration gate (pre-detail `validation`):** asks "is this gene uniquely from the
   deterministic scanner?" Drops with tag `rejected_uncorroborated_deterministic`.
   Threshold is *source-identity*, not confidence.
-- **Strict validation gate (Step 4, in `_run_post_validation`):** asks "is this
+- **Strict validation gate (post-detail `validation`, in `_run_post_validation`):** asks "is this
   association's HGNC confidence ≥ 0.7?" Drops with tag
   `rejected_below_final_threshold`. Threshold is *confidence value*.
 
-A candidate can pass Step 2 (it has LLM backing) but still fail Step 4 (confidence
+A candidate can pass pre-detail validation (it has LLM backing) but still fail post-detail strict validation (confidence
 from HGNC resolution is only 0.6, because it was resolved via fuzzy matching). Both
 gates are doing different jobs — they're not redundant.
 
@@ -2495,7 +2495,7 @@ flowchart TD
 
 ---
 
-## 14. Step 3 — Detail Extraction (The Big LLM Call)
+## 14. `detail_extraction`: The Big LLM Call
 
 After grounding (Section 12) and validation heuristics (Section 13), the remaining
 `validated_associations` list enters the single biggest LLM call of the pipeline.
@@ -2579,7 +2579,7 @@ directly into post-validation.
 
 ---
 
-## 15. Step 4 — Post-Validation: Strict Gate, Citation Validation, Evidence Gate
+## 15. `validation`: Strict Gate, Citation Validation, Evidence Gate
 
 `_run_post_validation` runs three more checks on the DataFrame before emitting results.
 Each can drop rows. The order matters: strict gate runs first (cheapest, most
@@ -2743,7 +2743,7 @@ final CSV output (back in `pipeline_orchestrator`).
 flowchart TD
     Prev[["from Section 13:<br/>validated_associations"]]
 
-    Prev --> Extract["Step 3: extract_gene_info()<br/>(one big batched Gemini call,<br/>F7 economy path)"]
+    Prev --> Extract["detail_extraction: extract_gene_info()<br/>(one big batched Gemini call,<br/>F7 economy path)"]
     Extract --> Merge["_merge_duplicate_gene_rows<br/>(Gemini emits 2 rows per gene → merge)"]
     Merge --> FallbackCheck{"any rows?"}
     FallbackCheck -->|no| Fallback["association_only_fallback<br/>empty user columns per association"]
@@ -2752,15 +2752,15 @@ flowchart TD
 
     Backfill --> DF["DataFrame of rows"]
 
-    DF --> StrictGate["Step 4a: Strict validation gate<br/>drop if validation_confidence < 0.7"]
+    DF --> StrictGate["validation: strict gate<br/>drop if validation_confidence < 0.7"]
     StrictGate -->|< 0.7| StrictDrop["tag: rejected_below_final_threshold<br/>→ strict_gate_drops"]
     StrictGate -->|≥ 0.7| CitationVal
 
-    CitationVal["Step 4b: Citation validation<br/>(annotation only, no drops)<br/>per column:<br/>• encoding normalization<br/>• SequenceMatcher 0.85<br/>• number consistency<br/>• gene context ±1500 chars"]
+    CitationVal["validation: citation validation<br/>(annotation only, no drops)<br/>per column:<br/>• encoding normalization<br/>• SequenceMatcher 0.85<br/>• number consistency<br/>• gene context ±1500 chars"]
 
     CitationVal --> Annotated["DataFrame + citation metadata<br/>{col}_citation_valid/confidence/details"]
 
-    Annotated --> EvidenceGate{"Step 4c: Evidence gate<br/>non-empty cells ≥ min_cells?"}
+    Annotated --> EvidenceGate{"validation: evidence gate<br/>non-empty cells ≥ min_cells?"}
     EvidenceGate -->|per-source threshold:<br/>LLM=0, deterministic=1,<br/>mixed=1| EvTier
 
     EvTier --> EvDecide{"enough<br/>cells?"}
@@ -2789,7 +2789,7 @@ flowchart TD
 
 ---
 
-## 16. Step 5 — Worker Pool and Per-Paper Analysis Orchestration
+## 16. Per-Paper Worker Pool and Analysis Orchestration
 
 Everything we traced in Sections 8–15 happens **inside a worker process**. The
 orchestrator owns a `multiprocessing.Pool`, feeds it papers, collects their
@@ -2836,7 +2836,7 @@ For each paper in `pmids_to_process`:
    Note: in sequential mode, the *pool* is kept alive; only the stuck task is abandoned.
 7. **On exception** — log it, append a minimal row, continue.
 
-The polling loop at step 4 is the P1 fix from the 2026-04-07 session. Before the fix,
+The polling loop while waiting for a worker is the P1 fix from the 2026-04-07 session. Before the fix,
 sequential mode called `ar.get(timeout=600)` — a blocking call with no cancellation
 check. If the user hit Cancel mid-paper, they'd wait up to 10 minutes. The fix
 replaced blocking `.get()` with a `.ready()` + `check_cancellation()` loop that polls
@@ -2901,12 +2901,12 @@ Key tracking:
 
 ---
 
-## 17. Step 5.5 and Beyond — Enrichment, Top-N Policy, Deduplication, Reordering
+## 17. `output_writing`: Enrichment, Top-N Policy, Deduplication, Reordering
 
 Once all workers finish, the raw per-paper DataFrames are concatenated into
 `all_results_df`. Three cleanup passes run before output.
 
-### 17.1 NCBI Gene enrichment (Step 5.5)
+### 17.1 NCBI Gene enrichment
 
 If `ENABLE_NCBI_ENRICHMENT=True` (default), every unique gene in the output gets
 additional metadata from NCBI's Gene API:
@@ -2986,9 +2986,9 @@ metadata CSV will have the full set (see Section 18).
 
 ---
 
-## 18. Step 6 — Output: Four Artefacts + Debug Bundle
+## 18. `output_writing`: Four Artefacts + Debug Bundle
 
-Final step. [`_write_split_output`](pipeline/modules/pipeline_orchestrator.py:217)
+Final output domain. [`_write_split_output`](pipeline/modules/pipeline_orchestrator.py:217)
 writes four files from one DataFrame, sharing `(PMID, Gene/Group, Variant Name)`
 as join keys. A fifth file — the drop-debug artifact — is written separately.
 
@@ -3089,7 +3089,7 @@ flowchart TD
     Workers[["Sections 8–15:<br/>per-paper DataFrames from workers"]]
 
     Workers --> Accumulate["_accumulate_result<br/>attach paper metadata<br/>(PMID, title, authors, year, journal,<br/>DOI, citations, figure count)"]
-    Accumulate --> Enrich["Step 5.5: NCBI Gene enrichment<br/>Full Name, Aliases, Chromosome,<br/>backfill NCBI Gene ID"]
+    Accumulate --> Enrich["NCBI Gene enrichment<br/>Full Name, Aliases, Chromosome,<br/>backfill NCBI Gene ID"]
 
     Enrich --> TopN{"top_n_cited?"}
     TopN -->|query-mode| KeepN["keep first N full-review PMIDs<br/>append minimal rows for rest"]
@@ -3101,7 +3101,7 @@ flowchart TD
     Dedup["Deduplication<br/>groupby (PMID, Gene, user cols…)<br/>aggregate Variant Name as '; '-joined"]
     Dedup --> Reorder["Column reorder:<br/>gene info → paper metadata →<br/>user cols → metadata/validation suffixes"]
 
-    Reorder --> Write["Step 6: _write_split_output"]
+    Reorder --> Write["output_writing: _write_split_output"]
 
     Write --> CSV1["Primary CSV<br/>researcher-facing, clean columns,<br/>Confidence + Confidence Note,<br/>context_modifications visible"]
     Write --> CSV2["Metadata CSV<br/>full transparency, same row order,<br/>all validation + citation + context<br/>columns joined by (PMID, Gene, Variant)"]
@@ -3132,7 +3132,7 @@ flowchart TD
 ## 19. Deep Dive — `gene_validator.py`
 
 The module behind every "is this a real gene?" and "is this citation real?" decision
-in the pipeline. 1,122 lines. Not a stage — a *service* the pipeline calls throughout
+in the pipeline. 1,122 lines. Not a pipeline domain — a *service* the pipeline calls throughout
 (grounding check, validation heuristics, citation validation, final gene enrichment).
 
 ### 19.1 The `GeneValidator` class — initialisation
@@ -3346,7 +3346,7 @@ Returns `(exists: bool, matching_ratio: float, detailed_reason: str)`.
 ### 19.9 Table citation validation
 
 [`validate_table_citation`](pipeline/modules/gene_validator.py:831) is a parallel
-path for citations that reference tables rather than prose. The Stage 3 prompt's
+path for citations that reference tables rather than prose. The `detail_extraction` prompt's
 instruction #4 ("PROSE CITATIONS ONLY, or `[Table N]` format if prose absent")
 produces citations like:
 
@@ -3380,11 +3380,11 @@ Each row validated independently via `validate_gene_variant`. No batch optimisat
 here — each gene hits the local DB, then cache, then possibly remote APIs. On a
 50-gene output, this adds ~1 second of work typically (cache hits dominate).
 
-### 19.11 Summary of validator's role across pipeline stages
+### 19.11 Summary of validator's role across pipeline domains
 
 Where the validator is called, and for what:
 
-| Stage | Method called | Purpose |
+| Domain / section | Method called | Purpose |
 |---|---|---|
 | Section 10 — deterministic lexicon | `_local_gene_db.get(token)` | Canonical symbol DB lookup (direct dict access, bypasses `resolve_gene_symbol`'s alias paths — intentional, C9 fix) |
 | Section 12 — grounding check | `_get_hgnc_aliases_for_gene`, via `_candidate_terms_for_row` | Build alias list for text search |
@@ -3406,9 +3406,9 @@ memory but complicates the `multiprocessing.Pool` setup.
 This document traces everything the pipeline does from "user clicks Run" to
 "CSVs written to disk." For anything deeper, here's the map:
 
-- **Specific bug history per stage** → `docs/audit/AUDIT.md`. Each bug has a letter code
+- **Specific bug history by domain** → `docs/audit/AUDIT.md`. Each bug has a letter code
   (F1, F2, C19, C22, W10) and is referenced from relevant sections of this doc.
-- **Stage-level overview for Codex sessions** → `.codex/rules/memory-pipeline.md`.
+- **Domain-level overview for Codex sessions** → `.codex/rules/memory-pipeline.md`.
   Shorter, more opinionated version of this document.
 - **Function-level reference** → `docs/pipeline/internals.md`. Line-level dive,
   predates this doc, in places stale (e.g., the "4× overfetch factor" F1 flagged).

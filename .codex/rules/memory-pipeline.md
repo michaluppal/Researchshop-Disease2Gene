@@ -4,7 +4,7 @@
 > Older wording copied from `archive/claude/` may describe Claude-era history; keep historical entries intact
 > unless they are active instructions that should point at `AGENTS.md` or `.codex/`.
 
-> Deep per-stage reference. Read before modifying any pipeline module.
+> Deep domain reference. Read before modifying any pipeline module.
 > Medical accuracy implications are marked ⚕. Audit-tracked items marked 🔍.
 
 ---
@@ -12,15 +12,15 @@
 ## Architecture Overview
 
 ```
-UI: PubMed Search → Gene Relevance Scoring → User Selection
-                                                     ↓
-Pipeline: Full Text Fetch → PubTator NER → Per-Paper Extraction → Gene Validation → CSV Output
+UI: `paper_selection` → `oa_filter`
+                         ↓
+Pipeline: `paper_reading` → `candidate_discovery` → `detail_extraction` → `validation` → `output_writing`
 ```
 
 Two precision layers:
-- **PubTator** (Stage 4): high precision / lower recall — forms the safety floor
+- **PubTator** (`candidate_discovery`): high precision / lower recall — forms the safety floor
 - **Per-paper Gemini calls**: high recall / lower precision — extend coverage and add relationships
-- **Gene Validation** (Stage 6): final safety gate before any result reaches the user
+- **Gene Validation** (`validation`): final safety gate before any result reaches the user
 
 **UI-side screening:** Gene relevance scoring runs in the Electron renderer (`geneRelevanceScorer.ts`)
 during paper selection. Users see relevance badges; low-relevance papers hidden by default with
@@ -28,7 +28,7 @@ during paper selection. Users see relevance badges; low-relevance papers hidden 
 
 ---
 
-## Stage 1 — PubMed Search (`pubmed_data_collector.py`)
+## `paper_selection` — PubMed Search (`pubmed_data_collector.py`)
 
 **What it does:** Queries NCBI Entrez for papers matching the user's query or PMID list. Ranks results by
 citation count using iCite (primary) and Semantic Scholar (fallback). Returns top-N most-cited records.
@@ -55,9 +55,9 @@ Overfetch factor (4x target count) mitigates but does not eliminate this.
 
 ---
 
-## Stage 2 — Gene Relevance Scoring (UI-side, `geneRelevanceScorer.ts`)
+## `paper_selection` — Gene Relevance Scoring (UI-side, `geneRelevanceScorer.ts`)
 
-> **Changed 2026-03-02:** Abstract screening moved from Python pipeline to TypeScript UI.
+> **Changed 2026-03-02:** `paper_selection` relevance scoring moved from Python pipeline gating to TypeScript UI.
 > The Python `abstract_screener.py` module is retained for reference/benchmarking but no longer gates papers in the pipeline.
 
 **What it does:** Free, API-free keyword scoring in the Electron renderer. Runs during the paper
@@ -95,7 +95,7 @@ No silent post-selection filtering. Researchers who know a paper is relevant can
 
 ---
 
-## Stage 3 — Full Text Fetch (`full_text_fetcher.py`)
+## `paper_reading` — Full Text Fetch (`full_text_fetcher.py`)
 
 **What it does:** Retrieves structured full-text for OA papers via PMC Entrez JATS XML (preferred)
 or Europe PMC fullTextXML (fallback). Parsed XML goes through a `pubmed_parser`
@@ -113,7 +113,7 @@ fallback. Also extracts figure metadata for multimodal Gemini analysis.
 3. Supplementary file extraction (tables, data files — max 3 files, 200 KB each)
 
 **Failure modes:**
-- PMC JATS not available for paper → falls back to abstract-only extraction (quality degrades silently)
+- PMC JATS not available for paper → tries Europe PMC; if no OA full text is fetched, the run emits metadata-only rows
 - Section parsing failure → returns raw concatenated text, losing structural signals
 - Context window exceeded → text is truncated (preserves abstract > intro > results > discussion)
 - Greek letter destruction (pre-W1): α/β/γ were stripped as non-ASCII; now transliterated
@@ -123,14 +123,14 @@ fallback. Also extracts figure metadata for multimodal Gemini analysis.
 and protein biology papers. Verify this fix is intact before any text processing changes.
 
 **OA-only by design:** No paywall bypass. ~40–60% of PubMed papers are behind paywalls and will
-receive abstract-only extraction. This is a deliberate design choice (legal clarity + reliability),
+not receive automated extraction. This is a deliberate design choice (legal clarity + reliability),
 not a gap to be filled with browser automation.
 
 🔍 **Audit notes:** F5 (Playwright dead code removed), W1 (Greek letter transliteration fixed)
 
 ---
 
-## Stage 4 — PubTator NER (`pubtator_tool.py`)
+## `candidate_discovery` — PubTator NER (`pubtator_tool.py`)
 
 **What it does:** Submits PMIDs to NCBI PubTator3 API for Named Entity Recognition. Returns
 high-precision gene symbols and variant text extracted by a dedicated biomedical NER model.
@@ -159,11 +159,11 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
 
 ---
 
-## Per-Paper Extraction Package (`pipeline/modules/paper_analysis/`)
+## `candidate_discovery` And `detail_extraction` — Per-Paper Analysis Package (`pipeline/modules/paper_analysis/`)
 
 **What it does:** Per-paper candidate discovery, Gemini extraction, grounding, validation, evidence backfill, and metadata annotation.
-- Stage A: abstract-level gene discovery (fast, cheap — screens for gene-rich papers)
-- Stage B: full-text detailed extraction with user-defined schema columns
+- `candidate_discovery`: mandatory full-text Gemini gene discovery, deterministic scans, PubTator merge, and optional abstract/figure/recall passes
+- `detail_extraction`: full-text structured extraction with user-defined schema columns
 
 **Architecture:**
 - `PaperAnalysisPipeline` class: instantiated per paper by multiprocessing worker
@@ -179,10 +179,10 @@ Disabling PubTator (`ENABLE_PUBTATOR_EXTRACTION=False`) significantly degrades p
   This is the primary hallucination filter. Do not check only the canonical symbol — raw labels are essential.
 - **Strict validation gate** (`ENABLE_STRICT_VALIDATION_GATE`): drops genes with confidence < 0.7
 - **Evidence backfill**: requires citations + text snippets for extracted claims
-- **Disambiguation clause** in Stage 1 prompt: instructs LLM not to extract clinical lab test
+- **Disambiguation clause** in the candidate-discovery prompt: instructs LLM not to extract clinical lab test
   abbreviations (ESR mm/h, AST U/L, CRP mg/L) as genes. Works with corroboration gate (see C18/C21).
 
-**Stage 3 CRITICAL INSTRUCTIONS (in prompt — do not remove any):**
+**Detail-extraction critical instructions (prompt-internal; historically called Stage 3 — do not remove any):**
 These instructions in `pipeline/modules/paper_analysis/prompts.py` are accumulated fixes for specific failure modes:
 1. Independent row filling per gene (do not leave rows empty because another gene was filled)
 2. Verbatim numbers and units — no unit conversion, rounding, or substitution
@@ -209,9 +209,9 @@ These instructions in `pipeline/modules/paper_analysis/prompts.py` are accumulat
   Truncation order: abstract preserved first, then intro, results, discussion, methods last.
 - Streaming JSON failure: partial responses on network issues; retry logic handles most cases (F1)
 - Thinking mode: Gemini preview models have thinking enabled by default — set `thinking_budget=0` on
-  ALL GenerateContentConfig calls. Without it, 12k-token Stage 3 prompts hang for >600s (C20).
+  ALL GenerateContentConfig calls. Without it, 12k-token detail-extraction prompts hang for >600s (C20).
 
-⚕ **Medical accuracy implication:** This stage produces the most output but also the most risk.
+⚕ **Medical accuracy implication:** `detail_extraction` produces the most output but also the most risk.
 The three safeguards above (grounding, confidence gate, deterministic seeding) are not optional —
 they exist specifically to prevent false gene associations from reaching the CSV output.
 Any change to prompt structure must be evaluated for hallucination rate impact.
@@ -220,11 +220,11 @@ increases false positives — document the reasoning if it changes.
 
 🔍 **Audit notes:** F1 (retry response corruption fixed), W2 (fallback text fixed), W14 (schema bias — monitored),
 C17 (grounding check using raw labels), C18 (disambiguation clause), C19 (citation validator fixed),
-C20 (thinking mode disabled), C21 (disambiguation × corroboration confirmed), C22 (Stage 3 instructions hardened)
+C20 (thinking mode disabled), C21 (disambiguation × corroboration confirmed), C22 (detail-extraction instructions hardened)
 
 ---
 
-## Stage 6 — Gene Validation (`gene_validator.py`, ~940 lines)
+## `validation` — Gene Validation (`gene_validator.py`, ~940 lines)
 
 **What it does:** Multi-source validation of extracted gene symbols and variant strings.
 Validates against local HGNC snapshot first, then remote HGNC REST API, then MyGene.info.
@@ -284,9 +284,9 @@ C19 (citation validator silent TypeError fixed), C22 (encoding normalization, ge
 
 ---
 
-## Stage 7 — Orchestration & CSV Output (`pipeline_orchestrator.py`, 883 lines)
+## `output_writing` — Orchestration And Output Writing (`pipeline_orchestrator.py`, 883 lines)
 
-**What it does:** Coordinates all stages, manages multiprocessing worker pool, aggregates results,
+**What it does:** Coordinates all domains, manages multiprocessing worker pool, aggregates results,
 deduplicates, ranks by citation count, and writes final CSV.
 
 **Worker pool:** 2–4 persistent processes (configurable via `AI_WORKER_POOL_SIZE`).
@@ -320,17 +320,17 @@ and documenting in the paper that results should be manually reviewed for clinic
 
 ---
 
-## Inter-Stage Data Flow
+## Domain Data Flow
 
 ```
 UI:      PubMed search → efetch abstracts → geneRelevanceScorer → user selects papers
-Stage 1 → [{pmid, title, abstract, authors, citation_count, ...}]  (user-selected papers)
-Stage 2 → [{...record, screened: True, screen_score: N}]  (pass-through, forensic logging only)
-Stage 3 → [{...record, full_text: {sections}, figures: [...]}]
-Stage 4 → [{...record, pubtator_genes: [...], pubtator_variants: [...]}]
-Per-paper extraction → [HybridExtractionResult(rows=DataFrame, pubtator_genes=[...])]
-Stage 6 → DataFrame with validation columns added
-Stage 7 → deduplicated, citation-ranked CSV
+`paper_selection` → [{pmid, title, abstract, authors, citation_count, ...}]  (user-selected papers)
+`oa_filter` → OA-only PMIDs when the filter is enabled; non-OA papers degrade or are excluded depending on entry path
+`paper_reading` → [{...record, full_text: {sections}, figures: [...]}]
+`candidate_discovery` → [{...record, pubtator_genes: [...], pubtator_variants: [...], candidate_meta: {...}}]
+`detail_extraction` → [HybridExtractionResult(rows=DataFrame, pubtator_genes=[...])]
+`validation` → DataFrame with validation columns and gate metadata added
+`output_writing` → deduplicated, citation-ranked CSV/metadata/Excel/JSON artifacts
 ```
 
 ## Configuration Quick Reference
@@ -343,6 +343,6 @@ Stage 7 → deduplicated, citation-ranked CSV
 | `ENABLE_GROUNDING_CHECK` | True | Hallucinated genes may pass to output |
 | `ENABLE_DETERMINISTIC_CANDIDATES` | True | LLM has less constraint; recall up, precision down |
 | `ENABLE_STRICT_VALIDATION_GATE` | True | Low-confidence genes reach CSV |
-| `ENABLE_FIGURE_ANALYSIS` | True | Figures skipped; some genes only in figures missed |
+| `ENABLE_FIGURE_ANALYSIS` | False | Enable for figure-heavy papers; otherwise figure-only genes may be missed |
 | `FINAL_VALIDATION_MIN_CONFIDENCE` | 0.7 | Medical accuracy decision — benchmark before changing |
 | ~~`VALIDATE_PROTEIN_CODING_ONLY`~~ | ~~Removed~~ | Removed 2026-04-08 — all HGNC genes pass equally |

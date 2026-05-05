@@ -28,8 +28,23 @@ class GeminiClientMixin:
             return int(delay_match.group(1))
         return None
 
-    def _can_make_gemini_call(self, purpose: str, *, optional: bool = False) -> bool:
+    def _can_make_gemini_call(
+        self,
+        purpose: str,
+        *,
+        optional: bool = False,
+        reserved_required_calls: int = 0,
+    ) -> bool:
         max_calls = int(getattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 0) or 0)
+        if optional and max_calls > 0 and reserved_required_calls > 0:
+            optional_slots = max_calls - self._paper_api_calls - reserved_required_calls
+            if optional_slots <= 0:
+                logging.info(
+                    "Gemini call budget preserving "
+                    f"{reserved_required_calls} required call(s) for this paper "
+                    f"({self._paper_api_calls}/{max_calls}); skipping optional {purpose}"
+                )
+                return False
         if max_calls <= 0 or self._paper_api_calls < max_calls:
             return True
         msg = (
@@ -49,9 +64,14 @@ class GeminiClientMixin:
         generate_content_config: Any,
         purpose: str,
         optional: bool = False,
+        reserved_required_calls: int = 0,
     ) -> str:
         """Call Gemini with per-paper budget and spacing guards."""
-        if not self._can_make_gemini_call(purpose, optional=optional):
+        if not self._can_make_gemini_call(
+            purpose,
+            optional=optional,
+            reserved_required_calls=reserved_required_calls,
+        ):
             return ""
 
         min_delay = float(getattr(config, "GEMINI_INTER_CALL_DELAY_SECONDS", 0) or 0)
@@ -192,6 +212,7 @@ class GeminiClientMixin:
                     generate_content_config=generate_content_config,
                     purpose="abstract gene discovery",
                     optional=True,
+                    reserved_required_calls=2,
                 )
                 if not full_response_text:
                     break
@@ -205,7 +226,7 @@ class GeminiClientMixin:
                     )
                 else:
                     logging.info(
-                        "Abstract gene discovery found no associations - skipping full-text analysis"
+                        "Abstract gene discovery found no associations"
                     )
 
                 break  # Success
@@ -224,7 +245,7 @@ class GeminiClientMixin:
 
         return self.associations
 
-    def extract_gene_names(self, temperature: float = None):
+    def extract_gene_names(self, temperature: float = None, *, optional: bool = True):
         """
         Extract gene-variant associations from the paper text using Gemini AI.
 
@@ -235,6 +256,7 @@ class GeminiClientMixin:
             temperature: Override sampling temperature. If None, uses config default.
                          Pass a non-zero value (e.g. 0.4) for a recall-boosting second pass
                          so the model explores different completions instead of repeating pass 1.
+            optional: If False, failures raise so the caller can fail paper analysis.
         """
         from google import genai  # type: ignore
         from google.genai import types  # type: ignore
@@ -295,7 +317,8 @@ Paper text:
             types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)]),
         ]
 
-        max_retries = max(1, int(getattr(config, "GEMINI_OPTIONAL_MAX_RETRIES", 1)))
+        retry_config_name = "GEMINI_OPTIONAL_MAX_RETRIES" if optional else "GEMINI_MAX_RETRIES"
+        max_retries = max(1, int(getattr(config, retry_config_name, 1)))
 
         for attempt in range(max_retries):
             try:
@@ -304,16 +327,35 @@ Paper text:
                     contents=contents,
                     generate_content_config=generate_content_config,
                     purpose="full-text gene discovery",
-                    optional=True,
+                    optional=optional,
+                    reserved_required_calls=1 if optional else 0,
                 )
                 if not full_response_text:
+                    if not optional:
+                        raise RuntimeError("full-text gene discovery returned an empty response")
                     break
 
                 response_json = json.loads(full_response_text)
+                if not isinstance(response_json, dict):
+                    raise ValueError("full-text gene discovery response was not a JSON object")
+                if "associations" not in response_json:
+                    raise ValueError(
+                        "full-text gene discovery response missing required 'associations' field"
+                    )
                 parsed_associations = response_json.get("associations", [])
+                if parsed_associations is None:
+                    parsed_associations = []
+                if not isinstance(parsed_associations, list):
+                    raise ValueError(
+                        "full-text gene discovery response field 'associations' was not a list"
+                    )
                 if parsed_associations:
                     self._ingest_associations(parsed_associations, "llm_text")
                     break  # Success, exit retry loop
+
+                if not optional:
+                    logging.info("Mandatory full-text gene discovery returned no associations")
+                    break
 
                 # Empty association list is a known flaky model outcome; retry.
                 if attempt < max_retries - 1:
@@ -334,7 +376,11 @@ Paper text:
                     time.sleep(wait)
                 else:
                     logging.error("All retry attempts failed for gene-variant extraction")
-                    self.associations = []
+                    if not optional:
+                        raise RuntimeError(
+                            "mandatory full-text gene discovery failed after "
+                            f"{attempt + 1} attempt(s): {e}"
+                        ) from e
                     break
 
         return self.associations

@@ -31,16 +31,16 @@
         </mxCell>
 
         <!-- ═══ UI LAYER BOXES ═══ -->
-        <!-- Stage 1: Query -->
-        <mxCell id="s1" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 1&lt;/b&gt;&lt;br&gt;Query &amp; Schema&lt;br&gt;Definition" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- paper_selection: Query -->
+        <mxCell id="s1" value="&lt;b style=&quot;font-size:13px&quot;&gt;paper_selection&lt;/b&gt;&lt;br&gt;Query &amp; Schema&lt;br&gt;Definition" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="80" y="100" width="160" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="s1_file" value="QueryBuilder.tsx" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
           <mxGeometry x="80" y="183" width="160" height="20" as="geometry"/>
         </mxCell>
 
-        <!-- Stage 2: Relevance -->
-        <mxCell id="s2" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 2&lt;/b&gt;&lt;br&gt;Gene Relevance&lt;br&gt;Scoring" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- paper_selection: Relevance -->
+        <mxCell id="s2" value="&lt;b style=&quot;font-size:13px&quot;&gt;paper_selection&lt;/b&gt;&lt;br&gt;Gene Relevance&lt;br&gt;Scoring" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="340" y="100" width="160" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="s2_file" value="geneRelevanceScorer.ts" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -59,7 +59,7 @@
         </mxCell>
 
         <!-- Output: Results -->
-        <mxCell id="out" value="&lt;b style=&quot;font-size:13px&quot;&gt;Output&lt;/b&gt;&lt;br&gt;Results Explorer&lt;br&gt;CSV / XLSX Export" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <mxCell id="out" value="&lt;b style=&quot;font-size:13px&quot;&gt;output_writing&lt;/b&gt;&lt;br&gt;Results Explorer&lt;br&gt;CSV / XLSX Export" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#ffffff;strokeColor=#2F5597;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="1340" y="100" width="170" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="out_file" value="Results.tsx + Pipeline.tsx" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -67,8 +67,8 @@
         </mxCell>
 
         <!-- ═══ PIPELINE LAYER BOXES ═══ -->
-        <!-- Stage 3: Full Text -->
-        <mxCell id="s3" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 3&lt;/b&gt;&lt;br&gt;Full-Text&lt;br&gt;Acquisition" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7D31;fontColor=#ffffff;strokeColor=#C55A11;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- oa_filter + paper_reading: Full Text -->
+        <mxCell id="s3" value="&lt;b style=&quot;font-size:13px&quot;&gt;oa_filter&lt;/b&gt;&lt;br&gt;paper_reading&lt;br&gt;Full-Text" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7D31;fontColor=#ffffff;strokeColor=#C55A11;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="80" y="340" width="160" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="s3_file" value="full_text_fetcher.py" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -81,8 +81,8 @@
           <mxGeometry x="160" y="312" width="80" height="22" as="geometry"/>
         </mxCell>
 
-        <!-- Stage 4: PubTator -->
-        <mxCell id="s4" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 4&lt;/b&gt;&lt;br&gt;PubTator3 NER&lt;br&gt;&lt;font style=&quot;font-size:9px;font-style:italic&quot;&gt;precision floor&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7D31;fontColor=#ffffff;strokeColor=#C55A11;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- candidate_discovery: PubTator -->
+        <mxCell id="s4" value="&lt;b style=&quot;font-size:13px&quot;&gt;candidate_discovery&lt;/b&gt;&lt;br&gt;PubTator3 NER&lt;br&gt;&lt;font style=&quot;font-size:9px;font-style:italic&quot;&gt;precision floor&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7D31;fontColor=#ffffff;strokeColor=#C55A11;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="370" y="340" width="160" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="s4_file" value="pubtator_tool.py" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -93,7 +93,7 @@
         </mxCell>
 
         <!-- Per-paper extraction -->
-        <mxCell id="s5" value="&lt;b style=&quot;font-size:13px&quot;&gt;Per-Paper Extraction&lt;/b&gt;&lt;br&gt;&lt;br&gt;A: Abstract Gene Discovery&lt;br&gt;B: Full-Text Schema Extraction&lt;br&gt;+ Multimodal Figure Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7030A0;fontColor=#ffffff;strokeColor=#5B259F;fontSize=10;arcSize=6;shadow=1;" vertex="1" parent="1">
+        <mxCell id="s5" value="&lt;b style=&quot;font-size:13px&quot;&gt;candidate_discovery&lt;/b&gt;&lt;br&gt;Deterministic + Gemini candidates&lt;br&gt;&lt;b style=&quot;font-size:13px&quot;&gt;detail_extraction&lt;/b&gt;&lt;br&gt;Structured fields + figures" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7030A0;fontColor=#ffffff;strokeColor=#5B259F;fontSize=10;arcSize=6;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="660" y="320" width="280" height="120" as="geometry"/>
         </mxCell>
         <mxCell id="s5_file" value="modules/paper_analysis/" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -112,8 +112,8 @@
         </mxCell>
 
         <!-- ═══ VALIDATION LAYER BOXES ═══ -->
-        <!-- Stage 6a: Gene Validation -->
-        <mxCell id="v1" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 6a&lt;/b&gt;&lt;br&gt;Gene Validation&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;HGNC (44,943 genes)&lt;br&gt;Biotype Metadata&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- validation: Gene Validation -->
+        <mxCell id="v1" value="&lt;b style=&quot;font-size:13px&quot;&gt;validation&lt;/b&gt;&lt;br&gt;Gene Validation&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;HGNC (44,943 genes)&lt;br&gt;Biotype Metadata&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="80" y="600" width="180" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="v1_file" value="gene_validator.py" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -126,16 +126,16 @@
           <mxGeometry x="170" y="572" width="80" height="22" as="geometry"/>
         </mxCell>
 
-        <!-- Stage 6b: Citation -->
-        <mxCell id="v2" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 6b&lt;/b&gt;&lt;br&gt;Citation&lt;br&gt;Cross-Reference&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;SequenceMatcher ≥ 0.85&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- validation: Citation -->
+        <mxCell id="v2" value="&lt;b style=&quot;font-size:13px&quot;&gt;validation&lt;/b&gt;&lt;br&gt;Citation&lt;br&gt;Cross-Reference&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;SequenceMatcher ≥ 0.85&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="370" y="600" width="180" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="v2_file" value="Numeric + Gene Context checks" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
           <mxGeometry x="370" y="693" width="180" height="20" as="geometry"/>
         </mxCell>
 
-        <!-- Stage 6c: Variant -->
-        <mxCell id="v3" value="&lt;b style=&quot;font-size:13px&quot;&gt;Stage 6c&lt;/b&gt;&lt;br&gt;Variant Matching&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;12+ HGVS patterns&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- validation: Variant -->
+        <mxCell id="v3" value="&lt;b style=&quot;font-size:13px&quot;&gt;validation&lt;/b&gt;&lt;br&gt;Variant Matching&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;12+ HGVS patterns&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#ffffff;strokeColor=#548235;fontSize=11;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="660" y="600" width="180" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="v3_file" value="p.Arg175His, c.1234A&gt;G, ..." style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
@@ -147,8 +147,8 @@
           <mxGeometry x="960" y="600" width="180" height="90" as="geometry"/>
         </mxCell>
 
-        <!-- CSV Output -->
-        <mxCell id="csv" value="&lt;b style=&quot;font-size:12px&quot;&gt;CSV Output&lt;/b&gt;&lt;br&gt;Deduplicated, ranked&lt;br&gt;Validation metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#525252;fontColor=#ffffff;strokeColor=#333333;fontSize=10;arcSize=8;shadow=1;" vertex="1" parent="1">
+        <!-- output_writing -->
+        <mxCell id="csv" value="&lt;b style=&quot;font-size:12px&quot;&gt;output_writing&lt;/b&gt;&lt;br&gt;Deduplicated, ranked&lt;br&gt;Validation metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#525252;fontColor=#ffffff;strokeColor=#333333;fontSize=10;arcSize=8;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="1250" y="610" width="160" height="70" as="geometry"/>
         </mxCell>
 

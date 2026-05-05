@@ -294,6 +294,7 @@ class FigureMixin:
                         generate_content_config=generate_content_config,
                         purpose=f"figure analysis {idx}",
                         optional=True,
+                        reserved_required_calls=1,
                     )
                     if not full_response_text:
                         break
