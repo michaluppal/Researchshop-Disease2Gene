@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-05-06 — Public docs path and Gemini schema consolidation
+
+**Done:**
+- Updated docs routing so public readers start at README, then `docs/README.md`, then pipeline contract, then internals.
+- Marked roadmap, bug-hunting, reports, and audit material as historical/maintainer references rather than required onboarding.
+- Moved Gemini response schemas into `paper_analysis/schemas.py` and kept compatibility exports from `gemini_client.py`.
+- Made figure Gemini discovery use the same candidate association schema as abstract/full-text discovery, preserving original mention and evidence sentence.
+
+**Context:**
+- This addresses publication-readiness points 4 and 5.
+
+## 2026-05-06 — Output artifact contract for SoftwareX readiness
+
+**Done:**
+- Locked primary CSV/JSON/Excel `Results` fields to requested user columns plus fixed researcher-facing fields.
+- Kept diagnostics such as validation confidence/source, candidate source, citation checks, NCBI data, and gate/debug details in metadata artifacts.
+- Updated README, pipeline contract, internals, audit, and SoftwareX checklist.
+- Added a regression test asserting the public column contract and JSON/CSV parity.
+
+**Context:**
+- This addresses publication-readiness point 3: every output field should have a clear reason to exist.
+
 ## 2026-04-25 — Migrated active agent docs from Claude to Codex
 
 **Done:**

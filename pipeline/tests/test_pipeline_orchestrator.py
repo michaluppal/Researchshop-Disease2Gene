@@ -7,6 +7,7 @@ Unit tests use explicit local pipeline fixtures instead of runtime patching.
 These tests do NOT call the Gemini API or any external service.
 """
 
+import json
 from types import SimpleNamespace
 
 import pandas as pd
@@ -209,6 +210,114 @@ def test_write_split_output_deduplicates_columns_before_json(tmp_path):
     assert (tmp_path / "results.json").exists()
     assert json_path.endswith("results.json")
     assert excel_path.endswith("results.xlsx")
+
+
+def test_write_split_output_has_public_column_contract(tmp_path):
+    """Primary outputs stay clean; diagnostics stay in metadata."""
+    from modules.pipeline_orchestrator import _write_split_output
+
+    df = pd.DataFrame(
+        [
+            {
+                "Gene/Group": "IFNG",
+                "Variant Name": "",
+                "PMID": "35177862",
+                "Study Title": "Immunopathological signatures in MIS-C",
+                "Publication Year": "2022",
+                "Journal Name": "Nature Medicine",
+                "Authors": "Sacco et al.",
+                "Citations": 123,
+                "DOI": "10.1038/s41591-022-01724-3",
+                "Key Finding": "IFNG is part of the MIS-C immune signature.",
+                "Key Finding Citation": "IFN-gamma signalling was increased.",
+                "Statistical Evidence": "p < 0.05",
+                "Statistical Evidence Citation": "Differential expression was significant.",
+                "Key Finding_citation_valid": True,
+                "Statistical Evidence_citation_valid": True,
+                "validation_confidence": 1.0,
+                "validation_source": "local_hgnc",
+                "Gene Source": "both",
+                "Candidate Source": "pubtator,llm_text",
+                "Association Type": "disease_signature_gene",
+                "Association Group": "Disease Signature",
+                "Original Paper Mention": "IFN-gamma",
+                "Grounding Match": "IFN-gamma",
+                "Grounding Source": "normalized_text_index",
+                "Normalization Rule": "cytokine_alias_ifng",
+                "extraction_mode": "llm",
+                "evidence_backfilled": False,
+                "evidence_specificity": "gene_specific",
+                "context_modifications": "No modifications needed",
+                "detail_extraction_error": "",
+                "co_mentioned_genes": "",
+            }
+        ]
+    )
+
+    primary_path, metadata_path, _, json_path = _write_split_output(
+        df=df,
+        output_path=tmp_path / "results.csv",
+        user_cols=["Key Finding", "Statistical Evidence"],
+    )
+
+    expected_primary = [
+        "Gene",
+        "Variant",
+        "Key Finding",
+        "Key Finding Citation",
+        "Statistical Evidence",
+        "Statistical Evidence Citation",
+        "Confidence",
+        "Confidence Note",
+        "Association Group",
+        "Association Type",
+        "Original Paper Mention",
+        "Grounding Match",
+        "Grounding Source",
+        "Normalization Rule",
+        "extraction_mode",
+        "evidence_backfilled",
+        "evidence_specificity",
+        "context_modifications",
+        "PMID",
+        "Title",
+        "Year",
+        "Journal",
+        "Authors",
+        "Citations",
+        "DOI",
+    ]
+    primary_cols = list(pd.read_csv(primary_path).columns)
+    assert primary_cols == expected_primary
+
+    for diagnostic_col in [
+        "validation_confidence",
+        "validation_source",
+        "Gene Source",
+        "Candidate Source",
+        "Key Finding_citation_valid",
+        "Statistical Evidence_citation_valid",
+        "detail_extraction_error",
+        "co_mentioned_genes",
+    ]:
+        assert diagnostic_col not in primary_cols
+
+    metadata_cols = list(pd.read_csv(metadata_path).columns)
+    for diagnostic_col in [
+        "validation_confidence",
+        "validation_source",
+        "Gene Source",
+        "Candidate Source",
+        "Key Finding_citation_valid",
+        "Statistical Evidence_citation_valid",
+        "detail_extraction_error",
+        "co_mentioned_genes",
+    ]:
+        assert diagnostic_col in metadata_cols
+
+    json_records = json.loads((tmp_path / "results.json").read_text())
+    assert list(json_records[0].keys()) == expected_primary
+    assert json_path.endswith("results.json")
 
 
 def test_write_split_output_adds_and_sorts_association_groups(tmp_path):

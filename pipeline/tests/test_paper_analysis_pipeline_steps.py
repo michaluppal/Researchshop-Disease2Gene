@@ -301,6 +301,44 @@ def test_gemini_parsed_pydantic_response_coerces_to_plain_dict():
     }
 
 
+def test_gemini_schema_module_is_canonical_import_path():
+    from modules.paper_analysis import gemini_client, schemas
+
+    assert gemini_client.CandidateDiscoveryResponse is schemas.CandidateDiscoveryResponse
+    assert gemini_client.CandidateAssociationResponse is schemas.CandidateAssociationResponse
+    assert gemini_client.FigureDiscoveryResponse is schemas.CandidateDiscoveryResponse
+    assert (
+        gemini_client.build_detail_extraction_response_model
+        is schemas.build_detail_extraction_response_model
+    )
+
+
+def test_structured_generation_config_helper_uses_json_schema_contract():
+    from modules.paper_analysis.schemas import CandidateDiscoveryResponse
+
+    class FakeTypes:
+        class ThinkingConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class GenerateContentConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+    cfg = _make_pipeline()._build_structured_generation_config(
+        FakeTypes,
+        response_schema=CandidateDiscoveryResponse,
+        temperature=0.2,
+        max_output_tokens=1234,
+    )
+
+    assert cfg.kwargs["response_mime_type"] == "application/json"
+    assert cfg.kwargs["response_schema"] is CandidateDiscoveryResponse
+    assert cfg.kwargs["temperature"] == 0.2
+    assert cfg.kwargs["max_output_tokens"] == 1234
+    assert cfg.kwargs["thinking_config"].kwargs == {"thinking_budget": 0}
+
+
 def test_detail_extraction_rejects_non_array_json_response(monkeypatch, paper_analysis_config):
     pipeline = _make_pipeline()
     pipeline.associations = [{"gene": "IFNG", "variant": ""}]

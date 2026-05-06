@@ -256,6 +256,23 @@ def _unique_preserve_order(items: list) -> list:
     return unique
 
 
+def _expand_user_output_columns(user_cols: list, available_columns) -> list:
+    """Return requested user columns plus their citation fields when present."""
+    available = set(available_columns)
+    expanded = []
+    for raw_col in user_cols or []:
+        col = str(raw_col or "").strip()
+        if not col:
+            continue
+        if col in available:
+            expanded.append(col)
+        if not col.endswith(" Citation"):
+            citation_col = f"{col} Citation"
+            if citation_col in available:
+                expanded.append(citation_col)
+    return _unique_preserve_order(expanded)
+
+
 def _write_split_output(
     df: "pd.DataFrame",
     output_path: "os.PathLike",
@@ -263,10 +280,11 @@ def _write_split_output(
 ) -> tuple:
     """Write primary CSV, metadata CSV, Excel workbook, and JSON file.
 
-    Primary CSV: Gene, Variant, [user cols], Confidence, Confidence Note,
-                 PMID, Title, Year, Journal, Authors, Citations, DOI
+    Primary CSV: Gene, Variant, requested user cols and their Citation pairs,
+                 confidence/provenance columns, PMID, Title, Year, Journal,
+                 Authors, Citations, DOI
     Metadata CSV: PMID, Gene/Group, Variant Name + all diagnostic/validation columns
-    Excel: two-sheet workbook (Results + Metadata), Confidence cells color-coded
+    Excel: Results + Metadata sheets, plus association-group sheets when present
     JSON: primary CSV data as an array of records
 
     Both CSV files share PMID + Gene/Group as join keys and have identical row order.
@@ -274,7 +292,7 @@ def _write_split_output(
     Args:
         df: Full results DataFrame with all columns.
         output_path: Destination path for the primary CSV (.csv extension).
-        user_cols: List of user-defined column names (without Citation pairs).
+        user_cols: List of requested user-defined column names.
 
     Returns:
         (primary_path, metadata_path, excel_path, json_path) as strings.
@@ -317,10 +335,11 @@ def _write_split_output(
     }
     df_clean = df.rename(columns=rename_map)
     df_clean = _ensure_unique_columns(df_clean)
+    user_primary_cols = _expand_user_output_columns(user_cols, df_clean.columns)
 
     primary_cols = (
         ["Gene", "Variant"]
-        + [c for c in user_cols if c in df_clean.columns]
+        + user_primary_cols
         + [
             "Confidence", "Confidence Note", "Association Group", "Association Type",
             "Original Paper Mention", "Grounding Match", "Grounding Source",
@@ -1017,45 +1036,18 @@ def run_complete_pipeline(
         "Metadata Warnings",
     ]
 
-    # User-defined columns (exclude core and metadata columns)
-    metadata_suffixes = [
-        "_citation_valid",
-        "_citation_confidence",
-        "_citation_details",
-        "validation_confidence",
-        "validation_source",
-        "validation_suggestions",
-        "context_flash_fits",
-        "context_pro_fits",
-        "context_original_tokens",
-        "context_modifications",
-        "context_truncation_applied",
-    ]
+    # Requested user-defined columns are the only dynamic fields promoted into
+    # researcher-facing outputs. Everything else remains available in metadata.
+    user_columns_raw = list(column_descriptions.keys())
+    user_columns_list = _expand_user_output_columns(
+        user_columns_raw,
+        all_results_df.columns,
+    )
 
-    user_columns_raw = [
-        col
-        for col in all_results_df.columns
-        if col not in core_columns
-        and not any(col.endswith(suffix) or col == suffix for suffix in metadata_suffixes)
-    ]
-    # Pair user columns with their citation columns if present
-    user_columns_list = []
-    used = set()
-    for col in user_columns_raw:
-        if col in used:
-            continue
-        citation_col = f"{col} Citation"
-        user_columns_list.append(col)
-        if citation_col in all_results_df.columns:
-            user_columns_list.append(citation_col)
-            used.add(citation_col)
-        used.add(col)
-
-    # Metadata columns at the end
     metadata_columns = [
         col
         for col in all_results_df.columns
-        if any(col.endswith(suffix) or col == suffix for suffix in metadata_suffixes)
+        if col not in core_columns and col not in user_columns_list
     ]
 
     # Build final column order
@@ -1065,6 +1057,7 @@ def run_complete_pipeline(
             final_column_order.append(col)
     final_column_order.extend(user_columns_list)
     final_column_order.extend(metadata_columns)
+    final_column_order = _unique_preserve_order(final_column_order)
 
     all_results_df = all_results_df[final_column_order]
 

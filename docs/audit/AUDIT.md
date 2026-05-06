@@ -47,6 +47,26 @@ Release note: macOS Apple Silicon DMG was regenerated locally with `npm run pack
 
 Follow-up macOS test: launching the app directly from the mounted read-only DMG initially failed because first-launch Python setup tried to create `.venv` inside `ResearchShop.app/Contents/Resources/pipeline`. The packaged app now creates its Python environment under Electron `userData` and keeps bundled pipeline code read-only. Rebuilt DMG smoke test passed from the mounted image: Query, Paper Analysis, Settings, History, app version, PubMed metadata IPC, PubMed count IPC, and Gemini usage IPC all worked with no renderer console errors.
 
+### C32. Output artifact contract locked for publication readiness
+
+Context: SoftwareX preparation requires the result artifacts to be understandable to researchers and reviewers without exposing internal diagnostics as apparent scientific findings.
+
+Implemented in this pass:
+- Primary CSV, primary JSON, and Excel `Results` sheet now promote only requested user columns plus fixed researcher-facing fields. The orchestrator no longer infers primary columns by treating every non-core/non-suffix field as user-facing.
+- Metadata CSV and Excel `Metadata` sheet retain diagnostics such as validation confidence/source, candidate source, gene source, citation validation booleans/details, NCBI enrichment, and raw gate/debug fields.
+- README, pipeline contract, and internals documentation now describe the artifact split and the reason each primary column family exists.
+- Added `test_write_split_output_has_public_column_contract` to guard the public column set and verify JSON mirrors the primary CSV.
+
+### C33. Public docs path and Gemini schema stack consolidated
+
+Context: remaining SoftwareX readiness risks called out two public-readability issues: readers should not be forced through historical notes, and Gemini extraction should use one consistent typed schema stack.
+
+Implemented in this pass:
+- `docs/README.md` now presents the public reader path first: README → pipeline contract → internals. Roadmap, bug-hunting, reports, and audit files are explicitly lower-priority historical/maintainer references.
+- `docs/pipeline/internals.md` now states that bug-hunting/report links are historical watchlist context that must be verified against current code.
+- Gemini candidate discovery schemas moved to `paper_analysis/schemas.py`; abstract, full-text, and figure discovery share the same Pydantic association model with original mention and evidence sentence provenance.
+- `gemini_client.py` keeps compatibility exports for existing imports, and all structured Gemini calls use the shared config helper with `thinking_budget=0`, `application/json`, and Pydantic `response_schema`.
+
 ## Fixed
 
 ### F1. LLM response corruption across retries

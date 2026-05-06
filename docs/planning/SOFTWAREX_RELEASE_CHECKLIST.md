@@ -8,9 +8,17 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 - [x] Document the normalization boundary clearly: paper-level text normalization vs candidate-level gene/variant normalization.
 - [ ] Rerun the PIMS/MIS-C gold-standard case with stable Gemini responses and confirm IFNG/HLA-C behavior in real output.
   - Offline comparison helper added; fresh live rerun still requires `GEMINI_API_KEY` and `ENTREZ_EMAIL` exported in the shell.
-- [ ] Review output columns for publication readiness; every CSV/JSON/XLSX field should have an explicit reason to exist.
-- [ ] Do a final public-reader documentation sweep: `README.md` -> pipeline contract -> internals, without forcing readers through historical notes.
-- [ ] Continue consolidating Gemini extraction around one typed schema stack for candidate discovery, figures, and detail extraction.
+- [x] Review output columns for publication readiness; every CSV/JSON/XLSX field should have an explicit reason to exist.
+  - Primary CSV/JSON/Excel `Results` fields are now documented in `README.md` and `docs/pipeline/pipeline-contract.md`.
+  - Diagnostic fields are metadata-only unless explicitly promoted for researcher review.
+  - `test_write_split_output_has_public_column_contract` guards the public column set.
+- [x] Do a final public-reader documentation sweep: `README.md` -> pipeline contract -> internals, without forcing readers through historical notes.
+  - `docs/README.md` now separates the public reader path from maintainer/historical references.
+  - `docs/pipeline/internals.md` now treats bug-hunting/report links as historical watchlist context.
+- [x] Continue consolidating Gemini extraction around one typed schema stack for candidate discovery, figures, and detail extraction.
+  - Candidate discovery and figure discovery share the same Pydantic association schema.
+  - Detail extraction keeps the dynamic Pydantic schema builder for user columns.
+  - Structured SDK responses and fallback text JSON both validate against the same schema.
 - [x] Run repository secret scan:
   - `rg -n "AIza|GEMINI_API_KEY=.*AIza|PRIMARY_KEY=|FALLBACK_KEY=|EMAIL=|password|secret" . -S --hidden --glob '!node_modules/**' --glob '!dist/**' --glob '!out/**' --glob '!.git/**'`
 - [x] Run verification:

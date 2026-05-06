@@ -6,7 +6,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import BaseModel, ValidationError
 
 from .. import config
 from .prompts import (
@@ -14,73 +14,41 @@ from .prompts import (
     _GENE_DISCOVERY_INSTRUCTION_ABSTRACT,
     _GENE_DISCOVERY_INSTRUCTION_FULLTEXT,
 )
+from .schemas import (
+    CandidateAssociationResponse,
+    CandidateDiscoveryResponse,
+    DetailExtractionRowBase,
+    build_detail_extraction_response_model,
+)
 
-
-class CandidateAssociationResponse(BaseModel):
-    reported_gene: str
-    reported_variant: str
-    original_mention: str
-    evidence_sentence: str
-
-
-class CandidateDiscoveryResponse(BaseModel):
-    associations: List[CandidateAssociationResponse]
-
-
-class FigureAssociationResponse(BaseModel):
-    gene: str
-    variant: str
-
-
-class FigureDiscoveryResponse(BaseModel):
-    associations: List[FigureAssociationResponse]
-
-
-class DetailExtractionRowBase(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-
-    gene_name: str = Field(description="The name of the gene.")
-    variant_name: str = Field(description="The associated variant, if any.")
-
-
-def _safe_detail_field_name(index: int, suffix: str = "") -> str:
-    return f"user_field_{index}{suffix}"
-
-
-def build_detail_extraction_response_model(
-    column_descriptions: Dict[str, str],
-) -> Type[BaseModel]:
-    """Build a Pydantic response model for dynamic user-requested columns."""
-    row_fields: Dict[str, Any] = {}
-    for index, (column, description) in enumerate(column_descriptions.items()):
-        row_fields[_safe_detail_field_name(index)] = (
-            str,
-            Field(default="", alias=column, description=description),
-        )
-        row_fields[_safe_detail_field_name(index, "_citation")] = (
-            str,
-            Field(
-                default="",
-                alias=f"{column} Citation",
-                description=(
-                    f"Direct quote or section/page reference supporting {column}. "
-                    "Leave empty if no variant-specific evidence."
-                ),
-            ),
-        )
-
-    detail_row_model = create_model(
-        "DetailExtractionRow",
-        __base__=DetailExtractionRowBase,
-        **row_fields,
-    )
-    return create_model(
-        "DetailExtractionResponse",
-        rows=(List[detail_row_model], Field(...)),  # type: ignore[valid-type]
-    )
+# Legacy names kept for existing imports; figure discovery now uses the same
+# candidate schema as text discovery so figure candidates preserve mention
+# provenance before downstream normalization.
+FigureAssociationResponse = CandidateAssociationResponse
+FigureDiscoveryResponse = CandidateDiscoveryResponse
 
 
 class GeminiClientMixin:
+    @staticmethod
+    def _build_structured_generation_config(
+        types_module,
+        *,
+        response_schema: Type[BaseModel],
+        temperature: Optional[float] = None,
+        max_output_tokens: Optional[int] = None,
+    ) -> Any:
+        """Build the common Gemini structured-output config used by all calls."""
+        kwargs: Dict[str, Any] = {
+            "thinking_config": types_module.ThinkingConfig(thinking_budget=0),
+            "response_mime_type": "application/json",
+            "response_schema": response_schema,
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_output_tokens is not None:
+            kwargs["max_output_tokens"] = int(max_output_tokens)
+        return types_module.GenerateContentConfig(**kwargs)
+
     @staticmethod
     def _parse_json_response(text: str) -> Any:
         """Parse Gemini JSON output with limited cleanup for response wrappers."""
@@ -392,13 +360,12 @@ class GeminiClientMixin:
             f"Title: {title}\n\nAbstract: {self.abstract_text}" if title else self.abstract_text
         )
 
-        generate_content_config = types.GenerateContentConfig(
+        generate_content_config = self._build_structured_generation_config(
+            types,
             temperature=config.GEMINI_CONFIG["temperature"],
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
             max_output_tokens=int(
                 getattr(config, "GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", 8192)
             ),
-            response_mime_type="application/json",
             response_schema=CandidateDiscoveryResponse,
         )
 
@@ -496,13 +463,12 @@ Paper text:
         else:
             user_prompt = f"{instruction}\n\nPaper text:\n{self.paper_text}"
 
-        generate_content_config = types.GenerateContentConfig(
+        generate_content_config = self._build_structured_generation_config(
+            types,
             temperature=effective_temperature,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
             max_output_tokens=int(
                 getattr(config, "GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", 8192)
             ),
-            response_mime_type="application/json",
             response_schema=CandidateDiscoveryResponse,
         )
 
@@ -584,9 +550,8 @@ Paper text:
         model_name = config.GEMINI_CONFIG["data_extraction_model"]
         detail_response_model = build_detail_extraction_response_model(column_descriptions)
 
-        generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            response_mime_type="application/json",
+        generate_content_config = self._build_structured_generation_config(
+            types,
             response_schema=detail_response_model,
         )
 
