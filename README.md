@@ -1,6 +1,8 @@
-# ResearchShop Desktop
-
-**AI-powered gene and variant extraction from PubMed literature.**
+<div align="center">
+  <img src="docs/assets/researchshop-mark.svg" alt="ResearchShop logo" width="96">
+  <h1>ResearchShop Desktop</h1>
+  <p><strong>AI-powered gene and variant extraction from PubMed literature.</strong></p>
+</div>
 
 ResearchShop is a free, open-source desktop app for biomedical researchers. You provide a PubMed query or a list of paper IDs; the pipeline searches the literature, fetches full text from open-access papers, and writes a reviewable artifact bundle of gene/variant associations with supporting evidence, citations, provenance, and diagnostics.
 
@@ -8,10 +10,10 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 <p align="center">
   <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.0/researchshop-desktop-1.0.0.dmg">
-    <img alt="Download macOS DMG" src="https://img.shields.io/badge/macOS-Download%20DMG-111827?style=for-the-badge&logo=apple&logoColor=white">
+    <img alt="Download macOS DMG" src="https://img.shields.io/badge/macOS-Download%20DMG-2563EB?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
   </a>
   &nbsp;
-  <img alt="Windows EXE work in progress" src="https://img.shields.io/badge/Windows-EXE%20WIP-9ca3af?style=for-the-badge&logo=windows&logoColor=white">
+  <img alt="Windows EXE work in progress" src="https://img.shields.io/badge/Windows-EXE%20WIP-9CA3AF?style=for-the-badge&logo=windows&logoColor=white&labelColor=6B7280">
 </p>
 
 Installers for nontechnical users are published on the [GitHub Releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases). Download the `.dmg` file on macOS or the `.exe` installer on Windows. The source-code ZIP files on GitHub are for developers, not normal app installation.

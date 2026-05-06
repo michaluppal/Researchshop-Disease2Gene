@@ -1,0 +1,24 @@
+<svg width="144" height="144" viewBox="0 0 144 144" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ResearchShop mark</title>
+  <desc id="desc">A stylized document, magnifier, and gene strand mark for ResearchShop Desktop.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="14" x2="128" y2="134" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="43" y1="30" x2="88" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DCEAFE"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="128" height="128" rx="30" fill="url(#bg)"/>
+  <path d="M45 29h40l19 19v66H45V29Z" fill="url(#paper)"/>
+  <path d="M85 29v20h19" fill="#BFE7FF"/>
+  <path d="M45 29h40l19 19v66H45V29Z" stroke="#0F172A" stroke-opacity=".22" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M59 55c13-10 26-10 39 0M59 55c13 10 26 10 39 0M59 75c13-10 26-10 39 0M59 75c13 10 26 10 39 0" stroke="#2563EB" stroke-width="5" stroke-linecap="round"/>
+  <path d="M68 45v40M89 45v40" stroke="#0F766E" stroke-width="4" stroke-linecap="round" stroke-dasharray="3 8"/>
+  <circle cx="88" cy="88" r="19" fill="#0F172A" fill-opacity=".13"/>
+  <circle cx="84" cy="84" r="18" fill="#FFFFFF" stroke="#0F172A" stroke-width="7"/>
+  <path d="M97 97l18 18" stroke="#0F172A" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="84" cy="84" r="8" fill="#14B8A6"/>
+</svg>
