@@ -273,7 +273,9 @@ export default function Settings() {
           <div className="border-t border-slate-100 pt-3 flex flex-col gap-2">
             <button
               onClick={() =>
-                window.api.shell.openExternal('https://github.com/michaluppal/ResearchShop-Website')
+                window.api.shell.openExternal(
+                  'https://github.com/michaluppal/Researchshop-Disease2Gene'
+                )
               }
               className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 transition-colors"
             >
@@ -283,7 +285,7 @@ export default function Settings() {
             <button
               onClick={() =>
                 window.api.shell.openExternal(
-                  'https://github.com/michaluppal/ResearchShop-Website/issues'
+                  'https://github.com/michaluppal/Researchshop-Disease2Gene/issues'
                 )
               }
               className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 transition-colors"

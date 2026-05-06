@@ -1,7 +1,7 @@
 publish:
   provider: github
   owner: michaluppal
-  repo: RS_SOFTWAREX
+  repo: Researchshop-Disease2Gene
 afterPack: app/scripts/afterpack.js
 appId: com.researchshop.desktop
 productName: ResearchShop
@@ -13,23 +13,33 @@ files:
   - '!app/src/*'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!config/**/*'
-  - '!AGENTS.md'
   - '!docs/**/*'
   - '!publication/**/*'
-  - '!.codex/**/*'
-  - '!archive/**/*'
 extraResources:
   - from: pipeline
     to: pipeline
     filter:
-      - '**/*'
+      - run_pipeline.py
+      - requirements.txt
+      - pyproject.toml
+      - modules/**/*
+      - data/reference/**/*
+      - '!tests/**'
+      - '!scripts/**'
+      - '!data/benchmark/**'
+      - '!data/gold_standard/**'
+      - '!data/gold-standard/**'
+      - '!data/output/**'
+      - '!data/outputs/**'
+      - '!docs/**'
+      - '!cache/**'
+      - '!caches/**'
+      - '!outputs/**'
       - '!.venv/**'
-      - '!__pycache__/**'
-      - '!**/*.pyc'
       - '!**/__pycache__/**'
+      - '!**/*.pyc'
 mac:
   icon: app/resources/icon.icns
-  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSDocumentsFolderUsageDescription: ResearchShop needs access to save research results.
   notarize: false
