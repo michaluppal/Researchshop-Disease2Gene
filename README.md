@@ -262,4 +262,6 @@ This is the public reproducibility path for the software workflow. Internal audi
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+The ResearchShop name and logo are project identifiers and may not be used to imply endorsement by the project authors.
