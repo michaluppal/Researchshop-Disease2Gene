@@ -34,11 +34,14 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - mounted `dist/researchshop-desktop-1.0.0.dmg` and launched the packaged app from the read-only image
   - verified first-launch Python setup uses userData, not the app bundle
   - verified Query, Paper Analysis, Settings, History, app version, PubMed metadata IPC, PubMed count IPC, and Gemini usage IPC
+  - GitHub Actions build validation run `25426414134` also passed macOS ARM64 install, typecheck, DMG build, artifact existence check, and artifact upload
 
 ## Required Before Final Cross-Platform Release
 
-- [ ] Build Windows installer on Windows release runner:
-  - `npm run package:win`
+- [x] Build Windows installer on Windows release runner:
+  - GitHub Actions build validation run `25426414134` passed on `windows-latest`
+  - command: `npm run package:win -- --x64 --publish never`
+  - verified Windows `.exe` installer and `*win.zip` artifacts exist and uploaded `researchshop-windows-x64`
 - [ ] Build Linux packages on Linux release runner:
   - `npm run package:linux`
 - [ ] Verify first-launch Python setup and Settings flow on Windows and Linux.
