@@ -5,14 +5,11 @@
 >
 > **Purpose.** Function-level deep dive into the ResearchShop extraction pipeline. Read this after the public README and pipeline contract when you need implementation detail. Some line numbers and historical failure callouts may lag behind the active contract.
 >
-> **Historical callouts.** Inline links to `bug-hunting.md`, reports, and old audit notes are maintainer watchlist/history references. They are not the public onboarding path and should be verified against current code before being treated as active defects.
+> **Historical callouts.** Some finding codes (`F*`, `C*`, `W*`) are retained as shorthand from internal review history. The private notes behind those codes are not included in the public release branch.
 >
 > **Companion docs:**
 > - [`pipeline-contract.md`](./pipeline-contract.md) — canonical architecture source.
-> - [`bug-hunting.md`](./bug-hunting.md) — historical/maintainer review notes, not a current issue tracker.
-> - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level overview for Codex sessions. This doc goes deeper.
-> - [`../audit/AUDIT.md`](../audit/AUDIT.md) — historical bug log.
-> - [`../../AGENTS.md`](../../AGENTS.md) — project routing file.
+> - [`../README.md`](../README.md) — public documentation routing.
 
 ---
 
@@ -270,7 +267,7 @@ function isResultPayload(p: unknown): p is { local_path?: string; metadata_path?
 }
 ```
 
-> **⚠️ See [`bug-hunting.md` §1.8](./bug-hunting.md#18-isresultpayload-accepts-any-object)** — the RESULT guard is too permissive. It accepts `{}` as a valid result.
+> **Known limitation:** the RESULT guard is too permissive. It accepts `{}` as a valid result.
 
 **Spawn.** `python-bridge.ts:63-99`:
 
@@ -322,7 +319,7 @@ export function cancelPipeline(): boolean {
 }
 ```
 
-The bridge stays single-flight until the child process actually emits `close` or `error`. `currentProcess` and `currentJobId` are NOT cleared here — they're cleared in the `close` handler at line 210-211. This prevents a new run from starting while the old process is still draining (see [`AUDIT.md` C23 §2026-04-07](../audit/AUDIT.md)).
+The bridge stays single-flight until the child process actually emits `close` or `error`. `currentProcess` and `currentJobId` are NOT cleared here — they're cleared in the `close` handler at line 210-211. This prevents a new run from starting while the old process is still draining (historical C23 note).
 
 ### 2.3 `app/src/main/ipc-handlers.ts` — Pipeline IPC
 
@@ -372,7 +369,7 @@ The annotation is `"loattrfull text[sb]"` which restricts results to papers with
 
 **Fallback: Semantic Scholar.** Used for PMIDs that iCite doesn't have (older papers, non-NIH). One-at-a-time with 200ms sleep between calls.
 
-> **⚠️ See [`bug-hunting.md` §2.4](./bug-hunting.md#24-semantic-scholar-per-pmid-rate-limit)** — for 1000+ unresolved PMIDs, the per-call sleep adds 3+ minutes.
+> **Known limitation:** for 1000+ unresolved PMIDs, the per-call Semantic Scholar sleep adds 3+ minutes.
 
 ### 3.4 Candidate widening (query-mode only)
 
@@ -382,7 +379,7 @@ requested top-N. User-curated PMID lists are taken 1:1 — no widening is perfor
 
 There is **no** "4× overfetch factor". `ANALYSIS_OVERFETCH_FACTOR` appeared in older docs and
 in `config.py` but was never referenced anywhere in the pipeline (orphaned). The symbol was
-removed in the `docs/audit/final-audit.md` F1 sweep; the 4× claim is a myth that should not be propagated.
+removed after internal cleanup review; the 4× claim is a myth that should not be propagated.
 
 The UI's 500-PMID cap (`TopicResultsModal.tsx`) is independent of this — it limits how many
 search results the modal fetches/renders, not how many get analysed.
@@ -391,7 +388,7 @@ search results the modal fetches/renders, not how many get analysed.
 
 - **Entrez rate limit.** No explicit backoff; relies on `REQUEST_TIMEOUT=30` (config.py:52) to surface failures.
 - **iCite outage.** Falls through to Semantic Scholar silently. If both fail, papers are unranked (random order from Entrez).
-- **Malformed Medline records.** `Biopython.Medline.parse()` silently drops unparseable records. See [`bug-hunting.md` §2.7](./bug-hunting.md#27-medlineparse-silently-drops-malformed-records).
+- **Malformed Medline records.** `Biopython.Medline.parse()` silently drops unparseable records.
 
 ---
 
@@ -453,7 +450,7 @@ The section keys match `paper_analysis/context.py:ContextMixin._SECTION_HEADER_P
 - Capped at `FIGURE_MAX_IMAGES_PER_PAPER=1` by default
 - Max bytes per image: `FIGURE_IMAGE_MAX_BYTES=5MB` (config.py:72)
 
-> **⚠️ See [`bug-hunting.md` §2.3](./bug-hunting.md#23-figure-url-dedup-loses-multi-panel-figure-detail)** — multi-panel figures (1A, 1B, 1C) that share a URL get deduped to a single entry.
+> **Known limitation:** multi-panel figures (1A, 1B, 1C) that share a URL get deduped to a single entry.
 
 ### 5.5 Greek letter transliteration (W1 fix)
 
@@ -472,7 +469,7 @@ Query-mode widening (`PUBMED_RELEVANT_COUNT=200`, see §3.4) partially compensat
 
 - **PMC JATS 404.** Falls through to Europe PMC. If both fail, the paper has no extraction-ready full text.
 - **Section parsing failure.** Returns raw concatenated text, losing structural signals (can't drop sections by priority).
-- **JATS parse error.** Returns `(None, [], [])` — indistinguishable from valid-but-empty. See [`bug-hunting.md` §3.3](./bug-hunting.md#33-jats-xml-parser-conflates-invalid-xml-with-empty-article).
+- **JATS parse error.** Returns `(None, [], [])` — indistinguishable from valid-but-empty.
 
 ---
 
@@ -490,7 +487,7 @@ Default batch size: `PUBTATOR_BATCH_SIZE=10` (config.py:93). Each batch hits the
 
 ### 6.3 Silent batch loss (W10)
 
-Parse errors on individual papers in a batch are silently skipped. Affected PMIDs produce no PubTator results but the pipeline continues. This is documented in `docs/audit/AUDIT.md` as a known, accepted limitation.
+Parse errors on individual papers in a batch are silently skipped. Affected PMIDs produce no PubTator results but the pipeline continues. This is treated as a known, accepted limitation.
 
 ### 6.4 Role in hybrid architecture
 
@@ -507,7 +504,7 @@ PubTator provides the precision floor:
 ### 6.6 Failure modes
 
 - **PubTator API 503.** Pipeline continues with LLM-only extraction (lower precision).
-- **Response schema change.** Multi-field PMID extraction fallback means schema changes cause silent data loss. See [`bug-hunting.md` §3.4](./bug-hunting.md#34-pubtator-pmid-extraction-tries-multiple-response-fields).
+- **Response schema change.** Multi-field PMID extraction fallback means schema changes cause silent data loss.
 
 ---
 
@@ -515,8 +512,8 @@ PubTator provides the precision floor:
 
 ### 7.1 Package: `pipeline/modules/paper_analysis/`
 
-This package owns the per-paper extraction flow. `pipeline/modules/gemini_extractor.py` remains only as
-a backward-compatible shim exporting legacy aliases to `PaperAnalysisPipeline`.
+This package owns the per-paper extraction flow. Public code should import
+`PaperAnalysisPipeline` from `pipeline/modules/paper_analysis/pipeline.py`.
 
 ### 7.2 Class lifecycle
 
@@ -670,13 +667,13 @@ def run_pipeline(self, column_descriptions):
 
 Genes not grounded are marked `validation_outcome = "rejected_ungrounded"` and dropped from `self.associations`.
 
-> **⚠️ See [`bug-hunting.md` §1.10](./bug-hunting.md#110-grounding-check-can-be-bypassed-for-mixed-source-figure-genes)** — genes with both `llm_figure` and other sources bypass the figure-specific check.
+> **Known limitation:** genes with both `llm_figure` and other sources bypass the figure-specific check.
 
 #### 7.6.3 `_run_validation_and_normalize()` (~line 1504)
 
 `validation`. Runs `_apply_gene_validation_heuristics()` (which calls the gene validator), then normalizes to one gene-level row per gene.
 
-Has a fallback path: if validation filters out all associations AND `ENABLE_STRICT_VALIDATION_GATE=False`, restores the pre-validation list. See [`bug-hunting.md` §2.6](./bug-hunting.md#26-validation-fallback-trusts-pre-validation-on-empty-result).
+Has a fallback path: if validation filters out all associations AND `ENABLE_STRICT_VALIDATION_GATE=False`, restores the pre-validation list.
 
 #### 7.6.4 `_run_detail_extraction()` (~line 1551)
 
@@ -783,7 +780,7 @@ Returns `(canonical_symbol, source_tag)` where source_tag is `"hgnc_local" | "hg
 
 LRU cached with `maxsize=5000` at line ~141.
 
-> **⚠️ See [`bug-hunting.md` §2.2](./bug-hunting.md#22-hgnc-api-fallback-has-no-circuit-breaker)** — no circuit breaker on HGNC API failures.
+> **Known limitation:** no circuit breaker on HGNC API failures.
 
 ### 8.3 `get_gene_biotype()`
 
@@ -816,7 +813,7 @@ Validates each `{col}_Citation` field exists in the paper text. Adds `{col}_cita
 
 Applied to BOTH citation and paper text before matching (C22). Never normalize only one side.
 
-**The 0.85 threshold** is hardcoded. See [`bug-hunting.md` §1.6](./bug-hunting.md#16-citation-match-threshold-hardcoded).
+**The 0.85 threshold** is hardcoded.
 
 ### 8.5 Variant patterns
 
@@ -832,7 +829,7 @@ Pre-W3 bug: token estimation was wildly wrong. Fixed to use a reasonable ratio.
 
 ### 8.7 Failure modes
 
-- Local HGNC load failure → silent fallback to API. See [`bug-hunting.md` §4](./bug-hunting.md#section-4--silent-failure-modes-consolidated).
+- Local HGNC load failure → silent fallback to API.
 - HGNC API timeout → falls through to MyGene.
 - MyGene timeout → returns `unresolved`.
 - All sources fail → gene gets `validation_confidence=0.0`, dropped by strict gate.
@@ -907,7 +904,7 @@ def _compute_row_confidence(row: dict, user_cols: list) -> tuple:
 5. Both sources (NER+LLM) AND valid citation → HIGH
 6. Everything else → MEDIUM
 
-> **⚠️ See [`bug-hunting.md` §2.1](./bug-hunting.md#21-high-confidence-tier-unreachable-if-val_conf--085)** — HIGH is unreachable for `val_conf < 0.85` even with dual source corroboration.
+> **Known limitation:** HIGH is unreachable for `val_conf < 0.85` even with dual source corroboration.
 
 ### 9.3 Worker pool
 
@@ -946,7 +943,7 @@ Every worker invocation creates a fresh `PaperAnalysisPipeline` instance. No sta
 
 One `apply_async` in flight at a time. Polls `ready()` with 200ms sleep. Checks cancellation between polls.
 
-> **⚠️ See [`bug-hunting.md` §2.8](./bug-hunting.md#28-sequential-mode-polling-loop-burns-cpu-on-slow-workers)** — 200ms detection lag per timeout.
+> **Known limitation:** sequential-mode polling has up to 200ms detection lag per timeout check.
 
 ### 9.5 Parallel mode
 
@@ -978,7 +975,7 @@ while in_flight:
 
 Harvest ready results, handle timeouts (may trigger pool restart), submit next paper.
 
-> **⚠️ See [`bug-hunting.md` §1.1, §1.2, §1.3](./bug-hunting.md#section-1--critical-findings)** — multiple critical bugs in this loop: silent error swallowing, timeout clock reset on restart, in-flight dict leaks.
+> **Known limitation:** this loop has historically been sensitive to silent error swallowing, timeout clock reset on restart, and in-flight dict leaks.
 
 ### 9.6 Cancellation flow
 
@@ -1007,7 +1004,7 @@ The RESULT line returns all four paths as `local_path`, `metadata_path`, `excel_
 
 After extraction, duplicate rows (same gene, same PMID) are merged by `groupby(gene + pmid).agg(first)`. Variant names are merged into a semicolon-joined unique list.
 
-> **⚠️ See [`bug-hunting.md` §1.4, §1.5](./bug-hunting.md#14-variant-dedup-aggregation-silently-loses-empty-variants)** — variant dedup loses empty variants, and the whole step is wrapped in a swallow-all try/except.
+> **Known limitation:** variant dedup loses empty variants, and the whole step is wrapped in a swallow-all try/except.
 
 ### 9.9 Final output schema
 
@@ -1201,7 +1198,7 @@ All flags from `pipeline/modules/config.py`. Grouped by purpose.
 
 **Contract:** `content` key must exist. Empty string is OK only as a no-full-text signal; per-paper analysis will emit a metadata-only row instead of running extraction.
 
-**Breakage point:** See [`bug-hunting.md` §7](./bug-hunting.md#section-7--missing-validation-gates) — `_prepare_paper_inputs` doesn't check for the `content` key.
+**Breakage point:** `_prepare_paper_inputs` doesn't check for the `content` key.
 
 ### 11.4 `candidate_discovery` → `detail_extraction` (PubTator → Gemini)
 
@@ -1220,7 +1217,7 @@ All flags from `pipeline/modules/config.py`. Grouped by purpose.
 
 **Contract:** All arguments are picklable across multiprocessing boundary.
 
-**Breakage point:** `figure_inputs` contains raw image bytes. Large multi-panel figures can blow the pickle buffer. See [`bug-hunting.md` §8.2](./bug-hunting.md#82-figure-bytes-pickling-cost).
+**Breakage point:** `figure_inputs` contains raw image bytes. Large multi-panel figures can blow the pickle buffer.
 
 ### 11.5 Per-paper analysis → `output_writing` (Worker → Orchestrator)
 
@@ -1242,7 +1239,7 @@ Or on error:
 
 **Contract:** Either `records` is present (success) or `error` is present (failure). Never both.
 
-**Breakage point:** See [`bug-hunting.md` §1.1](./bug-hunting.md#11-parallel-mode-ready---gettimeout0-race-swallows-worker-errors) — the silent error wrapping can produce error payloads that look identical to real failures.
+**Breakage point:** the silent error wrapping can produce error payloads that look identical to real failures.
 
 ### 11.6 `output_writing` → Electron (Python → bridge)
 
@@ -1260,7 +1257,7 @@ Or on error:
 }
 ```
 
-**Contract:** Either success paths or error. The bridge's `isResultPayload` is too permissive (see [`bug-hunting.md` §1.8](./bug-hunting.md#18-isresultpayload-accepts-any-object)).
+**Contract:** Either success paths or error. The bridge's `isResultPayload` is too permissive and should be tightened with explicit shape checks.
 
 ---
 
@@ -1386,7 +1383,7 @@ When a timeout fires:
 5. `worker_pool = mp.Pool(processes=pool_size)` — new pool
 6. Re-submit remaining in-flight papers to the new pool with `submitted_at = time.time()` (clock reset!)
 
-See [`bug-hunting.md` §1.2](./bug-hunting.md#12-pool-restart-resets-per-paper-timeout-clock) — the clock reset can cause indefinite hangs on pathological papers.
+The clock reset can cause indefinite hangs on pathological papers.
 
 ---
 
@@ -1466,7 +1463,7 @@ Fix: set `thinking_budget=0` through the shared structured-generation config hel
 
 ### 13.8 Why no static clinical blocklist
 
-See 13.6. The FDA auditor story is documented in `docs/audit/AUDIT.md` at the C18 entry.
+See 13.6. The FDA auditor story is retained here as internal review context.
 
 ### 13.9 `detail_extraction` instruction accumulation
 
@@ -1481,7 +1478,6 @@ The 14 rules in `_DETAIL_EXTRACTION_CRITICAL_INSTRUCTIONS` accumulate. Each new 
 | Unit | `pipeline/tests/test_*.py` | ~50 | `python -m pytest tests/ -v` |
 | Integration | `pipeline/tests/test_pipeline_integration.py` | 11 | `python -m pytest tests/test_pipeline_integration.py -v` |
 | Smoke | `/verify` slash command | n/a | TS typecheck + Python imports |
-| Benchmark | `pipeline/scripts/benchmark_runner.py` | 24 papers | `python scripts/benchmark_runner.py --all --runs 3` |
 
 All tests run from the `pipeline/` directory with the venv activated. Total runtime: ~4-5 minutes for the full suite.
 
@@ -1513,7 +1509,7 @@ This is the single best source of truth for post-mortem analysis. When a paper p
 For each core file, see its git history for the change timeline:
 
 ```bash
-git log --oneline pipeline/modules/paper_analysis/ pipeline/modules/gemini_extractor.py
+git log --oneline pipeline/modules/paper_analysis/
 git log --oneline pipeline/modules/pipeline_orchestrator.py
 git log --oneline pipeline/modules/gene_validator.py
 git log --oneline app/src/main/python-bridge.ts
@@ -1525,7 +1521,5 @@ Key refactor: commit `df674fe` (2026-04-07) — pre-package readability refactor
 
 ## Cross-References
 
-- [`bug-hunting.md`](./bug-hunting.md) — historical/maintainer review notes
-- [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level routing for Codex
-- [`AUDIT.md`](../audit/AUDIT.md) — historical bug log
-- [`AGENTS.md`](../../AGENTS.md) — project routing file
+- [`pipeline-contract.md`](./pipeline-contract.md) — canonical architecture source
+- [`../README.md`](../README.md) — public documentation routing

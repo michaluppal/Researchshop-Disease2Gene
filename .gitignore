@@ -19,6 +19,8 @@ node_modules/
 dist/
 out/
 build/
+release/
+releases/
 *.tsbuildinfo
 # electron-vite dev generates timestamp-suffixed config files
 electron.vite.config.*.mjs
@@ -39,12 +41,25 @@ Desktop.ini
 
 # ─── Pipeline outputs (runtime) ──────────────────────
 data/output/
+data/outputs/
 pipeline/data/output/
+pipeline/data/outputs/
+python/data/output/
+python/data/outputs/
 
 # ─── Pipeline viewer live-run artifacts (runtime only) ───
 publication/figures/pipeline-viewer/live_runs/
 
 # ─── Benchmark transient artifacts ───────────────────
+data/benchmark/
+data/gold_standard/
+data/gold-standard/
+pipeline/data/benchmark/
+pipeline/data/gold_standard/
+pipeline/data/gold-standard/
+python/data/benchmark/
+python/data/gold_standard/
+python/data/gold-standard/
 pipeline/data/benchmark/runs/
 pipeline/data/benchmark/[0-9]*/
 pipeline/data/benchmark/*_figure_on/
@@ -70,6 +85,9 @@ _minted-*/
 *.bcf
 *.run.xml
 *.spl
+publication/*.pdf
+publication/releases/
+docs/pipeline/reports/*.pdf
 
 # ─── SJR source data (large CSV, not shipped) ───────
 scimagojr*.csv
@@ -87,6 +105,24 @@ temp/
 # ─── Legacy local folders (canonical roots are app/ and pipeline/) ───
 /src/
 /python/
+
+# ─── Local/private release cleanup ───────────────────
+AGENTS.md
+.codex/
+archive/
+docs/audit/
+docs/pipeline/bug-hunting.md
+docs/pipeline/gold-standards/
+docs/pipeline/reports/
+docs/pipeline/understanding.md
+docs/planning/ROADMAP.md
+publication/working/
+pipeline/scripts/
+.local-cleanup/
+.private-cleanup/
+local-cleanup/
+private-cleanup/
+release-cleanup/
 
 # ─── Reference PDFs (not part of the software) ──────
 publication/examples/

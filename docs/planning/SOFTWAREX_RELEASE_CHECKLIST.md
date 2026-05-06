@@ -16,8 +16,8 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - Diagnostic fields are metadata-only unless explicitly promoted for researcher review.
   - `test_write_split_output_has_public_column_contract` guards the public column set.
 - [x] Do a final public-reader documentation sweep: `README.md` -> pipeline contract -> internals, without forcing readers through historical notes.
-  - `docs/README.md` now separates the public reader path from maintainer/historical references.
-  - `docs/pipeline/internals.md` now treats bug-hunting/report links as historical watchlist context.
+  - `docs/README.md` now separates the public reader path from private maintainer materials omitted from the public branch.
+  - `docs/pipeline/internals.md` no longer links to private audit/report/watchlist notes.
 - [x] Continue consolidating Gemini extraction around one typed schema stack for candidate discovery, figures, and detail extraction.
   - Candidate discovery and figure discovery share the same Pydantic association schema.
   - Detail extraction keeps the dynamic Pydantic schema builder for user columns.
@@ -56,6 +56,6 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 
 ## Current Scope Decision
 
-Benchmark expansion, inter-rater reliability, and external extraction-accuracy validation are deferred. Historical benchmark records remain in `docs/audit/` and `publication/working/` for transparency, but they are not release blockers for the current SoftwareX submission.
+Benchmark expansion, inter-rater reliability, and external extraction-accuracy validation are deferred. Detailed internal benchmark and audit working records are omitted from the public release branch, and they are not release blockers for the current SoftwareX submission.
 
 Zenodo archival DOI work is dismissed from this checklist for the current SoftwareX submission. Revisit only if the journal or final release policy explicitly requires an archival software DOI.

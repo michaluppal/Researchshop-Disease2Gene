@@ -157,7 +157,7 @@ class TestGroundingBypassForFigureSource:
             k = pipeline._assoc_key(gene, variant)
             m = pipeline.candidate_meta.get(k) or {}
             sources = m.get("sources", set()) or set()
-            # Apply the same bypass logic as gemini_extractor.py line ~1255.
+            # Apply the production figure-only grounding bypass.
             if isinstance(sources, set) and sources == {"llm_figure"}:
                 grounded.append(assoc)
                 continue

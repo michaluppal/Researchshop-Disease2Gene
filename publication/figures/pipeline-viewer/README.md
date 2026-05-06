@@ -2,7 +2,7 @@
 
 Interactive, self-contained HTML view of the ResearchShop extraction pipeline.
 Each box is a function or pipeline domain; connections show data flow. Click a node for its
-schema, config flags, and audit cross-references. Load a trace file to see actual
+schema, config flags, and review notes. Load a trace file to see actual
 data that flowed through each domain for one example paper.
 
 ## Two modes
@@ -21,9 +21,9 @@ data that flowed through each domain for one example paper.
 Open `index.html` in any modern browser. No build step, no server, no
 dependencies. Everything is inline.
 
-Without a trace file, the viewer shows the static pipeline schema. Every domain
-links to its section in `docs/pipeline/understanding.md` and any related audit
-findings in `docs/audit/final-audit.md`.
+Without a trace file, the viewer shows the static pipeline schema. Use it alongside
+`docs/pipeline/pipeline-contract.md` and `docs/pipeline/internals.md` for the public
+architecture and implementation notes.
 
 ## Quick use — live mode
 
@@ -141,6 +141,5 @@ at the appropriate site. Keep node IDs in sync with the `NODES` table in
 
 ## Related docs
 
-- `docs/pipeline/understanding.md` — full narrative trace of the pipeline
-- `docs/audit/final-audit.md` — findings (F1–F10) the viewer cross-references
-- `.codex/rules/memory-pipeline.md` — domain-level reference for Codex sessions
+- `docs/pipeline/pipeline-contract.md` — canonical public pipeline contract
+- `docs/pipeline/internals.md` — maintainer technical reference

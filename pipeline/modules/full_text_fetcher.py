@@ -20,7 +20,8 @@
 #   2. Europe PMC fullTextXML — alternative OA XML endpoint
 #
 # Playwright browser automation, Trafilatura web scraping, paywall detection,
-# and publisher-specific DOM selectors were removed in F5 of docs/audit/AUDIT.md.
+# and publisher-specific DOM selectors are intentionally absent from the public
+# pipeline. Full-text fetching is limited to OA XML APIs.
 # If any legacy call path bypasses the layers above AND a paywalled PMID reaches this
 # module, `_fetch_pmc_efetch` returns `extraction_method="no_oa_full_text"`
 # and the paper continues through the pipeline with abstract-only content.

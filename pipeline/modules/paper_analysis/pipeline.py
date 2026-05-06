@@ -477,9 +477,8 @@ class PaperAnalysisPipeline(
         while rejecting genuine hallucinations.
 
         Scope note: verifies gene presence only. Variant presence is validated later
-        by the citation validator (Section 15.2) and the evidence gate (Section 15.3)
-        — see F8c in docs/audit/final-audit.md for why the function's name is narrower than it
-        appears.
+        by the citation validator and the evidence gate, so this function is narrower
+        than the name may first suggest.
         """
         if not (getattr(config, "ENABLE_GROUNDING_CHECK", True) and self.paper_text):
             return

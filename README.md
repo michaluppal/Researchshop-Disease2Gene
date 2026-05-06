@@ -213,7 +213,7 @@ For any association you intend to report or build upon:
 
 ### Validation status
 
-ResearchShop includes offline unit and integration tests for the parser, PubTator integration, per-paper extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records implementation decisions and known failure modes for maintainers.
+ResearchShop includes offline unit and integration tests for the parser, PubTator integration, per-paper extraction gates, citation grounding, output writing, and pipeline tracing. Public documentation summarizes the validation boundaries and known failure modes maintainers should keep in view.
 
 The safest interpretation is: high-confidence rows are **prioritised candidates for expert review**, not validated biomedical facts. Precision and recall depend on paper type, full-text availability, user-defined columns, Gemini model behavior, and whether evidence appears in prose, tables, figures, or supplementary files.
 

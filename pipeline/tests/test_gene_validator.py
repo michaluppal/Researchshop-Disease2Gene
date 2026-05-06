@@ -365,7 +365,6 @@ def test_citation_smoke_verbatim_match():
     for every citation without raising any error. The pipeline would run normally but
     produce zero validated citations.
 
-    Reference: AGENTS.md Common Agent Mistakes #5, AUDIT.md C19.
     Known-good calibration: PMID 17463248 (T2D GWAS, Scott et al. 2007) — 5/5 citations
     verified verbatim in PMC XML (2026-02-25).
     """

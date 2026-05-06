@@ -1,4 +1,0 @@
-interface:
-  display_name: "ResearchShop Parser Gold Standard"
-  short_description: "Validate PMC parser output against browser gold truth."
-  default_prompt: "Use $researchshop-parser-gold-standard to validate the current ResearchShop parser and figure downloads against browser ground truth."

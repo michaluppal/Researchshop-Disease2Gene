@@ -2,7 +2,7 @@
 
 This is the canonical public contract for the ResearchShop pipeline. It maps the user-facing pipeline domains to the code that owns each step and to the trace node names emitted when tracing is enabled.
 
-Legacy names such as `stage5` and `gemini_extractor` are compatibility aliases only. The active per-paper architecture is `pipeline/modules/paper_analysis/` and `PaperAnalysisPipeline`.
+Legacy import paths such as `stage5` and `gemini_extractor` are removed from the public release branch. The active per-paper architecture is `pipeline/modules/paper_analysis/` and `PaperAnalysisPipeline`.
 
 ## Normalization Boundary
 

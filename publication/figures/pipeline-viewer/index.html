@@ -322,9 +322,8 @@
       </div>
       <div class="panel-section">
         <h3>Related docs</h3>
-        <p>Full narrative: <code>docs/pipeline/understanding.md</code><br>
-           Audit findings: <code>docs/audit/final-audit.md</code><br>
-           Domain reference: <code>.codex/rules/memory-pipeline.md</code></p>
+        <p>Pipeline contract: <code>docs/pipeline/pipeline-contract.md</code><br>
+           Technical reference: <code>docs/pipeline/internals.md</code></p>
       </div>
     </div>
   </aside>
@@ -347,7 +346,7 @@
 <script>
 // ─────────────────────────────────────────────────────────────────
 // NODE DEFINITIONS — the pipeline graph. Ordered by execution lane.
-// Each node: { id, label, stage_id, lane, row, desc, inputs, outputs, config, docs_section, audit_findings }
+// Each node: { id, label, stage_id, lane, row, desc, inputs, outputs, config, docs_section, review_notes }
 // stage_id is the existing trace-file field name; domain wording is used in the UI.
 // ─────────────────────────────────────────────────────────────────
 const NODES = {
@@ -537,7 +536,7 @@ const NODES = {
     audit: []
   },
   strict_gate: { lane: 6, row: 0, label: "Strict gate", stage_id: "confidence ≥ 0.7", laneClass: "lane-gate",
-    desc: "Drop if validation_confidence < 0.7. Medical-accuracy threshold (AGENTS.md non-negotiable). Fail-closed if column missing.",
+    desc: "Drop if validation_confidence < 0.7. Medical-accuracy threshold. Fail-closed if column missing.",
     inputs: ["backfilled rows"],
     outputs: ["≥0.7 confidence rows (tag: rejected_below_final_threshold)"],
     config: ["FINAL_VALIDATION_MIN_CONFIDENCE=0.7", "ENABLE_STRICT_VALIDATION_GATE"],
@@ -862,13 +861,13 @@ function renderPanel(id) {
   // Docs
   html += `<div class="panel-section">
     <h3>Docs</h3>
-    <p><code>docs/pipeline/understanding.md</code> ${escapeHtml(n.docs)}</p>
+    <p><code>docs/pipeline/pipeline-contract.md</code> ${escapeHtml(n.docs)}</p>
   </div>`;
 
-  // Audit
+  // Review notes
   if (n.audit && n.audit.length) {
     html += `<div class="panel-section">
-      <h3>Audit findings</h3>
+      <h3>Review notes</h3>
       ${n.audit.map(a => `<span class="pill warn">${escapeHtml(a)}</span>`).join("")}
     </div>`;
   }
