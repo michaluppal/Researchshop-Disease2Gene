@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X,
   ChevronLeft,
@@ -6,11 +6,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Loader2,
-  CheckSquare,
-  Square,
   ArrowUpDown,
-  Eye,
-  EyeOff,
   Dna,
   ChevronDown,
   ChevronUp,
@@ -19,8 +15,15 @@ import {
   Lock,
   LockOpen,
 } from 'lucide-react'
-import { getJournalQuality, calculateCompositeScore, getScoreBreakdown, getQuartile } from '../utils/journalQuality'
-import { scoreGeneRelevance, type RelevanceResult } from '../utils/geneRelevanceScorer'
+import { getJournalQuality, getScoreBreakdown, getQuartile } from '../utils/journalQuality'
+import type { RelevanceResult } from '../utils/geneRelevanceScorer'
+import {
+  calculateGeneticsSignal,
+  calculateRecommendationScore,
+  compareRecommendedPapers,
+  RECOMMENDATION_WEIGHTS,
+  type PaperSortMode,
+} from '../../shared/paperRecommendation'
 
 interface PaperItem {
   title?: string
@@ -33,10 +36,13 @@ interface PaperItem {
   authors?: string[]
   citationCount?: number
   compositeScore?: number
+  recommendationScore?: number
+  geneticsScore?: number
   pubYear?: string
   abstract?: string
   relevance?: RelevanceResult
   publicationTypes?: string[]
+  searchRank?: number
 }
 
 interface TopicResultsModalProps {
@@ -46,7 +52,6 @@ interface TopicResultsModalProps {
   onSelectPapers: (papers: PaperItem[]) => void
 }
 
-type SortMode = 'relevance' | 'recent' | 'impact' | 'gene-relevance'
 const PAGE_SIZE = 20
 
 export default function TopicResultsModal({
@@ -56,34 +61,45 @@ export default function TopicResultsModal({
   onSelectPapers,
 }: TopicResultsModalProps) {
   const [allPmids, setAllPmids] = useState<string[]>([])
+  const [rankedPapersByPmid, setRankedPapersByPmid] = useState<Record<string, PaperItem>>({})
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
-  const [papers, setPapers] = useState<PaperItem[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
-  const [pageLoading, setPageLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [sortMode, setSortMode] = useState<SortMode>('impact')
+  const [sortMode, setSortMode] = useState<PaperSortMode>('recommended')
   const [expandedScore, setExpandedScore] = useState<string | null>(null)
   const [tooMany, setTooMany] = useState(false)
-  const [showAll, setShowAll] = useState(false)
-  const [abstractFetchError, setAbstractFetchError] = useState<string | null>(null)
+  const [rankingWarning, setRankingWarning] = useState<string | null>(null)
   const [expandedAbstract, setExpandedAbstract] = useState<string | null>(null)
+  const rankedSearchRequestId = useRef(0)
 
   // Initial search
   useEffect(() => {
-    if (!isOpen || !query) return
+    const requestId = rankedSearchRequestId.current + 1
+    rankedSearchRequestId.current = requestId
+
+    if (!isOpen || !query) {
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError(null)
     setTooMany(false)
-    setPapers([])
+    setTotalCount(0)
+    setAllPmids([])
+    setRankedPapersByPmid({})
     setSelected(new Set())
     setPage(0)
-    setShowAll(false)
+    setRankingWarning(null)
+    setExpandedScore(null)
+    setExpandedAbstract(null)
 
     window.api.pubmed
-      .search(query)
+      .searchRanked(query)
       .then((result) => {
+        if (rankedSearchRequestId.current !== requestId) return
         if (result.error) {
           setError(result.error)
           return
@@ -93,113 +109,63 @@ export default function TopicResultsModal({
           setTooMany(true)
           return
         }
+        const rankedPapers = result.papers || {}
+        setRankedPapersByPmid(rankedPapers)
+        setRankingWarning(result.rankingWarning || null)
         setAllPmids(result.pmids)
-      })
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false))
-  }, [isOpen, query])
-
-  // Fetch page details + abstracts
-  const fetchPage = useCallback(
-    async (pageIndex: number, pmids: string[]) => {
-      const start = pageIndex * PAGE_SIZE
-      const pagePmids = pmids.slice(start, start + PAGE_SIZE)
-      if (pagePmids.length === 0) {
-        setPapers([])
-        return
-      }
-
-      setPageLoading(true)
-      try {
-        const [details, citations, abstractResult] = await Promise.all([
-          window.api.pubmed.fetchDetails(pagePmids),
-          window.api.citations.fetch(pagePmids),
-          window.api.pubmed.fetchAbstracts(pagePmids),
-        ])
-
-        if (abstractResult.error) {
-          setAbstractFetchError(abstractResult.error)
-          setShowAll(true)  // Don't hide papers if we couldn't score them
-        } else {
-          setAbstractFetchError(null)
-        }
-        const abstracts = abstractResult.abstracts
-
-        const items: PaperItem[] = pagePmids.map((pmid) => {
-          const d = details[pmid]
-          const citationCount = citations[pmid] || 0
-          const journalQuality = d ? getJournalQuality(d.journal, d.issn) : 30
-          const compositeScore = calculateCompositeScore(citationCount, journalQuality)
-          const abstract = abstracts[pmid] || ''
-          const relevance = scoreGeneRelevance(abstract, d?.title || '')
-          return {
-            pmid,
-            title: d?.title,
-            doi: d?.doi,
-            pmc: d?.pmc,
-            issn: d?.issn,
-            url: d?.url || `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-            journal: d?.journal,
-            authors: d?.authors,
-            citationCount,
-            compositeScore,
-            pubYear: d?.pubYear,
-            abstract,
-            relevance,
-            publicationTypes: d?.publicationTypes || [],
+        const autoSelected = new Set<string>()
+        result.pmids.slice(0, PAGE_SIZE).forEach((pmid) => {
+          const paper = rankedPapers[pmid]
+          if (paper?.relevance && (paper.relevance.tier === 'high' || paper.relevance.tier === 'medium')) {
+            autoSelected.add(pmid)
           }
         })
+        setSelected(autoSelected)
+      })
+      .catch((err) => {
+        if (rankedSearchRequestId.current === requestId) setError(String(err))
+      })
+      .finally(() => {
+        if (rankedSearchRequestId.current === requestId) setLoading(false)
+      })
 
-        setPapers(items)
-
-        // Auto-select papers with medium+ gene relevance (only on first page load)
-        if (pageIndex === 0) {
-          const autoSelected = new Set<string>()
-          items.forEach((p) => {
-            if (p.pmid && p.relevance && (p.relevance.tier === 'high' || p.relevance.tier === 'medium')) {
-              autoSelected.add(p.pmid)
-            }
-          })
-          setSelected(autoSelected)
-        }
-      } catch (err) {
-        setError(String(err))
-      } finally {
-        setPageLoading(false)
+    return () => {
+      if (rankedSearchRequestId.current === requestId) {
+        rankedSearchRequestId.current += 1
       }
-    },
-    []
-  )
+    }
+  }, [isOpen, query])
+
+  const orderedPapers = useMemo(() => {
+    const rankedPapers = allPmids.map((pmid, index) => (
+      rankedPapersByPmid[pmid] || {
+        pmid,
+        title: 'Title unavailable',
+        url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+        journal: 'Unknown Journal',
+        authors: [],
+        citationCount: 0,
+        compositeScore: 0,
+        recommendationScore: 0,
+        geneticsScore: 0,
+        pubYear: '',
+        abstract: '',
+        publicationTypes: [],
+        searchRank: index,
+      }
+    ))
+    return rankedPapers
+      .sort((a, b) => compareRecommendedPapers(a, b, sortMode))
+  }, [allPmids, rankedPapersByPmid, sortMode])
 
   useEffect(() => {
-    if (allPmids.length > 0) {
-      fetchPage(page, allPmids)
-    }
-  }, [page, allPmids, fetchPage])
+    setPage(0)
+  }, [sortMode])
 
-  // Sorting
-  const sortedPapers = [...papers].sort((a, b) => {
-    if (sortMode === 'recent') {
-      return (b.pubYear || '').localeCompare(a.pubYear || '')
-    }
-    if (sortMode === 'impact') {
-      return (b.compositeScore || 0) - (a.compositeScore || 0)
-    }
-    if (sortMode === 'gene-relevance') {
-      return (b.relevance?.score || 0) - (a.relevance?.score || 0)
-    }
-    return 0 // relevance = original order
-  })
-
-  // Filtering: hide low-relevance papers unless showAll is on
   const visiblePapers = useMemo(() => {
-    if (showAll) return sortedPapers
-    return sortedPapers.filter(
-      (p) => !p.relevance || p.relevance.tier === 'high' || p.relevance.tier === 'medium'
-    )
-  }, [sortedPapers, showAll])
-
-  const hiddenCount = sortedPapers.length - visiblePapers.length
+    const start = page * PAGE_SIZE
+    return orderedPapers.slice(start, start + PAGE_SIZE)
+  }, [orderedPapers, page])
 
   const totalPages = Math.ceil(allPmids.length / PAGE_SIZE)
 
@@ -227,15 +193,12 @@ export default function TopicResultsModal({
   }
 
   const handleAdd = () => {
-    // Collect selected papers from all pages - we only have details for current page
-    // so pass what we have; the parent should enrich as needed
-    const selectedPapers = sortedPapers.filter((p) => p.pmid && selected.has(p.pmid))
-    // Also include any selected PMIDs not on current page as minimal items
-    selected.forEach((pmid) => {
-      if (!selectedPapers.some((p) => p.pmid === pmid)) {
-        selectedPapers.push({ pmid, url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` })
-      }
-    })
+    // Preserve full ranked metadata for selected papers, including off-page selections.
+    const selectedPapers = Array.from(selected).map((pmid) => (
+      rankedPapersByPmid[pmid] ||
+      orderedPapers.find((p) => p.pmid === pmid) ||
+      { pmid, url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` }
+    ))
     onSelectPapers(selectedPapers)
     onClose()
   }
@@ -297,14 +260,14 @@ export default function TopicResultsModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-50 flex flex-col">
-      {/* Abstract fetch error banner */}
-      {abstractFetchError && (
+      {/* Ranking warning banner */}
+      {rankingWarning && (
         <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between">
           <p className="text-sm text-amber-800">
-            Could not load abstracts for relevance scoring — showing all papers. Gene relevance badges unavailable.
+            {rankingWarning}
           </p>
           <button
-            onClick={() => setAbstractFetchError(null)}
+            onClick={() => setRankingWarning(null)}
             className="ml-4 text-amber-600 hover:text-amber-800 text-xs underline flex-shrink-0"
           >
             Dismiss
@@ -318,11 +281,6 @@ export default function TopicResultsModal({
             <h2 className="text-lg font-semibold text-slate-900">Topic Search Results</h2>
             <p className="text-sm text-slate-500 mt-0.5">
               {totalCount.toLocaleString()} papers found for &ldquo;{query}&rdquo;
-              {hiddenCount > 0 && !showAll && (
-                <span className="text-slate-400">
-                  {' '}&middot; showing {visiblePapers.length}, {hiddenCount} low-relevance hidden
-                </span>
-              )}
             </p>
           </div>
           <button
@@ -351,31 +309,18 @@ export default function TopicResultsModal({
               </div>
               Select All
             </button>
-            {hiddenCount > 0 && (
-              <button
-                onClick={() => setShowAll(!showAll)}
-                className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-              >
-                {showAll ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-                {showAll ? 'Hide low relevance' : `Show all (${hiddenCount} hidden)`}
-              </button>
-            )}
           </div>
           <div className="flex items-center gap-2">
             <ArrowUpDown className="w-4 h-4 text-slate-400" />
             <select
               value={sortMode}
-              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              onChange={(e) => setSortMode(e.target.value as PaperSortMode)}
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             >
-              <option value="relevance">Best Match</option>
+              <option value="recommended">Recommended</option>
               <option value="recent">Most Recent</option>
-              <option value="impact">By Impact</option>
-              <option value="gene-relevance">Gene Relevance</option>
+              <option value="citations">Most Cited</option>
+              <option value="pubmed">PubMed Order</option>
             </select>
           </div>
         </div>
@@ -386,7 +331,7 @@ export default function TopicResultsModal({
         {loading && (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 text-brand-600 animate-spin" />
-            <span className="ml-2 text-sm text-slate-500">Searching PubMed...</span>
+            <span className="ml-2 text-sm text-slate-500">Searching and ranking PubMed...</span>
           </div>
         )}
 
@@ -411,33 +356,7 @@ export default function TopicResultsModal({
           </div>
         )}
 
-        {pageLoading && !loading && (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white animate-pulse">
-                <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded bg-slate-200 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-4 w-20 rounded bg-slate-200" />
-                      <div className="h-4 w-12 rounded bg-slate-100" />
-                      <div className="h-4 w-24 rounded bg-slate-100" />
-                    </div>
-                    <div className="h-5 w-3/4 rounded bg-slate-200" />
-                    <div className="h-4 w-1/2 rounded bg-slate-100" />
-                    <div className="h-3 w-2/5 rounded bg-slate-100" />
-                    <div className="flex gap-3">
-                      <div className="h-3 w-32 rounded bg-slate-100" />
-                      <div className="h-3 w-20 rounded bg-slate-100" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && !pageLoading && !tooMany && visiblePapers.length > 0 && (
+        {!loading && !tooMany && visiblePapers.length > 0 && (
           <div className="space-y-3">
             {visiblePapers.map((paper) => {
               const isSelected = paper.pmid ? selected.has(paper.pmid) : false
@@ -451,7 +370,7 @@ export default function TopicResultsModal({
                     isSelected
                       ? 'border-brand-300 bg-brand-50/50 shadow-sm ring-1 ring-brand-200'
                       : lowRelevance
-                        ? 'border-slate-200 bg-slate-50/50 opacity-60 hover:opacity-80 hover:border-slate-300'
+                        ? 'border-amber-200 bg-white hover:border-amber-300 hover:shadow-sm'
                         : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                   }`}
                 >
@@ -460,7 +379,7 @@ export default function TopicResultsModal({
                     className="w-full text-left p-4"
                   >
                   <div className="flex items-start gap-3">
-                    <div className={`w-5 h-5 mt-0.5 flex-shrink-0 rounded ${isSelected ? 'bg-brand-600 text-white' : lowRelevance ? 'border-2 border-slate-200' : 'border-2 border-slate-300 hover:border-brand-400'} flex items-center justify-center transition-colors`}>
+                    <div className={`w-5 h-5 mt-0.5 flex-shrink-0 rounded ${isSelected ? 'bg-brand-600 text-white' : lowRelevance ? 'border-2 border-amber-300' : 'border-2 border-slate-300 hover:border-brand-400'} flex items-center justify-center transition-colors`}>
                       {isSelected && (
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -615,15 +534,15 @@ export default function TopicResultsModal({
                             Full abstract
                           </span>
                         )}
-                        {paper.compositeScore !== undefined && (
+                        {paper.recommendationScore !== undefined && (
                           <span
                             onClick={(e) => {
                               e.stopPropagation()
                               setExpandedScore(expandedScore === paper.pmid ? null : (paper.pmid || null))
                             }}
-                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-brand-300 transition-all ${getScoreBadgeColor(paper.compositeScore)}`}
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-brand-300 transition-all ${getScoreBadgeColor(paper.recommendationScore)}`}
                           >
-                            Impact: {paper.compositeScore}
+                            Recommended: {paper.recommendationScore}
                           </span>
                         )}
                       </div>
@@ -632,12 +551,34 @@ export default function TopicResultsModal({
                   </div>
                   </button>
                   {/* Expandable panels — outside button to avoid nesting interactive elements */}
-                  {expandedScore === paper.pmid && paper.citationCount !== undefined && paper.journal && (() => {
-                    const bd = getScoreBreakdown(paper.citationCount!, getJournalQuality(paper.journal!, paper.issn), paper.issn, paper.journal!)
+                  {expandedScore === paper.pmid && paper.citationCount !== undefined && (() => {
+                    const journalQuality = paper.journal ? getJournalQuality(paper.journal, paper.issn) : 30
+                    const bd = getScoreBreakdown(paper.citationCount!, journalQuality, paper.issn, paper.journal)
+                    const geneticsScore = paper.geneticsScore ?? calculateGeneticsSignal(paper.relevance)
+                    const impactScore = paper.compositeScore ?? bd.composite
+                    const geneticsComponent = Math.round(geneticsScore * RECOMMENDATION_WEIGHTS.genetics)
+                    const impactComponent = Math.round(impactScore * RECOMMENDATION_WEIGHTS.impact)
                     return (
                       <div className="mx-4 mb-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-                        <p className="font-semibold text-slate-700 mb-2">Impact Score Breakdown</p>
+                        <p className="font-semibold text-slate-700 mb-2">Recommendation Score</p>
                         <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Genetics signal (65%)</span>
+                            <span className="font-mono text-emerald-600 font-medium">{geneticsComponent}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Gene relevance score</span>
+                            <span className="font-mono text-slate-700">{paper.relevance?.score ?? 0}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Gene relevance tier</span>
+                            <span className="font-medium text-slate-700">{paper.relevance?.tier ?? 'unscored'}</span>
+                          </div>
+                          <div className="border-t border-slate-200 my-1" />
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Impact signal (35%)</span>
+                            <span className="font-mono text-blue-600 font-medium">{impactComponent}</span>
+                          </div>
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500">Citations</span>
                             <span className="font-mono text-slate-700">{bd.citationCount}</span>
@@ -647,26 +588,26 @@ export default function TopicResultsModal({
                             <span className="font-mono text-slate-700">{bd.normalizedCitations}</span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-500">Citation component (60%)</span>
-                            <span className="font-mono text-blue-600 font-medium">{bd.citationComponent}</span>
+                            <span className="text-slate-500">Citation share of impact score</span>
+                            <span className="font-mono text-slate-700">{bd.citationComponent}</span>
                           </div>
                           <div className="border-t border-slate-200 my-1" />
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500">Journal</span>
-                            <span className="text-slate-700">{paper.journal}</span>
+                            <span className="text-slate-700">{paper.journal || 'Unranked / unknown'}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-slate-500">Journal tier</span>
-                            <span className={`font-medium ${bd.tier === 'Tier 1' ? 'text-emerald-600' : bd.tier === 'Tier 2' ? 'text-blue-600' : bd.tier === 'Tier 3' ? 'text-amber-600' : 'text-slate-500'}`}>{bd.tier} ({bd.journalQuality}/100)</span>
+                            <span className={`font-medium ${bd.tier === 'Q1' ? 'text-emerald-600' : bd.tier === 'Q2' ? 'text-blue-600' : bd.tier === 'Q3' ? 'text-amber-600' : 'text-slate-500'}`}>{bd.tier} ({bd.journalQuality}/100)</span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-slate-500">Journal component (40%)</span>
-                            <span className="font-mono text-emerald-600 font-medium">{bd.journalComponent}</span>
+                            <span className="text-slate-500">Journal share of impact score</span>
+                            <span className="font-mono text-slate-700">{bd.journalComponent}</span>
                           </div>
                           <div className="border-t border-slate-200 my-1" />
                           <div className="flex items-center justify-between">
-                            <span className="font-medium text-slate-700">Composite Score</span>
-                            <span className="font-mono font-bold text-slate-900">{bd.composite}</span>
+                            <span className="font-medium text-slate-700">Recommendation Score</span>
+                            <span className="font-mono font-bold text-slate-900">{paper.recommendationScore}</span>
                           </div>
                         </div>
                       </div>

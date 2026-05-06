@@ -13,6 +13,7 @@
   },
   "include": [
     "../app/src/renderer/**/*",
+    "../app/src/shared/**/*",
     "../app/src/renderer/data/**/*.json",
     "../app/src/preload/**/*"
   ]

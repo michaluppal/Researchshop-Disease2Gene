@@ -5,6 +5,13 @@ import { startPipeline, cancelPipeline, isPipelineRunning, PipelineArgs } from '
 import { getGeminiDailyUsage, addGeminiApiCalls } from './usage-store'
 import { downloadUpdate, installUpdate } from './updater'
 import { resolveDoisToPmids, resolvePmcsToPmids } from './pubmed-resolvers'
+import {
+  fetchPubMedAbstracts,
+  fetchPubMedDetails,
+  fetchSemanticScholarCitations,
+  searchPubMedIds,
+  searchPubMedRanked,
+} from './pubmed-services'
 import { readFileSync, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
 import path from 'node:path'
@@ -155,20 +162,11 @@ export function registerIpcHandlers(): void {
 
   // ---- PubMed Search ----
   ipcMain.handle('pubmed:search', async (_e, query: string, retmax = 10000) => {
-    try {
-      const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${retmax}&retmode=json`
-      const res = await fetch(url)
-      if (!res.ok) return { count: 0, pmids: [], error: `PubMed search failed (HTTP ${res.status})` }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = await res.json() as any
-      if (data?.esearchresult?.ERROR) return { count: 0, pmids: [], error: `PubMed error: ${data.esearchresult.ERROR}` }
-      return {
-        count: parseInt(data?.esearchresult?.count || '0'),
-        pmids: data?.esearchresult?.idlist || []
-      }
-    } catch (err) {
-      return { count: 0, pmids: [], error: `Network error — check your internet connection (${String(err)})` }
-    }
+    return searchPubMedIds(query, retmax)
+  })
+
+  ipcMain.handle('pubmed:search-ranked', async (_e, query: string, retmax = 10000) => {
+    return searchPubMedRanked(query, retmax)
   })
 
   ipcMain.handle('pubmed:resolve-doi', (_e, dois: string[]) => resolveDoisToPmids(dois))
@@ -177,81 +175,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('pubmed:fetch-details', async (_e, pmids: string[]) => {
     try {
-      const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
-      // Batch in groups of 200
-      const results: Record<string, any> = {}
-      for (let i = 0; i < safePmids.length; i += 200) {
-        const batch = safePmids.slice(i, i + 200)
-        const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${batch.join(',')}&retmode=json`
-        const res = await fetch(url)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data = await res.json() as any
-        if (data?.result) {
-          for (const pmid of batch) {
-            if (data.result[pmid] && !data.result[pmid].error) {
-              const d = data.result[pmid]
-              let doi, pmc, issn
-              if (d.articleids) {
-                doi = d.articleids.find((id: any) => id.idtype === 'doi')?.value
-                pmc = d.articleids.find((id: any) => id.idtype === 'pmc')?.value
-                issn = d.articleids.find((id: any) => id.idtype === 'issn')?.value
-              }
-              // Fallback: esummary also exposes issn/essn at top level
-              if (!issn) issn = d.issn || d.essn || ''
-              results[pmid] = {
-                title: d.title || 'Title unavailable',
-                journal: d.fulljournalname || d.source || 'Unknown Journal',
-                authors: d.authors?.slice(0, 3).map((a: any) => a.name) || [],
-                pubYear: d.pubdate?.split(' ')[0] || d.sortpubdate?.substring(0, 4) || '',
-                doi, pmc, issn,
-                url: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}`,
-                publicationTypes: (d.pubtype || []) as string[],
-              }
-            }
-          }
-        }
-      }
-      return results
+      return fetchPubMedDetails(pmids)
     } catch (err) {
       return { error: String(err) }
     }
   })
 
   ipcMain.handle('pubmed:fetch-abstracts', async (_e, pmids: string[]) => {
-    try {
-      const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
-      const abstracts: Record<string, string> = {}
-      for (let i = 0; i < safePmids.length; i += 200) {
-        const batch = safePmids.slice(i, i + 200)
-        const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${batch.join(',')}&rettype=xml&retmode=xml`
-        const res = await fetch(url)
-        const xml = await res.text()
-        // Parse <AbstractText> per <PubmedArticle>
-        const articleRegex = /<PubmedArticle>[\s\S]*?<\/PubmedArticle>/g
-        let match
-        while ((match = articleRegex.exec(xml)) !== null) {
-          const article = match[0]
-          const pmidMatch = article.match(/<PMID[^>]*>(\d+)<\/PMID>/)
-          if (!pmidMatch) continue
-          const pmid = pmidMatch[1]
-          // Collect all <AbstractText> sections
-          const abstractParts: string[] = []
-          const absRegex = /<AbstractText[^>]*>([\s\S]*?)<\/AbstractText>/g
-          let absMatch
-          while ((absMatch = absRegex.exec(article)) !== null) {
-            // Strip any remaining XML tags
-            const text = absMatch[1].replace(/<[^>]+>/g, '').trim()
-            if (text) abstractParts.push(text)
-          }
-          if (abstractParts.length > 0) {
-            abstracts[pmid] = abstractParts.join(' ')
-          }
-        }
-      }
-      return { abstracts, error: null }
-    } catch (err) {
-      return { abstracts: {}, error: String(err) }
-    }
+    return fetchPubMedAbstracts(pmids)
   })
 
   ipcMain.handle('pubmed:count', async (_e, query: string) => {
@@ -445,28 +376,6 @@ Return JSON:
   })
 
   ipcMain.handle('citations:fetch', async (_e, pmids: string[]) => {
-    const safePmids = pmids.filter(id => /^\d+$/.test(String(id)))
-    const results: Record<string, number> = {}
-    // Fetch in parallel but limit concurrency
-    const batchSize = 5
-    for (let i = 0; i < safePmids.length; i += batchSize) {
-      const batch = safePmids.slice(i, i + batchSize)
-      const promises = batch.map(async (pmid) => {
-        try {
-          const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/PMID:${pmid}?fields=citationCount`)
-          if (res.ok) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const data = await res.json() as any
-            results[pmid] = data.citationCount || 0
-          } else {
-            results[pmid] = 0
-          }
-        } catch {
-          results[pmid] = 0
-        }
-      })
-      await Promise.all(promises)
-    }
-    return results
+    return fetchSemanticScholarCitations(pmids)
   })
 }

@@ -7,5 +7,11 @@
     "types": ["node"],
     "declaration": true
   },
-  "include": ["../app/src/main/**/*", "../app/src/preload/**/*", "./electron.vite.config.ts"]
+  "include": [
+    "../app/src/main/**/*",
+    "../app/src/preload/**/*",
+    "../app/src/shared/**/*",
+    "../app/src/renderer/data/**/*.json",
+    "./electron.vite.config.ts"
+  ]
 }

@@ -69,6 +69,37 @@ export interface ElectronAPI {
   }
   pubmed: {
     search: (query: string, retmax?: number) => Promise<{ count: number; pmids: string[]; error?: string }>
+    searchRanked: (query: string, retmax?: number) => Promise<{
+      count: number
+      pmids: string[]
+      error?: string
+      rankingWarning?: string
+      papers?: Record<string, {
+        title: string
+        pmid: string
+        doi?: string
+        pmc?: string
+        issn?: string
+        url: string
+        journal: string
+        authors: string[]
+        citationCount: number
+        compositeScore: number
+        recommendationScore: number
+        geneticsScore: number
+        pubYear: string
+        abstract: string
+        relevance: {
+          score: number
+          tier: 'high' | 'medium' | 'low' | 'none'
+          geneSymbols: string[]
+          topKeywords: string[]
+          hasMolecularContext: boolean
+        }
+        publicationTypes: string[]
+        searchRank: number
+      }>
+    }>
     fetchDetails: (pmids: string[]) => Promise<Record<string, { title: string; journal: string; authors: string[]; pubYear: string; doi?: string; pmc?: string; issn?: string; url: string; publicationTypes: string[] }>>
     fetchAbstracts: (pmids: string[]) => Promise<{ abstracts: Record<string, string>; error: string | null }>
     count: (query: string) => Promise<{ count: number }>
@@ -166,6 +197,7 @@ const api: ElectronAPI = {
   },
   pubmed: {
     search: (query, retmax) => ipcRenderer.invoke('pubmed:search', query, retmax),
+    searchRanked: (query, retmax) => ipcRenderer.invoke('pubmed:search-ranked', query, retmax),
     fetchDetails: (pmids) => ipcRenderer.invoke('pubmed:fetch-details', pmids),
     fetchAbstracts: (pmids) => ipcRenderer.invoke('pubmed:fetch-abstracts', pmids),
     count: (query) => ipcRenderer.invoke('pubmed:count', query),
