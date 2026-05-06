@@ -2,7 +2,7 @@
 
 **AI-powered gene and variant extraction from PubMed literature.**
 
-ResearchShop is a free, open-source desktop app for biomedical researchers. You provide a PubMed query or a list of paper IDs; the pipeline searches the literature, fetches full text from open-access papers, and produces a structured CSV of gene/variant associations with supporting evidence and citations — ready for downstream analysis or manual review.
+ResearchShop is a free, open-source desktop app for biomedical researchers. You provide a PubMed query or a list of paper IDs; the pipeline searches the literature, fetches full text from open-access papers, and writes a reviewable artifact bundle of gene/variant associations with supporting evidence, citations, provenance, and diagnostics.
 
 > **Designed for molecular genetics research** — GWAS studies, cancer genomics, RNA-seq differential expression, pharmacogenomics, and rare disease papers.
 
@@ -24,7 +24,9 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 | Requirement | Version |
 |-------------|---------|
-| macOS / Windows / Linux | any recent |
+| macOS | Apple Silicon DMG build validated |
+| Windows | x64 installer build validated on GitHub Actions |
+| Linux | packaging script present; release validation pending |
 | Node.js | 18 or later |
 | Python | 3.11 or later |
 | Google Gemini API key | free tier sufficient |
@@ -35,21 +37,31 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 ## Installation
 
 ```bash
-git clone https://github.com/michaluppal/RS_SOFTWAREX.git
-cd RS_SOFTWAREX
+git clone https://github.com/michaluppal/Researchshop-Disease2Gene.git
+cd Researchshop-Disease2Gene
 npm install
 npm run dev          # opens the app in development mode
 ```
 
-Python dependencies are installed automatically on first launch into a local virtual environment (`pipeline/.venv/`). No manual `pip install` needed.
+In development, Python dependencies are installed into `pipeline/.venv/`. In the packaged desktop app, the bundled pipeline is read-only and dependencies are installed into the app user-data directory, for example `~/Library/Application Support/researchshop-desktop/python/.venv` on macOS.
+
+The app performs this setup on first launch. For command-line development or tests, create the venv manually:
+
+```bash
+cd pipeline
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 To build a distributable:
 ```bash
 npm run package:mac:local # macOS Apple Silicon DMG for local testing
-npm run package      # macOS universal DMG + ZIP, intended for release builders
-npm run package:win  # Windows NSIS installer, intended for Windows release builders
-npm run package:linux # Linux AppImage + deb
+npm run package:win -- --x64 --publish never # Windows x64 installer on a Windows runner
+npm run package:linux # Linux AppImage + deb; validation pending
 ```
+
+Build-validation workflow: [`.github/workflows/build-validation.yml`](.github/workflows/build-validation.yml). The current release-readiness record lives in [`docs/planning/SOFTWAREX_RELEASE_CHECKLIST.md`](docs/planning/SOFTWAREX_RELEASE_CHECKLIST.md).
 
 ---
 
@@ -87,7 +99,11 @@ The pipeline can also be run headlessly:
 
 ```bash
 cd pipeline
+python3 -m venv .venv
 source .venv/bin/activate   # or .venv/Scripts/activate on Windows
+pip install -r requirements.txt
+export GEMINI_API_KEY="..."
+export ENTREZ_EMAIL="you@example.org"
 
 python run_pipeline.py \
   --pmids '["19915526","20129251"]' \
@@ -176,11 +192,11 @@ For any association you intend to report or build upon:
 
 ### Known failure modes
 
-- **Clinical biomarker papers.** Papers that report CRP, ESR, AST, ALT primarily as inflammatory/liver markers (not as gene expression data) can produce false gene extractions. The pipeline's disambiguation clause reduces but does not eliminate this. Example: an MIS-C cytokine paper produced false-positive ESR, CRP, and IL-6 extractions in early testing. Inspect `Candidate Source` — deterministic-only genes without LLM corroboration require additional scrutiny.
+- **Clinical biomarker papers.** Papers that report CRP, ESR, AST, ALT primarily as inflammatory/liver markers (not as gene expression data) can produce false gene extractions. The pipeline's disambiguation and evidence gates reduce but do not eliminate this. Inspect the metadata sheet fields such as `Candidate Source`, grounding details, and citation-validation fields before using a result.
 
 - **Open-access papers only.** Full text is fetched only from PMC and Europe PMC. Paywalled papers are excluded from extraction; if no OA full text is fetched, the output contains metadata-only rows for review.
 
-- **GWAS and pharmacogenomics papers require LLM.** Novel GWAS loci not yet indexed by PubTator's NER model depend entirely on Gemini extraction. Runs with an invalid or expired API key fall back to deterministic + PubTator mode, which has near-zero recall on GWAS papers.
+- **Gemini is required for normal extraction.** Every analyzed full-text paper gets a mandatory full-text Gemini candidate-discovery call before detail extraction. Empty Gemini candidate output can continue with PubTator and deterministic candidates, but transport/authentication/parsing failures are surfaced as paper-analysis failures rather than silently falling back to deterministic-only extraction.
 
 - **Table-heavy results sections.** The citation validator matches LLM-extracted quotes against prose sentences. Papers where findings appear only in supplementary tables will show low or zero citation coverage — this is expected behaviour, not a pipeline error.
 
@@ -199,32 +215,43 @@ The safest interpretation is: high-confidence rows are **prioritised candidates 
 To run the local verification suite:
 
 ```bash
+npm install
 npm run typecheck
+npm run test
 cd pipeline
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 python -m pytest tests/ -v --tb=short
 ```
 
-Historical benchmark scripts and data live under `pipeline/data/benchmark/` and `pipeline/scripts/`. They are retained for auditability, but they are not required for normal installation or SoftwareX reproduction of the software workflow.
+Historical benchmark scripts and data live under `pipeline/data/benchmark/` and `pipeline/scripts/`. They are retained for auditability, but they are not required for normal installation or SoftwareX reproduction of the software workflow. The current SoftwareX submission is a software description and reproducibility submission, not a definitive extraction-accuracy benchmark.
 
-If you do run historical benchmark scripts, provide credentials via environment variables only:
+The focused PIMS/MIS-C gold-standard fixture is the current live scientific smoke check:
 
 ```bash
 cd pipeline
 source .venv/bin/activate
 export GEMINI_API_KEY="..."
 export ENTREZ_EMAIL="you@example.org"
-python scripts/benchmark_runner.py --all --runs 3
-python scripts/benchmark_analysis.py
+python run_pipeline.py \
+  --pmids '["35177862"]' \
+  --columns '{"Key Finding":"Main gene-related finding","Disease Association":"Disease context","Statistical Evidence":"Reported statistics","Conclusion":"Author conclusion"}' \
+  --top-n 1 \
+  --output-dir /tmp/researchshop_pims_validation \
+  --trace-pmid 35177862 \
+  --trace-functions
+python scripts/compare_pims_gold_standard.py \
+  --output-dir /tmp/researchshop_pims_validation
 ```
 
-Results are written to `data/benchmark/benchmark_results.csv`. See `docs/audit/AUDIT.md § Benchmark Results` for the full evaluation.
+See [`docs/pipeline/gold-standards/pims-mis-c-35177862.md`](docs/pipeline/gold-standards/pims-mis-c-35177862.md) for the curated annotation and latest live-run notes.
 
 ---
 
 ## How to cite
 
-> ResearchShop Desktop v1.0.0. GitHub: <https://github.com/michaluppal/RS_SOFTWAREX>. DOI to be added after archival release.
+> ResearchShop Desktop v1.0.0. GitHub: <https://github.com/michaluppal/Researchshop-Disease2Gene>.
 
 ---
 
