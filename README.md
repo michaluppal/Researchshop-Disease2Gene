@@ -10,13 +10,20 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 <p align="center">
   <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.1/researchshop-desktop-1.0.1.dmg">
-    <img alt="Download macOS DMG" src="https://img.shields.io/badge/macOS-Download%20DMG-2563EB?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
+    <img alt="Download unsigned macOS DMG" src="https://img.shields.io/badge/macOS-DMG%20unsigned-F59E0B?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
   </a>
   &nbsp;
   <img alt="Windows EXE work in progress" src="https://img.shields.io/badge/Windows-EXE%20WIP-9CA3AF?style=for-the-badge&logo=windows&logoColor=white&labelColor=6B7280">
 </p>
 
-Installers for nontechnical users are published on the [GitHub Releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases). Download the `.dmg` file on macOS or the `.exe` installer on Windows. The source-code ZIP files on GitHub are for developers, not normal app installation.
+Installers are published on the [GitHub Releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases). The current macOS `.dmg` is an unsigned test build; Windows `.exe` distribution is work in progress. The source-code ZIP files on GitHub are for developers, not normal app installation.
+
+> **macOS security note:** v1.0.1 is not Apple-signed or notarized yet. macOS may show “ResearchShop is damaged and can’t be opened.” For local testing, install the app, then run:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/ResearchShop.app
+> open /Applications/ResearchShop.app
+> ```
 
 ---
 
@@ -36,7 +43,7 @@ Installers for nontechnical users are published on the [GitHub Releases page](ht
 
 | Requirement | Version |
 |-------------|---------|
-| macOS | Apple Silicon DMG build validated |
+| macOS | Apple Silicon unsigned DMG test build validated |
 | Windows | x64 installer build validated on GitHub Actions |
 | Linux | packaging script present; release validation pending |
 | Node.js | 18 or later |
@@ -48,7 +55,7 @@ Installers for nontechnical users are published on the [GitHub Releases page](ht
 
 ## Installation
 
-For normal use, download the packaged installer from [GitHub Releases](https://github.com/michaluppal/Researchshop-Disease2Gene/releases).
+For release testing, download the packaged installer from [GitHub Releases](https://github.com/michaluppal/Researchshop-Disease2Gene/releases).
 
 For development:
 

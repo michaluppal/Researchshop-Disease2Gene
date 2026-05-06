@@ -35,6 +35,7 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - verified first-launch Python setup uses userData, not the app bundle
   - verified Query, Paper Analysis, Settings, History, app version, PubMed metadata IPC, PubMed count IPC, and Gemini usage IPC
   - GitHub Actions build validation run `25426414134` also passed macOS ARM64 install, typecheck, DMG build, artifact existence check, and artifact upload
+  - Important release caveat: v1.0.1 is unsigned and not notarized, so downloaded installs can be blocked by Gatekeeper with the misleading “damaged” dialog. Apple Developer ID signing and notarization remain required before presenting the DMG as a nontechnical-user installer.
 
 ## Required Before Final Cross-Platform Release
 
@@ -44,6 +45,7 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - verified Windows `.exe` installer and `*win.zip` artifacts exist and uploaded `researchshop-windows-x64`
 - [ ] Build Linux packages on Linux release runner:
   - `npm run package:linux`
+- [ ] Add Apple Developer ID signing and notarization for macOS downloads.
 - [ ] Verify first-launch Python setup and Settings flow on Windows and Linux.
 - [ ] Create a GitHub release tag and attach installers.
 
