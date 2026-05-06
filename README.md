@@ -204,7 +204,7 @@ For any association you intend to report or build upon:
 
 ### Validation status
 
-ResearchShop includes offline unit and integration tests for the parser, PubTator integration, per-paper extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records historical benchmark experiments and known failure modes, but the current SoftwareX submission is framed as a software description and reproducibility paper rather than a definitive clinical accuracy benchmark.
+ResearchShop includes offline unit and integration tests for the parser, PubTator integration, per-paper extraction gates, citation grounding, output writing, and pipeline tracing. The audit log records implementation decisions and known failure modes for maintainers.
 
 The safest interpretation is: high-confidence rows are **prioritised candidates for expert review**, not validated biomedical facts. Precision and recall depend on paper type, full-text availability, user-defined columns, Gemini model behavior, and whether evidence appears in prose, tables, figures, or supplementary files.
 
@@ -225,27 +225,7 @@ pip install -r requirements.txt
 python -m pytest tests/ -v --tb=short
 ```
 
-Historical benchmark scripts and data live under `pipeline/data/benchmark/` and `pipeline/scripts/`. They are retained for auditability, but they are not required for normal installation or SoftwareX reproduction of the software workflow. The current SoftwareX submission is a software description and reproducibility submission, not a definitive extraction-accuracy benchmark.
-
-The focused PIMS/MIS-C gold-standard fixture is the current live scientific smoke check:
-
-```bash
-cd pipeline
-source .venv/bin/activate
-export GEMINI_API_KEY="..."
-export ENTREZ_EMAIL="you@example.org"
-python run_pipeline.py \
-  --pmids '["35177862"]' \
-  --columns '{"Key Finding":"Main gene-related finding","Disease Association":"Disease context","Statistical Evidence":"Reported statistics","Conclusion":"Author conclusion"}' \
-  --top-n 1 \
-  --output-dir /tmp/researchshop_pims_validation \
-  --trace-pmid 35177862 \
-  --trace-functions
-python scripts/compare_pims_gold_standard.py \
-  --output-dir /tmp/researchshop_pims_validation
-```
-
-See [`docs/pipeline/gold-standards/pims-mis-c-35177862.md`](docs/pipeline/gold-standards/pims-mis-c-35177862.md) for the curated annotation and latest live-run notes.
+This is the public reproducibility path for the software workflow. Internal audit fixtures and historical validation notes are kept in the repository for maintainers, but they are not part of the public quick-start path.
 
 ---
 
