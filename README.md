@@ -6,6 +6,14 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 > **Designed for molecular genetics research** — GWAS studies, cancer genomics, RNA-seq differential expression, pharmacogenomics, and rare disease papers.
 
+<p align="center">
+  <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases">
+    <img alt="Download ResearchShop" src="https://img.shields.io/badge/Download-ResearchShop-2563eb?style=for-the-badge">
+  </a>
+</p>
+
+Installers for nontechnical users are published on the [GitHub Releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases). Download the `.dmg` file on macOS or the `.exe` installer on Windows. The source-code ZIP files on GitHub are for developers, not normal app installation.
+
 ---
 
 ## What it does
@@ -35,6 +43,10 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 ---
 
 ## Installation
+
+For normal use, download the packaged installer from [GitHub Releases](https://github.com/michaluppal/Researchshop-Disease2Gene/releases).
+
+For development:
 
 ```bash
 git clone https://github.com/michaluppal/Researchshop-Disease2Gene.git
