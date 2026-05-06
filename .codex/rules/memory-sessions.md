@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-05-06 — Public docs path and Gemini schema consolidation
+
+**Done:**
+- Updated docs routing so public readers start at README, then `docs/README.md`, then pipeline contract, then internals.
+- Marked roadmap, bug-hunting, reports, and audit material as historical/maintainer references rather than required onboarding.
+- Moved Gemini response schemas into `paper_analysis/schemas.py` and kept compatibility exports from `gemini_client.py`.
+- Made figure Gemini discovery use the same candidate association schema as abstract/full-text discovery, preserving original mention and evidence sentence.
+
+**Context:**
+- This addresses publication-readiness points 4 and 5.
+
+## 2026-05-06 — Output artifact contract for SoftwareX readiness
+
+**Done:**
+- Locked primary CSV/JSON/Excel `Results` fields to requested user columns plus fixed researcher-facing fields.
+- Kept diagnostics such as validation confidence/source, candidate source, citation checks, NCBI data, and gate/debug details in metadata artifacts.
+- Updated README, pipeline contract, internals, audit, and SoftwareX checklist.
+- Added a regression test asserting the public column contract and JSON/CSV parity.
+
+**Context:**
+- This addresses publication-readiness point 3: every output field should have a clear reason to exist.
+
 ## 2026-04-25 — Migrated active agent docs from Claude to Codex
 
 **Done:**
@@ -515,3 +537,27 @@ GWAS and pharmacogenomics papers require LLM for recall.
 - Set up `pyproject.toml` with ruff + mypy
 - Build pytest suite with cached fixtures
 - Create benchmark script against gold-standard gene set
+
+---
+
+## 2026-05-06 — SoftwareX remaining-risks validation
+
+**Goal:** Close the first SoftwareX remaining-risk items on `dev/remaining_risks`:
+normalization-boundary clarity and a fresh live PIMS/MIS-C gold-standard rerun.
+
+**Done:**
+- Confirmed the live PMID `35177862` rerun initially failed because mandatory Gemini
+  candidate discovery was truncated at the 8k output-token cap.
+- Raised the candidate-discovery output cap to 32k and added conservative JSON repair
+  for adjacent-object comma/trailing-comma issues before Pydantic validation.
+- Reran PMID `35177862` live with PubMed/PMC/Gemini access: 74 rows, 73 unique genes,
+  3 Gemini calls, 4 tables, trace/function/live-event artifacts written.
+- Offline comparison recovered all 16 curated expected genes, including `IFNG` via
+  `IFN-gamma` and `HLA-C` via `C*04 -> HLA-C*04`.
+- Updated the PIMS/MIS-C report, SoftwareX checklist, audit log, comparison helper,
+  and focused tests.
+
+**Residual issue:**
+- The run emits broad secondary biomarkers in addition to the focused expected set.
+  These are now review notes for this fixture, not acceptance failures; precision
+  benchmarking remains a separate future task.

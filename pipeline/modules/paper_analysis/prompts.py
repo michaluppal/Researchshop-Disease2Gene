@@ -47,6 +47,8 @@ _FIGURE_ANALYSIS_INSTRUCTION = (
     "axes labels, legends, annotations, or caption context. "
     "Use official HGNC gene symbols when possible. "
     "If no variant is shown, return an empty string for variant. "
+    "For every candidate, return one exact original_mention string from the figure/caption "
+    "and one concise evidence_sentence from the visible label or caption context. "
     "Do not guess genes that are not explicitly shown."
 )
 

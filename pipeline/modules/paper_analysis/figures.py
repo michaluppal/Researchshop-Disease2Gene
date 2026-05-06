@@ -9,6 +9,7 @@ import requests
 
 from .. import config
 from .prompts import _FIGURE_ANALYSIS_INSTRUCTION
+from .schemas import CandidateDiscoveryResponse
 
 
 class FigureMixin:
@@ -214,18 +215,15 @@ class FigureMixin:
 
         from google.genai import types  # type: ignore
 
-        from .gemini_client import FigureDiscoveryResponse
-
         model_name = config.GEMINI_CONFIG["gene_extraction_model"]
         max_figures = max(getattr(config, "FIGURE_MAX_IMAGES_PER_PAPER", 3), 0)
         if max_figures == 0:
             return []
 
-        generate_content_config = types.GenerateContentConfig(
+        generate_content_config = self._build_structured_generation_config(
+            types,
             temperature=config.GEMINI_CONFIG["temperature"],
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            response_mime_type="application/json",
-            response_schema=FigureDiscoveryResponse,
+            response_schema=CandidateDiscoveryResponse,
         )
 
         discovered: List[Dict[str, str]] = []
@@ -280,7 +278,7 @@ class FigureMixin:
                         purpose=f"figure analysis {idx}",
                         optional=True,
                         reserved_required_calls=1,
-                        response_model=FigureDiscoveryResponse,
+                        response_model=CandidateDiscoveryResponse,
                     )
                     if not response_json:
                         break
@@ -288,16 +286,40 @@ class FigureMixin:
                     associations = self._associations_from_structured_response(
                         response_json,
                         f"figure analysis {idx}",
-                        FigureDiscoveryResponse,
+                        CandidateDiscoveryResponse,
                     )
                     for assoc in associations:
                         if not isinstance(assoc, dict):
                             continue
-                        gene = (assoc.get("gene") or "").strip()
-                        variant = (assoc.get("variant") or "").strip()
+                        gene = (
+                            assoc.get("reported_gene")
+                            or assoc.get("gene")
+                            or ""
+                        ).strip()
+                        variant = (
+                            assoc.get("reported_variant")
+                            if assoc.get("reported_variant") is not None
+                            else assoc.get("variant", "")
+                        )
+                        variant = str(variant or "").strip()
                         if not gene:
                             continue
-                        discovered.append({"gene": gene, "variant": variant})
+                        discovered.append(
+                            {
+                                "reported_gene": gene,
+                                "reported_variant": variant,
+                                "original_mention": str(
+                                    assoc.get("original_mention")
+                                    or label
+                                    or gene
+                                ).strip(),
+                                "evidence_sentence": str(
+                                    assoc.get("evidence_sentence")
+                                    or caption
+                                    or label
+                                ).strip(),
+                            }
+                        )
                     fig_success = True
                     break
                 except Exception as e:
@@ -321,15 +343,23 @@ class FigureMixin:
         deduped: List[Dict[str, str]] = []
         seen = set()
         for assoc in discovered:
-            gene_norm = assoc["gene"].strip().upper()
-            variant_norm = (assoc.get("variant") or "").strip()
+            gene = assoc["reported_gene"].strip()
+            gene_norm = gene.upper()
+            variant_norm = (assoc.get("reported_variant") or "").strip()
             if variant_norm.upper() in {"N/A", "NA", "NONE"}:
                 variant_norm = ""
             key = (gene_norm, variant_norm.upper())
             if key in seen:
                 continue
             seen.add(key)
-            deduped.append({"gene": assoc["gene"], "variant": variant_norm})
+            deduped.append(
+                {
+                    "reported_gene": gene,
+                    "reported_variant": variant_norm,
+                    "original_mention": assoc.get("original_mention", ""),
+                    "evidence_sentence": assoc.get("evidence_sentence", ""),
+                }
+            )
 
         if deduped:
             logging.info(f"Figure analysis discovered {len(deduped)} unique gene associations")

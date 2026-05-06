@@ -90,7 +90,7 @@ class TableCitationIndex:
 
 @dataclass(frozen=True)
 class NormalizationRecord:
-    """Deterministic paper-level evidence for normalized biomedical aliases."""
+    """Paper-level alias evidence; raw text stays unchanged across this boundary."""
 
     original_mention: str
     normalized_gene: str

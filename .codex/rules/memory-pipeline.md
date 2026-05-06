@@ -22,6 +22,10 @@ Two precision layers:
 - **Per-paper Gemini calls**: high recall / lower precision — extend coverage and add relationships
 - **Gene Validation** (`validation`): final safety gate before any result reaches the user
 
+Gemini structured outputs are centralized in `pipeline/modules/paper_analysis/schemas.py`.
+Abstract, full-text, and figure candidate discovery share the same candidate association
+schema; detail extraction builds a dynamic Pydantic schema from the user columns.
+
 **UI-side screening:** Gene relevance scoring runs in the Electron renderer (`geneRelevanceScorer.ts`)
 during paper selection. Users see relevance badges; low-relevance papers hidden by default with
 "Show all" toggle. Pipeline trusts user's selection — no silent filtering.
@@ -330,7 +334,7 @@ UI:      PubMed search → efetch abstracts → geneRelevanceScorer → user sel
 `candidate_discovery` → [{...record, pubtator_genes: [...], pubtator_variants: [...], candidate_meta: {...}}]
 `detail_extraction` → [HybridExtractionResult(rows=DataFrame, pubtator_genes=[...])]
 `validation` → DataFrame with validation columns and gate metadata added
-`output_writing` → deduplicated, citation-ranked CSV/metadata/Excel/JSON artifacts
+`output_writing` → deduplicated, citation-ranked artifact bundle. Primary CSV/JSON/Excel `Results` contain only requested user fields plus fixed researcher-facing provenance fields; diagnostics stay in metadata/debug artifacts.
 ```
 
 ## Configuration Quick Reference

@@ -425,6 +425,54 @@ class TestMalformedJsonFigureResponse:
             "Empty Gemini response should yield an empty association list"
         )
 
+    def test_figure_discovery_uses_shared_candidate_schema_with_provenance(self, monkeypatch):
+        """Figure Gemini discovery should preserve mention/evidence metadata."""
+        from modules import config
+
+        monkeypatch.setattr(config, "ENABLE_FIGURE_ANALYSIS", True)
+        monkeypatch.setattr(config, "GEMINI_MAX_CALLS_PER_PAPER", 0)
+        response_text = (
+            '{"associations":[{'
+            '"reported_gene":"MMP9",'
+            '"reported_variant":"",'
+            '"original_mention":"MMP-9",'
+            '"evidence_sentence":"Figure 2 shows MMP-9 expression."'
+            '}]}'
+        )
+        figure_inputs = [
+            {
+                "label": "Figure 2",
+                "caption": "Figure 2 shows MMP-9 expression.",
+                "url": "https://example.com/fig2.jpg",
+                "url_candidates": ["https://example.com/fig2.jpg"],
+                "source": "pmc_xml",
+            }
+        ]
+        image_bytes = b"\xFF\xD8\xFF\xE0" + b"\x00" * 100
+        image_response = ResponseFixture(
+            200,
+            headers={"Content-Type": "image/jpeg", "Content-Length": "104"},
+            chunks=[image_bytes],
+        )
+
+        pipeline = _make_pipeline(
+            paper_text="MMP9 was discussed in the paper.",
+            stream_texts=[response_text],
+        )
+        pipeline.figure_inputs = figure_inputs
+        pipeline._figure_http_get = lambda *_args, **_kwargs: image_response
+
+        result = pipeline.extract_gene_names_from_figures()
+
+        assert result == [
+            {
+                "reported_gene": "MMP9",
+                "reported_variant": "",
+                "original_mention": "MMP-9",
+                "evidence_sentence": "Figure 2 shows MMP-9 expression.",
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Test 5: test_panel_deduplication_preserves_multi_panel

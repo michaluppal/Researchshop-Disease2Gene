@@ -100,20 +100,30 @@ python run_pipeline.py \
 
 ## Output format
 
-The output CSV contains one row per gene-paper pair with the following key columns:
+ResearchShop writes a small artifact bundle for each run:
+
+| Artifact | Purpose |
+|----------|---------|
+| `final_enriched_results_*.csv` | Primary researcher-facing table |
+| `final_enriched_results_*.json` | Same primary table as JSON records |
+| `final_enriched_results_*.xlsx` | Excel workbook with `Results`, `Metadata`, and optional association-group sheets |
+| `final_enriched_results_*_metadata.csv` | Full provenance, validation, citation, NCBI, and context diagnostics |
+| `drop_debug_*.json`, `candidate_audit_*.json` | Debug artifacts for candidate lifecycle and gate decisions |
+
+The primary CSV/JSON/Excel `Results` sheet contains one row per emitted gene-paper association. It intentionally keeps validation internals out of the main view; those remain in the metadata CSV/workbook sheet.
 
 | Column | Description |
 |--------|-------------|
-| `Gene/Group` | HGNC-validated gene symbol |
-| `Key Finding` | LLM-extracted description of the genetic finding |
-| `Key Finding Citation` | Verbatim sentence from the paper supporting the finding |
-| `Key Finding_citation_valid` | `True` if the citation was verified in the paper text |
-| `Variant Name` | HGVS variant string (if reported) |
-| `Variant Citation` | Verbatim supporting sentence for the variant |
-| `validation_confidence` | Confidence score 0–1 (≥0.7 passes the output gate) |
-| `Candidate Source` | What found the gene: `pubtator`, `llm`, `deterministic_lexicon` |
-| `PMID` | Source paper |
-| `Citations` | Paper citation count (used for ranking) |
+| `Gene`, `Variant` | HGNC-normalized gene symbol and reported variant, if any |
+| User columns, for example `Key Finding` | Gemini-extracted fields requested by the user |
+| `{User Column} Citation` | Supporting sentence for the corresponding user field |
+| `Confidence`, `Confidence Note` | Human-readable review tier and reason |
+| `Association Group`, `Association Type` | Result grouping such as disease signature, primary genetic association, mechanistic/pathway signal, or animal model signal |
+| `Original Paper Mention`, `Grounding Match`, `Grounding Source`, `Normalization Rule` | How the emitted gene was connected back to the paper text |
+| `extraction_mode`, `evidence_backfilled`, `evidence_specificity`, `context_modifications` | Visibility into fallback extraction, evidence quality, and context truncation |
+| `PMID`, `Title`, `Year`, `Journal`, `Authors`, `Citations`, `DOI` | Source-paper metadata |
+
+Diagnostic fields such as `validation_confidence`, `Candidate Source`, `Gene Source`, citation-validation booleans, NCBI metadata, and raw gate details are metadata-only by design.
 
 ---
 
@@ -124,6 +134,8 @@ paper_selection → oa_filter → paper_reading → candidate_discovery
                                                           ↓
                          output_writing ← validation ← detail_extraction
 ```
+
+The canonical step contract, including the normalization boundary between `paper_reading` and per-paper extraction, lives in [`docs/pipeline/pipeline-contract.md`](docs/pipeline/pipeline-contract.md).
 
 **Domain details:**
 

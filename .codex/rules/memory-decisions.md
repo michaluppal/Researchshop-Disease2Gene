@@ -335,3 +335,17 @@ non-coding RNA only if primary finding.
 instruction count, prompt engineering yields diminishing returns." The validator-side biotype
 filter provides the hard backstop.
 **Files:** `gemini_extractor.py` Stage 1 prompt
+
+---
+
+## 2026-05-06 — Candidate discovery output budget
+
+### Candidate-discovery JSON gets a larger output cap than detail extraction
+**Decision:** Default `GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS` is 32k, not 8k.
+**Rationale:** Candidate discovery is allowed to return more than 25 candidates on gene-rich
+multi-omics/genomics papers. The PIMS/MIS-C live validation paper returned enough structured
+candidates that the 8k cap truncated the JSON mid-`HLA-C` row, causing the mandatory discovery
+call to fail deterministically on every retry. A larger output cap preserves the "no arbitrary
+candidate cap" policy while downstream grounding/HGNC/evidence gates remain responsible for
+filtering.
+**Files:** `pipeline/modules/config.py`, `pipeline/modules/paper_analysis/gemini_client.py`

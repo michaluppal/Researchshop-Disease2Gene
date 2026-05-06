@@ -3,11 +3,13 @@
 > **Status.** Maintainer technical notes, not the canonical architecture contract.
 > Use [`pipeline-contract.md`](./pipeline-contract.md) as the source of truth for current pipeline domains, boundaries, and invariants.
 >
-> **Purpose.** Function-level deep dive into the ResearchShop extraction pipeline. Read this to understand historical state flow, implementation details, and places where failures can be silent. Some line numbers and architecture narrative may lag behind the active contract.
+> **Purpose.** Function-level deep dive into the ResearchShop extraction pipeline. Read this after the public README and pipeline contract when you need implementation detail. Some line numbers and historical failure callouts may lag behind the active contract.
+>
+> **Historical callouts.** Inline links to `bug-hunting.md`, reports, and old audit notes are maintainer watchlist/history references. They are not the public onboarding path and should be verified against current code before being treated as active defects.
 >
 > **Companion docs:**
 > - [`pipeline-contract.md`](./pipeline-contract.md) — canonical architecture source.
-> - [`bug-hunting.md`](./bug-hunting.md) — actionable audit cheatsheet. This doc tells you how the code works; that one tells you where it's suspect.
+> - [`bug-hunting.md`](./bug-hunting.md) — historical/maintainer review notes, not a current issue tracker.
 > - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level overview for Codex sessions. This doc goes deeper.
 > - [`../audit/AUDIT.md`](../audit/AUDIT.md) — historical bug log.
 > - [`../../AGENTS.md`](../../AGENTS.md) — project routing file.
@@ -573,6 +575,8 @@ Prompt constants live in `pipeline/modules/paper_analysis/prompts.py`:
 
 **Do NOT change wording without evaluating hallucination impact.** Each rule exists for a specific failure mode (see Part 13).
 
+Gemini response schemas live in `pipeline/modules/paper_analysis/schemas.py`. Abstract, full-text, and figure candidate discovery share one candidate association schema with `reported_gene`, `reported_variant`, `original_mention`, and `evidence_sentence`. Detail extraction builds a dynamic Pydantic response model from user-requested columns.
+
 ### 7.5 The 4 LLM extraction methods
 
 #### 7.5.1 `extract_gene_names_from_abstract()` (lines ~645-750)
@@ -581,7 +585,7 @@ Abstract-only pass. Cheap, runs before full-text extraction.
 
 - Max 2 retries
 - Retry delay: 3 seconds
-- Response format: JSON schema with `associations: [{gene, variant}]`
+- Response format: Pydantic JSON schema with `associations: [{reported_gene, reported_variant, original_mention, evidence_sentence}]`
 - Output merged into `candidate_meta` with source `llm_abstract`
 
 Used to catch natural-language gene references (e.g., abstract says "IL-6" while full text says "interleukin-6").
@@ -607,6 +611,8 @@ Multimodal. One LLM call per figure (capped at `FIGURE_MAX_IMAGES_PER_PAPER=1` b
 - Inter-call delay: `FIGURE_INTER_CALL_DELAY_SECONDS=4` (default)
 
 Genes extracted here get source `llm_figure` and are subject to a lighter grounding check (figure caption text match) rather than the full prose grounding.
+
+Figure discovery uses the same candidate schema as text discovery, so figure-derived rows preserve the visible label/caption mention and evidence sentence before candidate normalization.
 
 #### 7.5.4 `extract_gene_info()` (lines ~1169-1315)
 
@@ -990,10 +996,10 @@ Harvest ready results, handle timeouts (may trigger pool restart), submit next p
 **Primary entry:** `_write_split_output()` around line 217.
 
 **Produces 4 artifacts:**
-1. **Primary CSV** (`final_enriched_results_{uuid}.csv`) — user-facing columns + confidence
+1. **Primary CSV** (`final_enriched_results_{uuid}.csv`) — researcher-facing association rows only
 2. **Metadata CSV** — full diagnostic/validation columns for audit
-3. **Excel workbook** — two sheets: Results + Metadata, with confidence color coding
-4. **JSON file** — same data in structured format
+3. **Excel workbook** — Results + Metadata sheets, plus optional association-group sheets
+4. **JSON file** — same primary data in structured format
 
 The RESULT line returns all four paths as `local_path`, `metadata_path`, `excel_path`, `json_path`.
 
@@ -1005,20 +1011,22 @@ After extraction, duplicate rows (same gene, same PMID) are merged by `groupby(g
 
 ### 9.9 Final output schema
 
-Columns in the primary CSV (typical):
+The primary CSV, primary JSON, and Excel `Results` sheet are intentionally narrow. They contain only fields a researcher should review directly:
 
 | Column | Source | Notes |
 |---|---|---|
-| `Gene/Group` | canonical HGNC symbol | from validator |
-| `Variant Name` | HGVS or empty | normalized |
-| `{user_col}` | from `detail_extraction` | user-defined |
-| `{user_col} Citation` | direct quote | verbatim |
-| `validation_confidence` | 0.0–1.0 | from validator |
+| `Gene` | canonical HGNC symbol | renamed from internal `Gene/Group` |
+| `Variant` | reported variant or empty | renamed from internal `Variant Name` |
+| `{user_col}` | from `detail_extraction` | requested by the user |
+| `{user_col} Citation` | supporting sentence | paired with the requested user column |
 | `Confidence` | HIGH/MEDIUM/LOW/REVIEW | from `_compute_row_confidence` |
 | `Confidence Note` | explanation | human-readable |
-| `Gene Source` | pubtator/llm_text/both | for HIGH tier gate |
-| `Candidate Source` | full source list | for figure-only detection |
-| `Study Title`, `Authors`, `Publication Year`, `Journal Name`, `PMID` | metadata | from `paper_selection` |
+| `Association Group`, `Association Type` | association policy | groups disease, genetic, mechanistic, animal-model, and review signals |
+| `Original Paper Mention`, `Grounding Match`, `Grounding Source`, `Normalization Rule` | grounding/provenance | explains how the row connects to the paper text |
+| `extraction_mode`, `evidence_backfilled`, `evidence_specificity`, `context_modifications` | extraction visibility | surfaces fallback rows, evidence quality, and context truncation |
+| `PMID`, `Title`, `Year`, `Journal`, `Authors`, `Citations`, `DOI` | paper metadata | from `paper_selection` / citation fetch |
+
+Diagnostics such as `validation_confidence`, `validation_source`, `Candidate Source`, `Gene Source`, citation-validation booleans/details, NCBI enrichment fields, and raw gate/debug columns belong in the metadata CSV and Excel `Metadata` sheet. This is deliberate: the primary table is the publication-review surface; metadata is the reproducibility/audit surface.
 
 ---
 
@@ -1388,14 +1396,15 @@ See [`bug-hunting.md` §1.2](./bug-hunting.md#12-pool-restart-resets-per-paper-t
 
 All four live in `pipeline/modules/paper_analysis/prompts.py` as module-level constants.
 
+All Gemini calls use structured output through the schemas in `pipeline/modules/paper_analysis/schemas.py`. The SDK `parsed` path and fallback text-JSON parser both validate through the same Pydantic model before downstream ingestion.
+
 ### 13.2 `_GENE_DISCOVERY_INSTRUCTION_ABSTRACT` (lines 25-42)
 
 Purpose: abstract-level gene discovery.
 
 Key rules:
-- Focus on HUMAN protein-coding genes
+- Focus on HUMAN genes
 - Exclude model organism genes unless mapped to human orthologs
-- Only include non-coding RNA genes if primary finding
 - Use official HGNC symbols (e.g., IL6 not interleukin-6)
 - **CRITICAL DISAMBIGUATION**: distinguish molecular-level gene study from clinical lab measurements
 
@@ -1453,7 +1462,7 @@ A blocklist couldn't distinguish "ESR as lab value" from "ESR1 as gene". Replace
 
 Gemini preview models have thinking enabled by default. For 12k-token `detail_extraction` prompts, this caused hangs >600s.
 
-Fix: set `thinking_budget=0` on ALL `GenerateContentConfig` calls. This is checked in every LLM method in `pipeline/modules/paper_analysis/gemini_client.py`.
+Fix: set `thinking_budget=0` through the shared structured-generation config helper used by candidate discovery, figure discovery, and detail extraction.
 
 ### 13.8 Why no static clinical blocklist
 
@@ -1516,7 +1525,7 @@ Key refactor: commit `df674fe` (2026-04-07) — pre-package readability refactor
 
 ## Cross-References
 
-- [`bug-hunting.md`](./bug-hunting.md) — actionable audit cheatsheet
+- [`bug-hunting.md`](./bug-hunting.md) — historical/maintainer review notes
 - [`../../.codex/rules/memory-pipeline.md`](../../.codex/rules/memory-pipeline.md) — domain-level routing for Codex
 - [`AUDIT.md`](../audit/AUDIT.md) — historical bug log
 - [`AGENTS.md`](../../AGENTS.md) — project routing file

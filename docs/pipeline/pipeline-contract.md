@@ -4,6 +4,29 @@ This is the canonical public contract for the ResearchShop pipeline. It maps the
 
 Legacy names such as `stage5` and `gemini_extractor` are compatibility aliases only. The active per-paper architecture is `pipeline/modules/paper_analysis/` and `PaperAnalysisPipeline`.
 
+## Normalization Boundary
+
+Paper-level normalization is owned by `pipeline/modules/content_preparation.py` during `paper_reading`. It builds `PreparedPaperContent` with preserved raw text plus normalized citation/abstract text, table citation indexes, and deterministic `NormalizationRecord` entries. Those records are currently limited to a small, explicit set of paper-mention bridges: IFNG/TNF/MMP9 aliases and HLA class-I allele forms.
+
+Downstream `paper_analysis` code may use those normalized indexes for candidate seeding, grounding, citation validation, and evidence metadata. This boundary does not rewrite the raw paper text sent to Gemini, does not lower validation thresholds, and does not replace candidate-specific HGNC/variant normalization inside `PaperAnalysisPipeline` and `GeneValidator`.
+
+## Gemini Structured-Output Contract
+
+Gemini calls use Pydantic response schemas from `pipeline/modules/paper_analysis/schemas.py`. Candidate discovery from abstract text, full text, and figures shares one association shape: reported HGNC-style gene, reported variant, original paper/figure mention, and evidence sentence. Detail extraction uses the same typed stack but builds a dynamic response model from the user-requested columns. SDK parsed responses and fallback text-JSON parsing both validate against the same Pydantic model before downstream code ingests rows.
+
+## Output Artifact Contract
+
+The primary output is for researchers reviewing extracted associations. The metadata and debug artifacts are for reproducibility, troubleshooting, and audit.
+
+| Artifact | Contract |
+|---|---|
+| Primary CSV, JSON, and Excel `Results` sheet | One row per emitted gene-paper association. Columns are limited to `Gene`, `Variant`, requested user fields and their `Citation` pairs, confidence/grouping/provenance fields, extraction/evidence/context visibility fields, and source-paper metadata. |
+| Metadata CSV and Excel `Metadata` sheet | Same row order as the primary output, joined by `PMID`, `Gene/Group`, and `Variant Name`. Contains all diagnostic fields, including validation confidence/source, candidate source, citation-validation booleans/details, NCBI metadata, context diagnostics, and gate/debug fields. |
+| Excel association-group sheets | Optional convenience views copied from the primary `Results` sheet and split by `Association Group`; they do not introduce extra fields. |
+| Candidate audit and drop-debug JSON | Candidate lifecycle, dropped-gate reasons, and run-level forensic data. These are not researcher-facing result tables. |
+
+Primary outputs must not infer public columns by exclusion. Only requested user columns and the fixed researcher-facing fields are promoted to the primary CSV/JSON/Excel `Results` sheet; new diagnostics belong in metadata unless there is an explicit publication/readability reason to surface them.
+
 | Domain | Step | Function name | Input | Output | Description | Failure/skip behavior | Trace node |
 |---|---|---|---|---|---|---|---|
 | `paper_selection` | Run entry and configuration | `pipeline/run_pipeline.py:main()` | CLI args, `GEMINI_API_KEY`, `ENTREZ_EMAIL`, user columns, optional trace env vars | Parsed run request and initialized config | Validates process-level inputs and calls the Python orchestrator used by Electron. Secrets are read from environment variables. | Missing required config fails before analysis starts. Cancellation returns through the normal progress/log protocol. | None |
@@ -23,7 +46,7 @@ Legacy names such as `stage5` and `gemini_extractor` are compatibility aliases o
 | `candidate_discovery` | Full-text Gemini candidate discovery | `GeminiClientMixin.extract_gene_names(optional=False)` | Full paper text and PubTator seeds | Candidate associations ingested into `candidate_meta` | Mandatory full-text candidate discovery before detail extraction. Empty association output may continue to deterministic and PubTator sources. | Required. API/parsing failure sets `failed_mandatory_fulltext_gemini` and fails that paper analysis. | `fulltext_pass_greedy` |
 | `candidate_discovery` | Optional full-text recall pass | `GeminiClientMixin.extract_gene_names(temperature=0.4, optional=True)` | Full paper text | Additional candidate associations | Optional second LLM pass for recall when enabled. | Optional. Disabled by default. Failure logs a warning and keeps first-pass candidates. | `fulltext_pass_recall` |
 | `candidate_discovery` | Deterministic HGNC scan | `CandidateMixin.extract_deterministic_candidates()` | Paper text and HGNC symbol/alias data | Deterministic candidate associations | Adds lexicon-based candidate seeds without an LLM call. | Required by the per-paper contract. Empty results are valid. Later corroboration rules may drop unsupported gene-only hits. | `deterministic_scan` |
-| `candidate_discovery` | Figure Gemini candidate discovery | `FigureMixin.extract_gene_names_from_figures()` | Figure metadata and downloadable PMC images | Figure-derived candidate associations | Optional multimodal candidate discovery from figures. | Optional. Disabled, missing figures, or image failures skip the step without failing the paper. | `figure_analysis` |
+| `candidate_discovery` | Figure Gemini candidate discovery | `FigureMixin.extract_gene_names_from_figures()` | Figure metadata and downloadable PMC images | Figure-derived candidate associations with original mention and evidence sentence | Optional multimodal candidate discovery from figures. | Optional. Disabled, missing figures, or image failures skip the step without failing the paper. | `figure_analysis` |
 | `candidate_discovery` | PubTator merge | `CandidateMixin._ingest_associations(..., source="pubtator")` | PubTator gene symbols for the PMID | Candidate metadata entries | Merges upstream PubTator NER genes into the per-paper candidate set. | Required when PubTator results are present. If no PubTator genes exist, there is nothing to merge. | `pubtator_merge` |
 | `candidate_discovery` | Candidate metadata snapshot | `PaperAnalysisPipeline._run_candidate_discovery()` | Candidate metadata from all sources | Candidate source counts and candidate map | Completes candidate discovery and records source provenance. | Empty candidate sets are valid and may lead to empty downstream output. | `candidate_meta` |
 | `validation` | Grounding check | `PaperAnalysisPipeline._run_grounding_check()` | Candidate metadata, paper text, figure evidence | Grounded candidate associations | Drops candidates not found in fetched paper text or accepted figure text. | Required safeguard. Ungrounded candidates are dropped; the paper can continue with remaining candidates. | `grounding_check` |
