@@ -8,35 +8,30 @@ ResearchShop Desktop is a cross-platform desktop application built with Electron
 
 The frontend communicates with the Python pipeline via an IPC (Inter-Process Communication) bridge. The pipeline process emits structured JSON messages on stdout (\texttt{PROGRESS:\{...\}}, \texttt{LOG:\{...\}}, \texttt{RESULT:\{...\}}) which the Electron main process parses and forwards to the React renderer. Secrets (API key, email) are passed as environment variables to the spawned Python process, never as command-line arguments.
 
-The pipeline follows a seven-stage architecture (Figure~\ref{fig:architecture}):
+The pipeline follows a seven-domain architecture (Figure~\ref{fig:architecture}) aligned with the implementation contract: paper selection, open-access filtering, paper reading, candidate discovery, detail extraction, validation, and output writing.
 
 A normalization boundary preserves raw full text for LLM prompting while exposing normalized citation, table, and biomedical-alias indexes to grounding and citation-validation code.
 
 \begin{enumerate}[leftmargin=*,itemsep=2pt]
-    \item \textbf{PubMed Search \& Ranking.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{hutchins2016rcr} (primary) with Semantic Scholar~\cite{semantic_scholar_api} as fallback. Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$; user-curated PMID lists are taken 1:1 with no widening.
+    \item \textbf{Paper selection.} Queries NCBI Entrez for papers matching the user's query, PMID list, or author name. Results are ranked by citation count using iCite~\cite{hutchins2016rcr} (primary) with Semantic Scholar~\cite{semantic_scholar_api} as fallback. A TypeScript keyword-and-regex scorer in the Electron renderer helps users inspect gene relevance before submission; user-curated PMID lists are taken 1:1 with no widening.
 
-    \item \textbf{Gene Relevance Scoring (UI-side).} A TypeScript keyword-and-regex scorer runs in the Electron renderer, scoring each paper for gene relevance before the user submits their selection. High/medium papers are auto-selected; low-relevance papers are hidden by default with a ``Show all'' toggle. This replaces traditional pipeline-side abstract screening, giving researchers transparent control.
+    \item \textbf{Open-access filtering.} Query-mode searches draw up to \texttt{PUBMED\_RELEVANT\_COUNT}$=$200 open-access candidates from PubMed before citation ranking trims the pool to the user's requested top-$N$. Selected PMIDs continue only when open-access full text can be fetched; no paywall bypass is attempted.
 
-    \item \textbf{Full-Text Acquisition.} Retrieves structured full text via PMC Entrez JATS XML (primary) or Europe PMC XML (fallback). The system extracts section structure (abstract, introduction, methods, results, discussion), figure captions and image URLs, and supplementary tables. Only open-access papers are fetched; no paywall bypass is attempted.
+    \item \textbf{Paper reading.} Retrieves structured full text via PMC Entrez JATS XML (primary) or Europe PMC XML (fallback). The system extracts section structure (abstract, introduction, methods, results, discussion), figure captions and image URLs, structured tables, and supplementary metadata.
 
-    \item \textbf{PubTator NER.} Submits PMIDs to NCBI PubTator3~\cite{wei2024pubtator3} for Named Entity Recognition. Returns high-precision gene symbols and variant annotations. These serve as seed candidates for the LLM stage, forming the \emph{precision floor} of the hybrid architecture.
+    \item \textbf{Candidate discovery.} Combines three candidate sources: PubTator3~\cite{wei2024pubtator3} Named Entity Recognition, deterministic HGNC symbol/alias scanning, and a mandatory full-text Gemini candidate-discovery call. Optional abstract, recall, and figure-image discovery passes can add candidates when enabled.
 
-    \item \textbf{LLM Extraction (Gemini Flash).} A two-stage extraction using Google Gemini Flash:
-    \begin{itemize}[itemsep=1pt]
-        \item \emph{Stage~A}: Abstract-level gene discovery (fast, cheap screening).
-        \item \emph{Stage~B}: Full-text detailed extraction with the user's custom schema columns, requiring verbatim citations for each claim.
-    \end{itemize}
-    PubTator results are injected as deterministic candidate seeds, constraining the LLM's hallucination surface. An optional multimodal pass analyses figure images via Gemini Vision.
+    \item \textbf{Detail extraction (Gemini Flash).} A structured Gemini call fills the user's custom schema columns for the grounded candidate list, requiring citations for each claim. PubTator and deterministic HGNC candidates are injected as seed candidates, constraining the LLM's hallucination surface.
 
-    \item \textbf{Gene Validation.} Multi-source validation against a bundled HGNC database (44,943 genes), HGNC REST API, and MyGene.info. Includes biotype annotation, HGVS variant pattern matching, and citation cross-referencing (Section~\ref{subsec:validation}).
+    \item \textbf{Validation.} Multi-source validation against a bundled HGNC database (44,943 genes), HGNC REST API, and MyGene.info. Includes source-text grounding, biotype annotation, HGVS variant pattern matching, and citation cross-referencing (Section~\ref{subsec:validation}).
 
-    \item \textbf{Orchestration \& Output.} A multiprocessing worker pool (2--4 persistent processes, 600\,s per-paper timeout) coordinates stages~3--6. Results are deduplicated, ranked by citation count, and written to CSV with full validation metadata.
+    \item \textbf{Output writing.} A multiprocessing worker pool (2--4 persistent processes, 600\,s per-paper timeout) coordinates per-paper analysis. Results are deduplicated, ranked by citation count, and written to CSV, JSON, XLSX, metadata, trace, and candidate-audit artifacts.
 \end{enumerate}
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.95\textwidth]{figures/pipeline_tikz.pdf}
-    \caption{ResearchShop Desktop system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes full-text acquisition, PubTator NER, and LLM extraction in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
+    \caption{ResearchShop Desktop system architecture. The Electron UI layer (top) handles query input, gene relevance scoring, and results display. The Python pipeline (middle) executes open-access full-text reading, candidate discovery, Gemini detail extraction, and output writing in a multiprocessing worker pool. The validation framework (bottom) applies gene symbol verification, grounding, citation cross-referencing, and a strict confidence gate ($\geq$0.7) before output.}
     \label{fig:architecture}
 \end{figure*}
 
@@ -49,7 +44,7 @@ A key design decision is the \emph{hybrid} approach combining two complementary 
     \item \textbf{Gemini Flash (LLM):} High recall, lower precision. Extracts contextual relationships, statistical evidence, and citations. Prone to hallucination---generating gene symbols from training data that do not appear in the source paper.
 \end{itemize}
 
-The combination operates as follows: PubTator provides the precision floor (safety net), while the LLM extends coverage and adds structured context. Deterministic candidate seeding (\texttt{ENABLE\_DETERMINISTIC\_CANDIDATES}) injects PubTator genes as known-good candidates into the LLM prompt, reducing the hallucination surface. A grounding check then verifies that \emph{every} LLM-extracted gene appears as text in the fetched paper, using the canonical symbol, all HGNC aliases, and the raw label the LLM used.
+The combination operates as follows: PubTator provides the precision floor (safety net), deterministic HGNC scanning adds source-grounded recall, and Gemini full-text candidate discovery extends coverage before schema-specific detail extraction. PubTator and deterministic candidates are injected as known-good seeds into the LLM prompt, reducing the hallucination surface. A grounding check then verifies that \emph{every} LLM-extracted gene appears as text in the fetched paper, using the canonical symbol, HGNC aliases, biomedical mention bridges such as IFN-gamma to \textit{IFNG}, and the raw label the LLM used.
 
 \subsection{Schema-Driven Extraction}
 

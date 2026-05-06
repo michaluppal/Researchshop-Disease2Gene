@@ -4,7 +4,8 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 
 ## Required Before Submission
 
-- [ ] Freeze feature work for the submission branch.
+- [x] Freeze feature work for the submission branch.
+  - After the 2026-05-06 readiness pass, only release-blocking fixes, packaging fixes, and manuscript corrections should land before SoftwareX submission.
 - [x] Document the normalization boundary clearly: paper-level text normalization vs candidate-level gene/variant normalization.
 - [x] Rerun the PIMS/MIS-C gold-standard case with stable Gemini responses and confirm IFNG/HLA-C behavior in real output.
   - Live run on 2026-05-06 wrote artifacts to `/private/tmp/rs_pims_35177862_validation_1778055900/`.
