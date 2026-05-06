@@ -24,7 +24,7 @@ jobs:
         run: npm run typecheck
 
       - name: Build DMG
-        run: npm run package:mac:local
+        run: npm run package:mac:local -- --publish never
 
       - name: Verify DMG artifact exists
         run: test -f dist/researchshop-desktop-1.0.0.dmg
@@ -58,7 +58,7 @@ jobs:
         run: npm run typecheck
 
       - name: Build Windows installer
-        run: npm run package:win -- --x64
+        run: npm run package:win -- --x64 --publish never
 
       - name: Verify Windows artifacts exist
         shell: pwsh
