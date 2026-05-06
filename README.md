@@ -18,12 +18,29 @@ ResearchShop is a free, open-source desktop app for biomedical researchers. You 
 
 Installers are published on the [GitHub Releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases). The current macOS `.dmg` is an unsigned test build; Windows `.exe` distribution is work in progress. The source-code ZIP files on GitHub are for developers, not normal app installation.
 
-> **macOS security note:** v1.0.1 is not Apple-signed or notarized yet. macOS may show “ResearchShop is damaged and can’t be opened.” For local testing, install the app, then run:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/ResearchShop.app
-> open /Applications/ResearchShop.app
-> ```
+## macOS Install Instructions
+
+The current macOS app is not Apple-signed yet. This means your Mac may show a warning saying **“ResearchShop is damaged and can’t be opened.”** The app is not damaged; macOS is blocking it because it was downloaded outside the App Store without Apple notarization.
+
+No Xcode or developer tools are needed. This is a one-time setup:
+
+1. Click the **macOS DMG unsigned** button above.
+2. Open the downloaded `.dmg` file.
+3. Drag **ResearchShop** into the **Applications** folder.
+4. Open **Applications** and double-click **ResearchShop**.
+5. If macOS shows the damaged-app warning, click **Cancel**. Do not click **Move to Bin**.
+6. Open **Terminal**:
+   - Press `Command + Space`
+   - Type `Terminal`
+   - Press `Return`
+7. Copy and paste this command into Terminal, then press `Return`:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ResearchShop.app
+open /Applications/ResearchShop.app
+```
+
+After this, ResearchShop should open normally from the Applications folder.
 
 ---
 
