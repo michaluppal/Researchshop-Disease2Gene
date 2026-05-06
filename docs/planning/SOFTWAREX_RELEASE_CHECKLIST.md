@@ -31,7 +31,7 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - `git diff --check`
 - [x] Build and smoke-test macOS Apple Silicon DMG:
   - `npm run package:mac:local`
-  - mounted `dist/researchshop-desktop-1.0.0.dmg` and launched the packaged app from the read-only image
+  - mounted `dist/researchshop-desktop-1.0.1.dmg` and launched the packaged app from the read-only image
   - verified first-launch Python setup uses userData, not the app bundle
   - verified Query, Paper Analysis, Settings, History, app version, PubMed metadata IPC, PubMed count IPC, and Gemini usage IPC
   - GitHub Actions build validation run `25426414134` also passed macOS ARM64 install, typecheck, DMG build, artifact existence check, and artifact upload
