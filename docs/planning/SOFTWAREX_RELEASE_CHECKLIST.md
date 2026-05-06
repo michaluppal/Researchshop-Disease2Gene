@@ -43,8 +43,6 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
   - `npm run package:linux`
 - [ ] Verify first-launch Python setup and Settings flow on Windows and Linux.
 - [ ] Create a GitHub release tag and attach installers.
-- [ ] After SoftwareX acceptance or final release freeze, archive the exact release to Zenodo or another DOI provider.
-- [ ] Add the archival DOI to `README.md` and `publication/softwarex_metadata.tex`.
 
 ## Manuscript-Specific Checks
 
@@ -56,3 +54,5 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 ## Current Scope Decision
 
 Benchmark expansion, inter-rater reliability, and external extraction-accuracy validation are deferred. Historical benchmark records remain in `docs/audit/` and `publication/working/` for transparency, but they are not release blockers for the current SoftwareX submission.
+
+Zenodo archival DOI work is dismissed from this checklist for the current SoftwareX submission. Revisit only if the journal or final release policy explicitly requires an archival software DOI.

@@ -1,0 +1,80 @@
+name: Build Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-arm64-dmg:
+    name: macOS ARM64 DMG
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build DMG
+        run: npm run package:mac:local
+
+      - name: Verify DMG artifact exists
+        run: test -f dist/researchshop-desktop-1.0.0.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: researchshop-macos-arm64-dmg
+          path: |
+            dist/researchshop-desktop-1.0.0.dmg
+            dist/researchshop-desktop-1.0.0.dmg.blockmap
+            dist/latest-mac.yml
+
+  windows-x64-installer:
+    name: Windows x64 Installer
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build Windows installer
+        run: npm run package:win -- --x64
+
+      - name: Verify Windows artifacts exist
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter "*.exe" | Select-Object -First 1
+          $zip = Get-ChildItem dist -Filter "*win.zip" | Select-Object -First 1
+          if (-not $installer) { throw "Missing Windows installer .exe artifact" }
+          if (-not $zip) { throw "Missing Windows zip artifact" }
+          Write-Host "Installer: $($installer.FullName)"
+          Write-Host "Zip: $($zip.FullName)"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: researchshop-windows-x64
+          path: |
+            dist/*.exe
+            dist/*win.zip
+            dist/latest.yml
