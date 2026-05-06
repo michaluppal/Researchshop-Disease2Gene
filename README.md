@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/researchshop-mark.svg" alt="ResearchShop logo" width="96">
+  <img src="app/resources/icon-source.svg" alt="ResearchShop logo" width="96">
   <h1>ResearchShop Desktop</h1>
   <p><strong>AI-powered gene and variant extraction from PubMed literature.</strong></p>
 </div>

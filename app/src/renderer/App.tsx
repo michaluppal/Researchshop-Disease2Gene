@@ -9,6 +9,7 @@ import Pipeline from './pages/Pipeline'
 import Results from './pages/Results'
 import History from './pages/History'
 import { PipelineProvider } from './hooks/usePipeline'
+import BrandMark from './components/BrandMark'
 
 declare global {
   interface Window {
@@ -184,7 +185,7 @@ function SetupScreen({
         <div className="pointer-events-auto flex flex-col items-center">
           {/* Logo */}
           <div className="w-24 h-24 mb-8 rounded-3xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center backdrop-blur-sm">
-            <span className="text-5xl">🔬</span>
+            <BrandMark className="h-20 w-20 rounded-2xl shadow-2xl shadow-black/20" />
           </div>
 
           {/* Title */}

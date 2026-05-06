@@ -1,7 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Search, Clock, Settings, Plus, FlaskConical, Sparkles, Download, RefreshCw, CheckCircle2, Activity } from 'lucide-react'
+import { Search, Clock, Settings, Plus, Sparkles, Download, RefreshCw, CheckCircle2, Activity } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { usePipeline } from '../hooks/usePipeline'
+import BrandMark from './BrandMark'
 
 const mainNavItems = [
   { to: '/query', icon: Search, label: 'Query Builder' },
@@ -41,10 +42,10 @@ export default function Sidebar() {
     <div className="w-56 bg-white border-r border-slate-200 flex flex-col">
       <div className="p-5 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <FlaskConical className="w-5 h-5 text-brand-600" />
+          <BrandMark className="h-7 w-7 rounded-lg shadow-sm" />
           <h1 className="text-xl font-bold text-brand-700">ResearchShop</h1>
         </div>
-        <p className="text-xs text-slate-400 mt-0.5 ml-7">Desktop</p>
+        <p className="text-xs text-slate-400 mt-0.5 ml-9">Desktop</p>
       </div>
 
       <div className="p-3 pb-0">

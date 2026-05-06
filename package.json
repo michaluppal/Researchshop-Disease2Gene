@@ -22,6 +22,7 @@
     "package:mac:local": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-vite build --config config/electron.vite.config.ts && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --arm64 --config config/electron-builder.yml -c.mac.target=dmg",
     "package:win": "electron-vite build --config config/electron.vite.config.ts && electron-builder --win --config config/electron-builder.yml",
     "package:linux": "electron-vite build --config config/electron.vite.config.ts && electron-builder --linux --config config/electron-builder.yml",
+    "assets:brand": "node app/scripts/generate-brand-assets.js",
     "typecheck:web": "tsc --noEmit -p config/tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p config/tsconfig.node.json",
     "typecheck": "npm run typecheck:web && npm run typecheck:node",
