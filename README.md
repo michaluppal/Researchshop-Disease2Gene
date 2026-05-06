@@ -95,7 +95,7 @@ In Settings: enter your email in the **NCBI Email** field.
 
 ### Command-line usage
 
-The pipeline can also be run headlessly:
+The pipeline can also be run headlessly. For explicit PMID lists, omit `--top-n`; the provided PMID list is the intended paper set:
 
 ```bash
 cd pipeline
@@ -107,6 +107,15 @@ export ENTREZ_EMAIL="you@example.org"
 
 python run_pipeline.py \
   --pmids '["19915526","20129251"]' \
+  --columns '{"Key Finding": "The main genetic finding"}' \
+  --output-dir /tmp/results
+```
+
+For PubMed query mode, use `--top-n` to choose how many open-access, full-review papers to keep after search, filtering, and ranking:
+
+```bash
+python run_pipeline.py \
+  --query 'BRCA1 breast cancer GWAS' \
   --columns '{"Key Finding": "The main genetic finding"}' \
   --top-n 5 \
   --output-dir /tmp/results
