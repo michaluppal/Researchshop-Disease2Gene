@@ -55,8 +55,25 @@ class GeminiClientMixin:
         stripped = (text or "").strip()
         if not stripped:
             raise json.JSONDecodeError("Empty response", "", 0)
+
+        def _loads_with_common_repairs(candidate: str) -> Any:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+            # Gemini occasionally emits valid objects in an array but drops the
+            # comma between adjacent object literals, especially on long
+            # candidate-discovery responses. Repair only structural separators;
+            # every recovered object is still validated by the caller's
+            # Pydantic schema before it reaches the pipeline.
+            repaired = re.sub(r",\s*([}\]])", r"\1", candidate)
+            repaired = re.sub(r"}\s*(?={)", "},", repaired)
+            repaired = re.sub(r"]\s*(?=\[)", "],[", repaired)
+            return json.loads(repaired)
+
         try:
-            return json.loads(stripped)
+            return _loads_with_common_repairs(stripped)
         except json.JSONDecodeError:
             pass
 
@@ -64,7 +81,7 @@ class GeminiClientMixin:
             stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
             stripped = re.sub(r"\s*```$", "", stripped).strip()
             try:
-                return json.loads(stripped)
+                return _loads_with_common_repairs(stripped)
             except json.JSONDecodeError:
                 pass
 
@@ -77,7 +94,7 @@ class GeminiClientMixin:
         end = stripped.rfind(closing)
         if end <= start:
             raise json.JSONDecodeError("No complete JSON object or array found", stripped, start)
-        return json.loads(stripped[start:end + 1])
+        return _loads_with_common_repairs(stripped[start:end + 1])
 
     @staticmethod
     def _is_rate_limit_error(error: Exception) -> bool:

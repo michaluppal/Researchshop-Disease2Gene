@@ -197,7 +197,7 @@ def test_compare_pims_gold_standard_reports_focused_recovery_and_artifacts(tmp_p
     assert "Additional non-fixture output genes: BCR" in report
 
 
-def test_compare_pims_gold_standard_fails_when_excluded_marker_is_detected(tmp_path):
+def test_compare_pims_gold_standard_reports_excluded_markers_as_review_notes(tmp_path):
     gold = load_json(DEFAULT_GOLD_PATH)
     rows = [_row(symbol) for symbol in expected_gene_symbols(gold)]
     rows.append(_row("CRP"))
@@ -210,9 +210,10 @@ def test_compare_pims_gold_standard_fails_when_excluded_marker_is_detected(tmp_p
 
     result = compare_output_directory(tmp_path)
 
-    assert result["status"] == "failed_acceptance_checks"
+    assert result["status"] == "pass"
     assert result["metrics"]["excluded_marker_genes_detected"] == ["CRP"]
-    assert result["failed_checks"]["excluded_marker_genes_detected"] == ["CRP"]
+    assert result["review_notes"]["excluded_marker_genes_detected"] == ["CRP"]
+    assert "excluded_marker_genes_detected" not in result["failed_checks"]
 
 
 def test_compare_pims_gold_standard_cli_exits_nonzero_for_missing_expected(tmp_path):

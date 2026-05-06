@@ -2309,3 +2309,39 @@ validation, confidence thresholds, or OA-only policy. The latest PIMS/MIS-C live
 on PMID `35177862` recovered all 16 curated expected genes after adding the `MMP-9`
 normalization rule; subsequent HLA de-duplication and structured-output hardening are
 covered by offline regression tests.
+
+---
+
+## Implementation Note — PIMS/MIS-C Live Gold-Standard Rerun (2026-05-06)
+
+**Context:** The SoftwareX readiness checklist required a fresh live rerun of the
+PIMS/MIS-C gold-standard paper PMID `35177862` after normalization-boundary and
+typed-Gemini-schema changes. The first live rerun exposed a deterministic
+candidate-discovery failure: Gemini returned a long structured candidate list that
+was truncated at the default 8k output-token cap, ending mid-`HLA-C` row and failing
+JSON parsing on every retry.
+
+**Changes implemented on `dev/remaining_risks`:**
+
+- Raised `GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS` default from 8k to 32k so
+  gene-rich multi-omics papers can complete the mandatory candidate-discovery JSON.
+- Added conservative fallback JSON repair for missing adjacent-object commas and
+  trailing commas before Pydantic schema validation. This does not bypass the typed
+  schema; recovered objects still validate through the same response model.
+- Updated the PIMS/MIS-C comparison helper so excluded/secondary markers are reported
+  as review notes rather than hard acceptance failures. The fixture is a focused
+  recall/provenance guardrail, not an exhaustive precision benchmark.
+
+**Live validation result:** The corrected live run on PMID `35177862` wrote artifacts
+to `/private/tmp/rs_pims_35177862_validation_1778055900/`, emitted 74 rows / 73
+unique genes using 3 Gemini calls, and recovered all 16 curated expected genes with
+no missing expected genes, no context-check failures, no low-confidence expected
+genes, and no skeleton/fallback detail rows. `IFNG` grounded through `IFN-gamma`
+with `cytokine_alias_ifng`; `HLA-C` grounded through `C*04` and canonicalized to
+`HLA-C*04`; `TRBV11-2` was described as repertoire usage/expansion rather than a
+mutation.
+
+**Residual review note:** The run emits a broad biomarker/secondary-marker panel
+(`CD28`, `CRP`, `IL33`, `NPPB`, `VCAM1`, and others). This is acceptable for the
+focused gold-standard recall check but remains relevant for future precision-oriented
+benchmarking or output-ranking work.

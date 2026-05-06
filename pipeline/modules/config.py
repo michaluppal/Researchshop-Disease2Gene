@@ -111,8 +111,11 @@ GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
 GEMINI_OPTIONAL_MAX_RETRIES = int(os.getenv("GEMINI_OPTIONAL_MAX_RETRIES", "1"))
 GEMINI_INTER_CALL_DELAY_SECONDS = float(os.getenv("GEMINI_INTER_CALL_DELAY_SECONDS", "6"))
 GEMINI_TRANSIENT_RETRY_WAIT_SECONDS = int(os.getenv("GEMINI_TRANSIENT_RETRY_WAIT_SECONDS", "10"))
+# Candidate discovery can return many short structured rows for multi-omics
+# papers. 8k output tokens truncated the PIMS/MIS-C gold-standard response
+# mid-HLA-C row, causing deterministic parse failures on every retry.
 GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS = int(
-    os.getenv("GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", "8192")
+    os.getenv("GEMINI_CANDIDATE_DISCOVERY_MAX_OUTPUT_TOKENS", "32768")
 )
 GEMINI_RETRY_RATE_LIMIT_WITH_DELAY = (
     os.getenv("GEMINI_RETRY_RATE_LIMIT_WITH_DELAY", "true").lower() == "true"

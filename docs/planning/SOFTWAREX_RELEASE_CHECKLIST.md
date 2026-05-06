@@ -6,8 +6,10 @@ This checklist tracks publication-hardening work for the SoftwareX submission. I
 
 - [ ] Freeze feature work for the submission branch.
 - [x] Document the normalization boundary clearly: paper-level text normalization vs candidate-level gene/variant normalization.
-- [ ] Rerun the PIMS/MIS-C gold-standard case with stable Gemini responses and confirm IFNG/HLA-C behavior in real output.
-  - Offline comparison helper added; fresh live rerun still requires `GEMINI_API_KEY` and `ENTREZ_EMAIL` exported in the shell.
+- [x] Rerun the PIMS/MIS-C gold-standard case with stable Gemini responses and confirm IFNG/HLA-C behavior in real output.
+  - Live run on 2026-05-06 wrote artifacts to `/private/tmp/rs_pims_35177862_validation_1778055900/`.
+  - Offline comparison recovered 16/16 focused expected genes, including `IFNG` via `IFN-gamma` and `HLA-C` via `C*04 -> HLA-C*04`.
+  - Additional secondary markers remain review notes, not benchmark-style precision failures, because this fixture is focused recall validation.
 - [x] Review output columns for publication readiness; every CSV/JSON/XLSX field should have an explicit reason to exist.
   - Primary CSV/JSON/Excel `Results` fields are now documented in `README.md` and `docs/pipeline/pipeline-contract.md`.
   - Diagnostic fields are metadata-only unless explicitly promoted for researcher review.

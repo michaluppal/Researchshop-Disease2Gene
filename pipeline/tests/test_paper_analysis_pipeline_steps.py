@@ -259,6 +259,42 @@ def test_gemini_json_parser_accepts_json_with_wrapper_text():
     assert parsed == [{"gene_name": "IFNG"}]
 
 
+def test_gemini_json_parser_repairs_missing_commas_between_objects():
+    pipeline = _make_pipeline()
+
+    parsed = pipeline._parse_json_response(
+        """
+        {
+          "associations": [
+            {"reported_gene": "IFNG", "reported_variant": ""}
+            {"reported_gene": "IL6", "reported_variant": ""}
+          ]
+        }
+        """
+    )
+
+    assert parsed == {
+        "associations": [
+            {"reported_gene": "IFNG", "reported_variant": ""},
+            {"reported_gene": "IL6", "reported_variant": ""},
+        ]
+    }
+
+
+def test_gemini_json_parser_repairs_trailing_commas():
+    pipeline = _make_pipeline()
+
+    parsed = pipeline._parse_json_response(
+        '{"associations": [{"reported_gene": "IFNG", "reported_variant": ""},],}'
+    )
+
+    assert parsed == {
+        "associations": [
+            {"reported_gene": "IFNG", "reported_variant": ""},
+        ]
+    }
+
+
 def test_transient_gemini_503_gets_bounded_retry(paper_analysis_config):
     pipeline = _make_pipeline()
     paper_analysis_config.GEMINI_TRANSIENT_RETRY_WAIT_SECONDS = 10

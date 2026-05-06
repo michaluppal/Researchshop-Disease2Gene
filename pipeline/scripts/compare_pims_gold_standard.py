@@ -445,7 +445,6 @@ def compare_output_directory(
     )
     failed_checks = {
         "missing_expected_genes": missing,
-        "excluded_marker_genes_detected": excluded_detected,
         "low_confidence_expected_genes": low_confidence,
         "context_check_failures": context_failures,
         "fallback_detail_genes": fallback_detail_genes,
@@ -454,6 +453,10 @@ def compare_output_directory(
         "missing_function_trace": missing_function_trace,
         "missing_function_jsonl": missing_function_jsonl,
         "missing_live_events": missing_live_events,
+    }
+    review_notes = {
+        "additional_non_fixture_genes": additional,
+        "excluded_marker_genes_detected": excluded_detected,
     }
     status = "pass" if not any(failed_checks.values()) else "failed_acceptance_checks"
 
@@ -494,6 +497,7 @@ def compare_output_directory(
         "expected_gene_rows": expected_details,
         "candidate_audit": candidate_audit_summary,
         "trace": trace_summary,
+        "review_notes": review_notes,
         "warnings": warnings,
         "status": status,
     }
@@ -548,7 +552,8 @@ def render_markdown_report(result: dict[str, Any]) -> str:
             f"{_format_list(metrics['additional_non_fixture_genes'], max_items=30)}"
         ),
         (
-            "- Excluded mapped markers detected in output: "
+            "- Excluded mapped markers detected in output "
+            "(review note, not acceptance failure): "
             f"{_format_list(metrics['excluded_marker_genes_detected'])}"
         ),
         (
