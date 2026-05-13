@@ -4,13 +4,11 @@
 
 \subsection{The Knowledge-Extraction Bottleneck}
 
-Genomic medicine faces a fundamental knowledge extraction bottleneck: while sequencing data is abundant, the interpretation of genetic variants relies on evidence scattered across millions of publications. PubMed indexes more than 40 million citations and abstracts in biomedical and life-science literature~\cite{pubmed_about_2026}. Manual curation processes---such as those underpinning ClinVar and OMIM---cannot keep pace, leading to significant delays in integrating new findings into clinical practice.
+In this paper, we present ResearchShop, a text-mining solution for validated gene--disease association extraction from biomedical literature. The tool was born from a scientific necessity: genomic medicine faces a fundamental knowledge-extraction bottleneck in which sequencing data are abundant, but the interpretation of genetic variants relies on evidence scattered across millions of publications. PubMed indexes more than 40 million citations and abstracts in biomedical and life-science literature~\cite{pubmed_about_2026}. Manual curation processes---such as those underpinning ClinVar and OMIM---cannot keep pace, leading to significant delays in integrating new findings into clinical practice.
 
 This bottleneck has direct consequences. A significant proportion of variants identified through clinical sequencing are classified as Variants of Uncertain Significance (VUS) due to insufficient published evidence. Even when genetic associations are published, months to years may pass before this information reaches clinical databases. For rare diseases, relevant papers may be scattered across thousands of publications, making comprehensive review impractical without automation.
 
-ResearchShop was developed from this practical need during work on paediatric inflammatory multisystem syndrome/multisystem inflammatory syndrome in children (PIMS/MIS-C), where immune and genetic evidence is distributed across full text, figures, tables, and supplementary material rather than concentrated in abstracts.
-
-In order to mitigate this challenge, a number of automated solutions have been proposed. They aim to extract gene--disease associations directly from already published sources, supplementing established databases with faster literature triage. The practical requirement is not only to find gene names, but to recover the surrounding evidence, provenance, and validation context needed for expert review.
+ResearchShop was developed from this practical need during work on paediatric inflammatory multisystem syndrome/multisystem inflammatory syndrome in children (PIMS/MIS-C), where immune and genetic evidence is distributed across full text, figures, tables, and supplementary material rather than concentrated in abstracts. The initial prototype was supported by a small Amazon Founders grant, but the scientific driver was operational: to bridge the gap between the scale of published genomic evidence and the practical limits of manual literature curation. The practical requirement is not only to find gene names, but to recover the surrounding evidence, provenance, and validation context needed for expert review.
 
 \subsection{Limitations of Existing Approaches}
 
@@ -20,17 +18,18 @@ Automated text-mining systems offer a solution but face two critical challenges:
 
 \paragraph{LLM hallucinations} Large Language Models show promise for information extraction but are prone to generating plausible yet factually incorrect associations~\cite{farquhar2024semanticentropy}. An LLM may generate valid-sounding gene symbols (e.g., ``BRCA3'') or extract real gene names from training data that do not appear in the source paper. For biomedical applications, such errors are unacceptable.
 
-Existing tools fall on a spectrum: dedicated NER and biomedical NLP systems such as PubTator Central~\cite{wei2019pubtatorcentral}, BioBERT~\cite{lee2020biobert}, scispaCy~\cite{neumann2019scispacy}, and variant-oriented tools such as tmVar~3.0~\cite{wei2022tmvar3} support entity recognition and normalization, but they do not by themselves provide the schema-driven, auditable extraction workflow needed by researchers reviewing gene--evidence tables. LLM-based approaches offer more flexible contextual extraction but require explicit safeguards against unsupported generations~\cite{ji2023hallucination,farquhar2024semanticentropy}. Table~\ref{tab:tool_comparison} summarises the design gap. ResearchShop bridges this gap by combining NER, deterministic gene scanning, LLM extraction, and a multi-layer validation framework.
+Existing tools fall on a spectrum: dedicated NER and biomedical NLP systems such as PubTator Central~\cite{wei2019pubtatorcentral}, BioBERT~\cite{lee2020biobert}, scispaCy~\cite{neumann2019scispacy}, and variant-oriented tools such as tmVar~3.0~\cite{wei2022tmvar3} support entity recognition and normalization, but they do not by themselves provide the schema-driven, auditable extraction workflow needed by researchers reviewing gene--evidence tables. LLM-based approaches offer more flexible contextual extraction, including reasoning over relationships between genes and findings, but require explicit safeguards against unsupported generations~\cite{ji2023hallucination,farquhar2024semanticentropy}. Table~\ref{tab:tool_comparison} compares method, full-text access, and hallucination guardrails across these approaches. ResearchShop bridges this gap by combining NER, deterministic gene scanning, LLM extraction, and a multi-layer validation framework.
 
 \begin{table*}[t]
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.8cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Approach} & \textbf{Typical method} & \textbf{Full-text use} & \textbf{Hallucination guardrails} \\
+\textbf{Tool or approach} & \textbf{Method} & \textbf{Full-text access} & \textbf{Hallucination guardrails} \\
 \midrule
-Dictionary or NER systems & Biomedical named-entity recognition using curated lexicons and trained entity taggers & Abstracts and available full text, depending on service & Strong gene-name normalisation, but limited relation extraction and evidence validation \\
+PubTator Central / PubTator3 & Biomedical concept annotation and entity normalization & Abstracts and available full text & Strong entity normalization, but limited schema-driven contextual extraction \\
+BioBERT, scispaCy, tmVar 3.0 & Biomedical language models, entity taggers, and variant normalization tools & Depends on deployment and supplied corpus & Strong for task-specific NLP components, but no end-to-end LLM evidence audit \\
 Unconstrained LLM extraction & Prompt an LLM to extract associations and summaries from supplied text & Possible when source text fits the model context window & Weak unless source grounding, citation checks, and identifier validation are added \\
 ResearchShop & PubTator3, deterministic HGNC scanning, and structured Gemini extraction & Open-access PMC and Europe PMC full text, including tables and figure captions where available & HGNC validation, source-text grounding, citation/table checks, confidence gating, and audit artifacts \\
 \bottomrule
