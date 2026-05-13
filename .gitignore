@@ -101,6 +101,7 @@ tmp/
 temp/
 *.tmp
 *.bak
+demo/
 
 # ─── Legacy local folders (canonical roots are app/ and pipeline/) ───
 /src/

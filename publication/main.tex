@@ -1,6 +1,7 @@
 \documentclass[final,5p,times,twocolumn]{elsarticle}
 
-\usepackage{lineno,hyperref}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{float}
@@ -12,6 +13,15 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{placeins}
+\hypersetup{hidelinks}
+\hbadness=10000
+\hfuzz=3pt
+\raggedbottom
+\newcommand{\frontlabel}[1]{\textbf{\MakeUppercase{#1}}}
+\newcommand{\frontspaced}[1]{\textbf{\MakeUppercase{#1}}}
 
 % Code listing style
 \lstset{
@@ -32,39 +42,49 @@
 
 \begin{document}
 
-\begin{frontmatter}
+\makeatletter
+\twocolumn[
+\begin{@twocolumnfalse}
+\vspace*{-0.7cm}
+{\Large\bfseries ResearchShop: A Desktop Application for Auditable Gene and Variant Extraction from Biomedical Literature Using Hybrid NER--LLM Architecture\par}
+\vspace{0.45em}
+{\normalsize Micha{\l} Bujniewicz-Uppal\textsuperscript{*}, {\L}ukasz G\'{o}rski, Catherine Suski-Grabowski\par}
+\vspace{0.25em}
+{\footnotesize\itshape Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland\par}
+\vspace{0.9em}
+\hrule
+\vspace{0.75em}
+\noindent
+{\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.23\textwidth} >{\raggedright\arraybackslash}X}
+\frontspaced{Article Info} &
+\frontspaced{Abstract} \\
+\addlinespace[0.4em]
+\frontlabel{Keywords:}\par
+Gene-disease association\par
+Biomedical text mining\par
+Large Language Models\par
+Named Entity Recognition\par
+Hallucination mitigation\par
+Full-text processing
+&
+We present ResearchShop, a free, open-source desktop application that assists biomedical researchers with structured extraction of gene and variant associations from PubMed literature. The system combines PubTator3 Named Entity Recognition, open-access full-text parsing from PubMed Central and Europe PMC, and Google Gemini 2.5 Flash Lite extraction behind a validation-oriented pipeline. Its safeguards include HGNC gene symbol verification, source-text grounding checks, HGVS-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no ResearchShop server infrastructure; users provide their own Gemini API key and NCBI Entrez email for direct calls to external services.
 
-\title{ResearchShop Desktop: A Desktop Application for Auditable Gene and Variant Extraction from Biomedical Literature Using Hybrid NER--LLM Architecture}
-
-\author{Micha{\l} Bujniewicz-Uppal\corref{mycorrespondingauthor}}
-\ead{m.bujniewiczuppal@uw.edu.pl}
-\address{Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland}
-\cortext[mycorrespondingauthor]{Corresponding author}
-
-\author{Catherine Suski-Grabowski}
-\address{Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland}
-
-\author{{\L}ukasz G\'{o}rski}
-\address{Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland}
-
-\begin{abstract}
-We present ResearchShop Desktop, a free, open-source desktop application that assists biomedical researchers with structured extraction of gene and variant associations from PubMed literature. The system combines PubTator3 Named Entity Recognition, open-access full-text parsing from PubMed Central and Europe PMC, and Google Gemini Flash extraction behind a validation-oriented pipeline. Its safeguards include HGNC gene symbol verification, source-text grounding checks, HGVS-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no server infrastructure; users provide their own Gemini API key and NCBI Entrez email.
-
-The contribution of ResearchShop is a reproducible desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and CSV/XLSX export. The software is packaged for macOS, Windows, and Linux, includes an offline test suite for core parser and validation behavior, and persists audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; extracted associations require expert review before use in publications, systematic reviews, or clinical contexts.
-\end{abstract}
-
-\begin{keyword}
-Gene-disease association \sep Biomedical text mining \sep Large Language Models \sep Named Entity Recognition \sep Hallucination mitigation \sep Full-text processing
-\end{keyword}
-
-\end{frontmatter}
+The contribution of ResearchShop is a reproducible desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and CSV/XLSX export. The project includes electron-builder packaging targets for macOS, Windows, and Linux, an offline test suite for core parser and validation behavior, and audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; extracted associations require expert review before use in publications, systematic reviews, or clinical contexts.
+\end{tabularx}
+}
+\vspace{0.75em}
+\hrule
+\vspace{0.95em}
+\input{softwarex_metadata}
+\vspace{1.0em}
+\noindent{\footnotesize\textsuperscript{*}\textit{Corresponding author. Email address:} \texttt{m.bujniewiczuppal@uw.edu.pl}.}
+\vspace{1.2em}
+\end{@twocolumnfalse}
+]
+\makeatother
 
 % \linenumbers  % Uncomment for manuscript submission with line numbers
-
-%%====================================================================
-\section*{Required Metadata}
-\label{sec:metadata}
-\input{softwarex_metadata}
 
 %%====================================================================
 %% Sections — each in its own file for manageable editing
@@ -81,12 +101,16 @@ Gene-disease association \sep Biomedical text mining \sep Large Language Models 
 %%====================================================================
 
 \section*{Acknowledgements}
-We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling (ICM) at the University of Warsaw.
+We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling (ICM) at the University of Warsaw. Initial development of ResearchShop was supported by a USD 1,000 Amazon Founders grant awarded to Micha{\l} Bujniewicz-Uppal for this project.
 
 \section*{Declaration of Competing Interest}
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
 %% References
+\begingroup
+\footnotesize
+\setlength{\bibsep}{0pt}
 \bibliography{references}
+\endgroup
 
 \end{document}

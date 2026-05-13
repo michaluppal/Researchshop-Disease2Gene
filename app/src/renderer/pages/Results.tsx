@@ -6,37 +6,57 @@ import Tooltip from '../components/Tooltip'
 
 // ── Confidence badge ────────────────────────────────────────────────────────
 
-// Pipeline CSV outputs HIGH — display as CORROBORATED in the UI
 function normalizeConfLevel(level: string): string {
-  return level === 'HIGH' ? 'CORROBORATED' : level
+  if (level === 'HIGH') return 'CORROBORATED'
+  if (level === 'MEDIUM') return 'SUPPORTED'
+  if (level === 'LOW') return 'LIMITED EVIDENCE'
+  if (level === 'REVIEW') return 'NEEDS REVIEW'
+  return level
 }
 
 const CONFIDENCE_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   CORROBORATED: { bg: 'bg-green-100',  text: 'text-green-800',  dot: 'bg-green-500'  },
-  MEDIUM:       { bg: 'bg-yellow-100', text: 'text-yellow-800', dot: 'bg-yellow-500' },
-  LOW:          { bg: 'bg-orange-100', text: 'text-orange-800', dot: 'bg-orange-500' },
-  REVIEW:       { bg: 'bg-red-100',    text: 'text-red-800',    dot: 'bg-red-500'    },
+  SUPPORTED:    { bg: 'bg-sky-100',    text: 'text-sky-800',    dot: 'bg-sky-500'    },
+  'LIMITED EVIDENCE': { bg: 'bg-orange-100', text: 'text-orange-800', dot: 'bg-orange-500' },
+  'NEEDS REVIEW': { bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500' },
 }
 
 const CONFIDENCE_TOOLTIPS: Record<string, string> = {
-  CORROBORATED: 'Corroborated by multiple sources. Does NOT imply clinical validity. Requires independent expert verification.',
-  MEDIUM: 'Partially corroborated — verify independently before use.',
-  LOW: 'Low confidence — extracted from abstract only or with limited validation.',
-  REVIEW: 'Requires manual review. May be a false positive or lack sufficient evidence.',
+  CORROBORATED: 'Multiple checks agree, and the app matched supporting text in the paper. Requires expert review before use.',
+  SUPPORTED: 'The gene is valid and appears in the paper, but supporting text was not fully verified.',
+  'LIMITED EVIDENCE': 'The gene may be relevant, but the paper evidence is weak or incomplete.',
+  'NEEDS REVIEW': 'An important check failed or extraction was incomplete. Inspect manually before use.',
 }
 
 function getReviewTooltip(note: string): string {
   if (note.includes('Figure-only'))
-    return 'Extracted from a figure (oncoprint, volcano plot, etc.) — less reliable than text-based extraction. Higher false-positive risk. Requires independent verification. Does NOT imply clinical validity.'
+    return 'Only figure or caption evidence was found. Inspect the source manually before use.'
   if (note.includes('Citation text not found'))
-    return 'AI-provided citation text could not be matched in the paper. Could indicate a false positive — verify gene presence independently. Does NOT imply clinical validity.'
-  return CONFIDENCE_TOOLTIPS['REVIEW']
+    return 'The supporting quote could not be matched to the paper text. Inspect the source manually before use.'
+  return CONFIDENCE_TOOLTIPS['NEEDS REVIEW']
+}
+
+function plainConfidenceReason(level: string, note?: string): string {
+  const display = normalizeConfLevel(level)
+  const n = (note || '').trim()
+  if (n.includes('Citation text not found')) return 'Supporting quote could not be matched to the paper text.'
+  if (n.includes('Figure-only')) return 'Only figure or caption evidence was found.'
+  if (n.includes('LLM failed')) return 'Gemini extraction was incomplete; this row was saved for review.'
+  if (n.includes('No genes extracted')) return 'No validated gene evidence was found.'
+  if (n.includes('No citation')) return 'Gene found in the paper; supporting quote was not verified.'
+  if (n.includes('Low confidence')) return 'Gene is valid, but evidence or validation support is limited.'
+  if (n.includes('Abstract only')) return 'Only limited paper context was available.'
+  if (n.includes('co-mention')) return n.replace('co-mention', 'Evidence sentence also mentions')
+  if (display === 'CORROBORATED') return 'Multiple checks agree; matched supporting text was found.'
+  if (display === 'SUPPORTED') return 'Gene is valid and appears in the paper; inspect evidence before use.'
+  if (display === 'LIMITED EVIDENCE') return 'Gene may be relevant, but evidence is weak or incomplete.'
+  return 'Inspect this row manually before use.'
 }
 
 function ConfidenceBadge({ level, note }: { level: string; note?: string }) {
   const display = normalizeConfLevel(level)
-  const style = CONFIDENCE_STYLES[display] ?? CONFIDENCE_STYLES['REVIEW']
-  const tooltip = display === 'REVIEW' && note
+  const style = CONFIDENCE_STYLES[display] ?? CONFIDENCE_STYLES['NEEDS REVIEW']
+  const tooltip = display === 'NEEDS REVIEW' && note
     ? getReviewTooltip(note)
     : (CONFIDENCE_TOOLTIPS[display] ?? 'Requires review')
   return (
@@ -55,34 +75,22 @@ function ConfidenceBadge({ level, note }: { level: string; note?: string }) {
 
 function formatContextMod(value: string): string {
   if (!value) return ''
-  if (value === 'no_oa_full_text') return 'Abstract only (paywalled)'
+  if (value === 'no_oa_full_text') return 'No open-access full text'
   if (value === 'No modifications needed') return 'Full text'
   return value
 }
 
 // ── Confidence breakdown ────────────────────────────────────────────────────
 
-function citationCoverage(rows: string[][], headers: string[]): number | null {
-  const citCols = headers.reduce<number[]>((acc, h, i) => {
-    if (h.endsWith(' Citation')) acc.push(i)
-    return acc
-  }, [])
-  if (citCols.length === 0 || rows.length === 0) return null
-  const filled = rows.filter(row => citCols.some(i => row[i] && row[i].trim())).length
-  return filled / rows.length
-}
-
 function ConfidenceBreakdown({ rows, headers, abstractOnlyCount }: { rows: string[][]; headers: string[]; abstractOnlyCount: number | null }) {
   const confIdx = headers.findIndex((h) => h === 'Confidence')
   if (confIdx < 0) return null
 
-  const counts: Record<string, number> = { CORROBORATED: 0, MEDIUM: 0, LOW: 0, REVIEW: 0 }
+  const counts: Record<string, number> = { CORROBORATED: 0, SUPPORTED: 0, 'LIMITED EVIDENCE': 0, 'NEEDS REVIEW': 0 }
   for (const row of rows) {
     const level = normalizeConfLevel(row[confIdx])
     if (level in counts) counts[level]++
   }
-
-  const coverage = citationCoverage(rows, headers)
 
   return (
     <div className="flex flex-col gap-2 mt-1">
@@ -99,26 +107,11 @@ function ConfidenceBreakdown({ rows, headers, abstractOnlyCount }: { rows: strin
           )
         })}
       </div>
-      {coverage !== null && (
-        <div className="flex items-center gap-2">
-          <Tooltip content="% of gene rows that have at least one AI-sourced citation. Fluctuates 0-100% between runs due to stochastic LLM citation compliance — not a reflection of gene extraction quality.">
-            <span className="text-xs text-slate-500 cursor-help">
-              Citation coverage: <span className={`font-medium ${coverage < 0.2 ? 'text-amber-600' : 'text-slate-700'}`}>{Math.round(coverage * 100)}%</span>
-            </span>
-          </Tooltip>
-          {coverage < 0.2 && (
-            <Tooltip content="Low citation coverage is normal — the LLM stochastically provides citations. Re-running may produce higher coverage. Gene extraction quality is independent of citation coverage.">
-              <span className="text-xs text-amber-600 cursor-help">
-                · Low this run
-              </span>
-            </Tooltip>
-          )}
-        </div>
-      )}
+      <div className="text-xs text-slate-500">Labels summarize validation and evidence checks; exports keep full audit metadata.</div>
       {abstractOnlyCount !== null && abstractOnlyCount > 0 && (
-        <Tooltip content="These genes were extracted from the abstract only — no open-access full text was available (paywalled). Abstract-only extraction produces LOW confidence. See the 'context_modifications' column for details.">
+        <Tooltip content="No open-access full text was available for these rows. Inspect the source paper before use.">
           <div className="text-xs text-slate-500 cursor-help">
-            <span className="text-orange-600 font-medium">{abstractOnlyCount}</span> gene row{abstractOnlyCount !== 1 ? 's' : ''} from abstract-only papers (paywalled)
+            <span className="text-orange-600 font-medium">{abstractOnlyCount}</span> gene row{abstractOnlyCount !== 1 ? 's' : ''} with no open-access full text
           </div>
         </Tooltip>
       )}
@@ -314,13 +307,14 @@ interface SortConfig {
   direction: SortDirection
 }
 
-type AssociationGroupFilter = 'All' | 'Primary Genetic Association' | 'Biomarker/Response Signal' | 'Mechanistic/Pathway Signal' | 'Figure-Derived Signal' | 'Other Candidate Signal' | 'Review Needed'
+type AssociationGroupFilter = 'All' | 'Primary Genetic Association' | 'Biomarker/Response Signal' | 'Mechanistic/Pathway Signal' | 'Animal Model Signal' | 'Figure-Derived Signal' | 'Other Candidate Signal' | 'Review Needed'
 
 const ASSOCIATION_GROUP_FILTERS: AssociationGroupFilter[] = [
   'All',
   'Primary Genetic Association',
   'Biomarker/Response Signal',
   'Mechanistic/Pathway Signal',
+  'Animal Model Signal',
   'Figure-Derived Signal',
   'Other Candidate Signal',
   'Review Needed',
@@ -479,6 +473,21 @@ function CandidateAuditPanel({
 
 // ── Results table (with Confidence badge rendering + metadata merge) ─────────
 
+const DEFAULT_HIDDEN_RESULT_COLUMNS = new Set([
+  'Abstract',
+  'Authors',
+  'Citations',
+  'DOI',
+  'extraction_mode',
+  'detail_extraction_error',
+])
+
+function displayColumnName(header: string): string {
+  if (header === 'Confidence Note') return 'Why'
+  if (header.endsWith(' Citation')) return `${header.slice(0, -' Citation'.length)} Evidence Quote`
+  return header
+}
+
 function ResultsTable({
   headers,
   rows,
@@ -496,10 +505,16 @@ function ResultsTable({
   sortConfig: SortConfig | null
   onSort: (colIdx: number) => void
 }) {
-  const confIdx = headers.findIndex((h) => h === 'Confidence')
-  const confNoteIdx = headers.findIndex((h) => h === 'Confidence Note')
+  const primaryColumns = headers
+    .map((header, rawIndex) => ({ header, rawIndex }))
+    .filter((col) => !DEFAULT_HIDDEN_RESULT_COLUMNS.has(col.header))
+  const confIdx = primaryColumns.findIndex((col) => col.header === 'Confidence')
+  const confNoteIdx = primaryColumns.findIndex((col) => col.header === 'Confidence Note')
   const selectedList = Array.from(selectedMetaCols)
-  const mergedHeaders = [...headers, ...selectedList]
+  const mergedColumns = [
+    ...primaryColumns.map((col) => ({ ...col, isMeta: false })),
+    ...selectedList.map((header) => ({ header, rawIndex: -1, isMeta: true })),
+  ]
 
   const mergedRows = rows.map((row, i) => {
     const metaRow = metaRows[i] ?? []
@@ -507,7 +522,7 @@ function ResultsTable({
       const idx = metaHeaders.indexOf(col)
       return idx >= 0 ? (metaRow[idx] ?? '') : ''
     })
-    return [...row, ...extra]
+    return [...primaryColumns.map((col) => row[col.rawIndex] ?? ''), ...extra]
   })
 
   return (
@@ -515,16 +530,17 @@ function ResultsTable({
       <table className="w-full text-sm text-left">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
-            {mergedHeaders.map((h, i) => {
-              const isSorted = sortConfig?.column === i
+            {mergedColumns.map((col, i) => {
+              const isSortable = !col.isMeta
+              const isSorted = isSortable && sortConfig?.column === col.rawIndex
               return (
                 <th
                   key={`h-${i}`}
-                  className="px-3 py-2.5 font-medium text-slate-600 whitespace-nowrap text-xs cursor-pointer hover:bg-slate-100 select-none"
-                  onClick={() => onSort(i)}
+                  className={`px-3 py-2.5 font-medium text-slate-600 whitespace-nowrap text-xs select-none ${isSortable ? 'cursor-pointer hover:bg-slate-100' : ''}`}
+                  onClick={() => { if (isSortable) onSort(col.rawIndex) }}
                 >
                   <span className="inline-flex items-center gap-1">
-                    {h}
+                    {displayColumnName(col.header)}
                     {isSorted ? (
                       sortConfig.direction === 'asc' ? (
                         <ChevronUp className="w-3 h-3 text-brand-600" />
@@ -547,7 +563,9 @@ function ResultsTable({
                 <td key={cIdx} className="px-3 py-2 text-slate-700 align-top text-xs max-w-xs">
                   {cIdx === confIdx ? (
                     <ConfidenceBadge level={cell} note={confNoteIdx >= 0 ? row[confNoteIdx] : undefined} />
-                  ) : mergedHeaders[cIdx] === 'context_modifications' ? (
+                  ) : cIdx === confNoteIdx ? (
+                    <span className="whitespace-pre-wrap break-words text-slate-600">{plainConfidenceReason(confIdx >= 0 ? row[confIdx] : '', cell)}</span>
+                  ) : mergedColumns[cIdx].header === 'context_modifications' ? (
                     <span className="whitespace-pre-wrap break-words">{formatContextMod(cell)}</span>
                   ) : (
                     <span className="whitespace-pre-wrap break-words">{cell}</span>
@@ -776,7 +794,7 @@ export default function Results() {
 
   // Also paginate corresponding metaRows to keep indices aligned
   const paginatedMetaRows = useMemo(() => {
-    if (!sortConfig && !searchQuery.trim()) {
+    if (!sortConfig && !searchQuery.trim() && associationGroupFilter === 'All') {
       const start = (currentPage - 1) * rowsPerPage
       return metaRows.slice(start, start + rowsPerPage)
     }
@@ -785,7 +803,7 @@ export default function Results() {
     const start = (currentPage - 1) * rowsPerPage
     const pageIndices = originalIndices.slice(start, start + rowsPerPage)
     return pageIndices.map(i => metaRows[i] ?? [])
-  }, [sortedRows, rows, metaRows, currentPage, rowsPerPage, sortConfig, searchQuery])
+  }, [sortedRows, rows, metaRows, currentPage, rowsPerPage, sortConfig, searchQuery, associationGroupFilter])
 
   // Reset page when search or sort changes
   useEffect(() => { setCurrentPage(1) }, [searchQuery, associationGroupFilter, sortConfig, rowsPerPage])
@@ -901,7 +919,7 @@ export default function Results() {
           <span className="flex-1">
             <strong>Incomplete Gemini extraction.</strong>{' '}
             {runWarning || `${quotaLimitedRows} row${quotaLimitedRows === 1 ? '' : 's'} were saved after Gemini quota or rate limits.`}
-            {' '}Rows marked as skeleton/REVIEW contain fallback snippets, not complete AI extraction.
+            {' '}Rows marked as NEEDS REVIEW contain fallback snippets, not complete AI extraction.
           </span>
           <button
             onClick={() => setQuotaBannerDismissed(true)}

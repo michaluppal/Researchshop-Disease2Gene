@@ -8,6 +8,53 @@ ResearchShop is designed for a common literature-curation workflow: a researcher
 
 For example, a researcher studying inflammatory genetics can submit a PMID list and request columns such as \emph{Key Finding}, \emph{Disease Association}, \emph{Statistical Evidence}, and \emph{Conclusion}. The pipeline then fetches open-access full text, parses body text, tables, figures, and supplementary metadata where available, combines PubTator candidates with deterministic HGNC scanning, and asks Gemini to fill the requested schema only for grounded candidate genes. The output includes the extracted fields, citation validation status, NCBI identifiers, candidate source, association type, association group, confidence label, and paper metadata.
 
+The desktop workflow is shown in Figures~\ref{fig:app_workflow_screens} and~\ref{fig:app_results_screen}. Users begin by choosing a protocol, then provide a topic query, author search, or explicit paper identifiers. The same interface exposes the schema editor used to define custom extraction columns before a run starts.
+
+Table~\ref{tab:demo_output_trace} shows a local demonstration result file used to exercise the same CSV and metadata loading path shown in Figure~\ref{fig:app_results_screen}. The rows are illustrative rather than a benchmark: they show how a researcher sees extracted fields, confidence labels, candidate provenance, and audit status after the pipeline has combined candidate discovery, normalization, grounding, and output writing.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{1.8cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.1cm}}
+\toprule
+\textbf{Output row} & \textbf{Candidate source} & \textbf{Displayed evidence trail} & \textbf{Audit interpretation} \\
+\midrule
+\textit{IFNG} & LLM text; deterministic lexicon & The result row keeps a gene-normalized immune-response finding, a citation field, a confidence label, and metadata indicating local HGNC validation and matched citation text. & The researcher can inspect the source sentence before reusing the row. \\
+\textit{HLA-C} / HLA-C*04 & LLM text & The allele-like input is preserved in the variant field while the gene label is normalized to an HGNC-compatible symbol for review. & The row is treated as a triage lead because HLA nomenclature requires expert interpretation. \\
+\textit{CXCL10} & PubTator & Sparse evidence is retained with a conservative confidence label and a needs-review citation status in the metadata view. & The row remains visible as an index into the paper rather than being presented as a final assertion. \\
+\bottomrule
+\end{tabularx}
+\caption{Illustrative output and audit trail from the local demonstration result file. The example is intended to show the user-facing data model and provenance fields, not to report extraction accuracy or benchmark performance.}
+\label{tab:demo_output_trace}
+\end{table*}
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[t]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/app_protocol_selection.png}
+        \caption{Protocol selection screen.}
+        \label{fig:app_protocol_selection}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/app_query_builder.png}
+        \caption{Paper-analysis query builder and extraction-column editor.}
+        \label{fig:app_query_builder}
+    \end{subfigure}
+    \caption{ResearchShop desktop workflow before extraction. The screenshots are captured from the v1.0.1 Electron interface and show the implemented protocol-selection and paper-analysis screens.}
+    \label{fig:app_workflow_screens}
+\end{figure*}
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/app_results_explorer.png}
+    \caption{Results explorer loaded with a local demonstration result file through the same CSV and metadata-loading path used for completed runs. The screen shows confidence labels, association-group filters, evidence quote columns, metadata controls, export controls, and the research-use warning shown to users.}
+    \label{fig:app_results_screen}
+\end{figure*}
+
 \subsection{Audit Artifacts}
 
 Each run writes more than the final CSV. ResearchShop persists a metadata CSV, XLSX workbook, JSON export, candidate audit artifact, drop-debug artifact, and optional pipeline trace. These artifacts are intentionally verbose: they record which genes were proposed, which gates accepted or rejected them, whether citations were grounded in the source text, and whether output rows originated from LLM extraction, PubTator, deterministic seeding, or fallback paths.
@@ -23,5 +70,26 @@ The parser path uses ResearchShop-owned fetchers for PubMed, PMC, Europe PMC, an
 \subsection{Reproducibility Checks}
 
 The repository includes offline tests for the main scientific risk points: XML parsing, figure metadata extraction, citation grounding, gene validation, F2-isoprostane false-positive suppression, association-type grouping, PubTator/NCBI caching, per-paper extraction import compatibility, output writing, and pipeline tracing. These checks do not require a Gemini key or network access and are intended to be run before release builds.
+
+Table~\ref{tab:reproducibility_checks} summarises the validation surfaces covered by the public release artifacts. The table is not an external accuracy benchmark; it documents the reproducible checks and demonstration artifacts that a reader can inspect without access to private audit records.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\columnwidth}{>{\raggedright\arraybackslash}p{2.1cm} X}
+\toprule
+\textbf{Check surface} & \textbf{Public artifact or exercised behavior} \\
+\midrule
+Parser and acquisition & Offline parser tests exercise PMC/Europe PMC JATS text, tables, captions, metadata, and unavailable-image fallback. \\
+LLM validation & Validation tests and audit/drop artifacts exercise HGNC normalization, grounding, citation anchoring, numeric consistency, and grouping. \\
+False positives & Gene-validation tests cover ambiguous biomedical strings such as F2-isoprostane and clinical-vs-gene abbreviations. \\
+Output writing & Demo files exercise CSV, JSON, XLSX, metadata CSV, pipeline trace, and candidate-audit paths shown in Table~\ref{tab:demo_output_trace} and Figure~\ref{fig:app_results_screen}. \\
+Packaging & Release scripts cover Electron packaging targets and Python dependency bootstrap behavior. \\
+\bottomrule
+\end{tabularx}
+\caption{Public reproducibility and validation surfaces covered by the release artifacts.}
+\label{tab:reproducibility_checks}
+\end{table}
 
 The SoftwareX submission focuses on software architecture, usability, auditability, and reproducibility of the workflow. Expanded external benchmarking, inter-rater reliability studies, and internal audit working records are deferred outside the public release branch, so the manuscript does not rely on them as prerequisites for publication.

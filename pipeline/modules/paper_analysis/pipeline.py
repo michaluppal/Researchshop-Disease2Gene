@@ -888,9 +888,46 @@ class PaperAnalysisPipeline(
         column_descriptions: Dict[str, str],
         context_validation: Dict[str, Any],
     ) -> pd.DataFrame:
-        """Add metadata, apply strict gate, citation validation, and evidence gate."""
+        """Add metadata, apply citation, validation-confidence, and evidence gates."""
         self._add_validation_metadata(df)
         self._add_candidate_provenance_metadata(df)
+
+        # Validate LLM-provided citation snippets before the final export gates.
+        if not df.empty and config.ENABLE_CITATION_VALIDATION:
+            with pipeline_tracer.stage("citation_validation"):
+                self._add_citation_validation_metadata(df)
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                valid_counts = {}
+                for col in df.columns:
+                    if col.endswith("_citation_valid"):
+                        base = col[: -len("_citation_valid")]
+                        try:
+                            valid_counts[base] = int(df[col].fillna(False).astype(bool).sum())
+                        except Exception:
+                            continue
+                pipeline_tracer.capture(
+                    "citation_validation",
+                    pmid=self.pmid,
+                    outputs={
+                        "rows": len(df),
+                        "valid_counts_by_column": valid_counts,
+                    },
+                )
+
+            rows_before_citation_gate = len(df)
+            with pipeline_tracer.stage("citation_gate"):
+                df = self._apply_citation_gate(df, column_descriptions)
+            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
+                pipeline_tracer.capture(
+                    "citation_gate",
+                    pmid=self.pmid,
+                    outputs={
+                        "rows_before": rows_before_citation_gate,
+                        "rows_after": len(df),
+                        "dropped_count": len(self.evidence_gate_drops),
+                        "dropped": pipeline_tracer.summarise(self.evidence_gate_drops),
+                    },
+                )
 
         with pipeline_tracer.stage("strict_gate"):
             if getattr(config, "ENABLE_STRICT_VALIDATION_GATE", True):
@@ -955,28 +992,6 @@ class PaperAnalysisPipeline(
                         "dropped_count": len(self.strict_gate_drops),
                         "threshold": float(getattr(config, "FINAL_VALIDATION_MIN_CONFIDENCE", 0.7)),
                         "dropped": pipeline_tracer.summarise(self.strict_gate_drops),
-                    },
-                )
-
-        # Only add citation validation if enabled
-        if not df.empty and config.ENABLE_CITATION_VALIDATION:
-            with pipeline_tracer.stage("citation_validation"):
-                self._add_citation_validation_metadata(df)
-            if pipeline_tracer.is_enabled() and pipeline_tracer.matches(self.pmid):
-                valid_counts = {}
-                for col in df.columns:
-                    if col.endswith("_citation_valid"):
-                        base = col[: -len("_citation_valid")]
-                        try:
-                            valid_counts[base] = int(df[col].fillna(False).astype(bool).sum())
-                        except Exception:
-                            continue
-                pipeline_tracer.capture(
-                    "citation_validation",
-                    pmid=self.pmid,
-                    outputs={
-                        "rows": len(df),
-                        "valid_counts_by_column": valid_counts,
                     },
                 )
 

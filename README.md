@@ -1,6 +1,6 @@
 <div align="center">
   <img src="app/resources/icon-source.svg" alt="ResearchShop logo" width="96">
-  <h1>ResearchShop Desktop</h1>
+  <h1>ResearchShop</h1>
   <p><strong>AI-powered gene and variant extraction from PubMed literature.</strong></p>
 </div>
 
@@ -109,7 +109,7 @@ Build-validation workflow: [`.github/workflows/build-validation.yml`](.github/wo
 
 ### Gemini API key
 
-The app uses Google Gemini Flash for gene extraction. The API key is stored locally and never leaves your machine.
+The app uses Google Gemini 2.5 Flash Lite by default for gene extraction. The API key is stored locally and is sent only in direct requests from your machine to the Google Gemini API.
 
 1. Go to [aistudio.google.com](https://aistudio.google.com) → **Get API key**
 2. Create a key (free tier includes sufficient quota for research use)
@@ -247,7 +247,7 @@ For any association you intend to report or build upon:
 
 - **Gemini is required for normal extraction.** Every analyzed full-text paper gets a mandatory full-text Gemini candidate-discovery call before detail extraction. Empty Gemini candidate output can continue with PubTator and deterministic candidates, but transport/authentication/parsing failures are surfaced as paper-analysis failures rather than silently falling back to deterministic-only extraction.
 
-- **Table-heavy results sections.** The citation validator matches LLM-extracted quotes against prose sentences. Papers where findings appear only in supplementary tables will show low or zero citation coverage — this is expected behaviour, not a pipeline error.
+- **Table-heavy results sections.** The quote validator matches LLM-extracted supporting text against prose sentences. Papers where findings appear only in supplementary tables may show unmatched supporting quotes or sparse evidence status — this is expected behaviour, not a pipeline error.
 
 - **Gene symbol ambiguity.** Common clinical abbreviations (ESR mm/h, AST U/L, CRP mg/L) overlap with gene symbols (ESR1, GOT1). The corroboration gate provides a hard backstop, but stochastic LLM compliance means rare misclassifications occur.
 
@@ -280,7 +280,7 @@ This is the public reproducibility path for the software workflow. Internal audi
 
 ## How to cite
 
-> ResearchShop Desktop v1.0.1. GitHub: <https://github.com/michaluppal/Researchshop-Disease2Gene>.
+> ResearchShop v1.0.1. GitHub: <https://github.com/michaluppal/Researchshop-Disease2Gene>.
 
 ---
 

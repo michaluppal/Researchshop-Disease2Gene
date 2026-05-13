@@ -99,7 +99,7 @@
         <mxCell id="s5_file" value="modules/paper_analysis/" style="text;html=1;fontSize=9;fontColor=#999999;fontStyle=2;align=center;" vertex="1" parent="1">
           <mxGeometry x="660" y="443" width="280" height="20" as="geometry"/>
         </mxCell>
-        <mxCell id="s5_api" value="Gemini Flash API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#cccccc;fontSize=9;fontColor=#666666;arcSize=12;" vertex="1" parent="1">
+        <mxCell id="s5_api" value="Gemini 2.5 Flash Lite API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#cccccc;fontSize=9;fontColor=#666666;arcSize=12;" vertex="1" parent="1">
           <mxGeometry x="745" y="292" width="110" height="22" as="geometry"/>
         </mxCell>
 

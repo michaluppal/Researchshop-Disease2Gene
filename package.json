@@ -1,7 +1,7 @@
 {
   "name": "researchshop-desktop",
   "version": "1.0.1",
-  "description": "ResearchShop Desktop - AI-powered biomedical research analysis",
+  "description": "ResearchShop - AI-powered biomedical research analysis",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

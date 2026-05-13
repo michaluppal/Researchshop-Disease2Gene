@@ -1,188 +1,128 @@
-% Clean architecture diagram for SoftwareX paper
-% Usage: \input{pipeline_tikz} inside a figure* environment
-% Or compile standalone: pdflatex pipeline_tikz.tex
-
-\documentclass[border=8pt]{standalone}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+% ResearchShop architecture diagram for the SoftwareX paper.
+% Absolute-coordinate layout with high-contrast stage bands for readability.
+\documentclass[border=7pt]{standalone}
 \usepackage[T1]{fontenc}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds}
 
 \begin{document}
 
 \begin{tikzpicture}[
-    % Base styles
-    every node/.style={font=\sffamily},
-    box/.style={draw=#1, fill=#1!6, rounded corners=3pt,
-                minimum height=1.1cm, align=center, font=\sffamily\small,
-                line width=0.6pt},
-    box/.default=gray!60,
-    domainbox/.style={box=#1, minimum width=2.6cm},
-    widedomainbox/.style={box=#1, minimum width=4.0cm},
-    smallpill/.style={rounded corners=5pt, draw=gray!40, fill=white,
-                      font=\sffamily\tiny, inner sep=2pt, inner ysep=1pt},
-    layerlabel/.style={font=\sffamily\scriptsize\bfseries, anchor=north west},
-    filelabel/.style={font=\sffamily\tiny\ttfamily, text=gray!50},
-    arr/.style={-{Stealth[length=4pt,width=3pt]}, gray!55, thick},
-    dasharr/.style={-{Stealth[length=4pt,width=3pt]}, gray!55, thick, dashed},
-    node distance=0.5cm and 0.6cm,
+  every node/.style={font=\sffamily},
+  band/.style={
+    draw=#1!35,
+    fill=#1!8,
+    dashed,
+    rounded corners=3pt,
+    line width=0.45pt
+  },
+  stage/.style={
+    draw=#1!80!black,
+    fill=#1!88!black,
+    text=white,
+    rounded corners=3pt,
+    minimum width=2.95cm,
+    minimum height=1.38cm,
+    align=center,
+    line width=0.7pt,
+    font=\sffamily\footnotesize
+  },
+  stage/.default=gray,
+  gate/.style={
+    draw=red!75!black,
+    fill=red!82!black,
+    text=white,
+    rounded corners=3pt,
+    minimum width=2.65cm,
+    minimum height=1.35cm,
+    align=center,
+    line width=0.7pt,
+    font=\sffamily\footnotesize
+  },
+  aux/.style={
+    draw=gray!45,
+    fill=white,
+    dashed,
+    rounded corners=2pt,
+    minimum width=2.25cm,
+    minimum height=1.0cm,
+    align=center,
+    font=\sffamily\scriptsize
+  },
+  file/.style={font=\sffamily\tiny\itshape, text=gray!55, align=center},
+  layer/.style={font=\sffamily\tiny\bfseries, anchor=west, align=left},
+  arr/.style={-{Stealth[length=4pt,width=5pt]}, line width=0.8pt, draw=#1!88!black},
+  arr/.default=gray,
+  softarr/.style={-{Stealth[length=3pt,width=4pt]}, line width=0.55pt, draw=gray!50, dashed},
 ]
 
-% ============================================================
-%  ROW 1: ELECTRON UI
-% ============================================================
-\node[domainbox=blue] (query) {
-    \textbf{\footnotesize paper\_selection}\\[-1pt]
-    Query \& Schema};
-
-\node[domainbox=blue, right=of query] (relevance) {
-    \textbf{\footnotesize paper\_selection}\\[-1pt]
-    Gene Relevance\\[-2pt]
-    Scoring};
-
-\node[box=gray, right=of relevance, minimum width=2.0cm,
-      dashed, minimum height=0.9cm, font=\sffamily\scriptsize] (ipc) {
-    IPC Bridge};
-
-\node[domainbox=blue, right=4.5cm of relevance] (results) {
-    \textbf{\footnotesize output\_writing}\\[-1pt]
-    Results Explorer};
-
-% File labels - UI
-\node[filelabel, below=1pt of query] {QueryBuilder.tsx};
-\node[filelabel, below=1pt of relevance] {geneRelevanceScorer.ts};
-\node[filelabel, below=1pt of ipc] {python-bridge.ts};
-\node[filelabel, below=1pt of results] {Results.tsx};
-
-% UI background
+% Row backgrounds.
 \begin{scope}[on background layer]
-\node[fit=(query)(results), fill=blue!4, draw=blue!25, rounded corners=6pt,
-      inner sep=10pt, label={[layerlabel, text=blue!40]north west:
-      Electron Desktop UI (TypeScript / React)}] (uilayer) {};
+  \node[band=blue, minimum width=20.2cm, minimum height=2.45cm] at (7.9,0) {};
+  \node[band=yellow!75!orange, minimum width=20.2cm, minimum height=3.05cm] at (7.9,-3.0) {};
+  \node[band=green!65!black, minimum width=20.2cm, minimum height=3.15cm] at (7.9,-6.25) {};
 \end{scope}
 
-% UI arrows
-\draw[arr] (query) -- (relevance);
-\draw[arr] (relevance) -- (ipc);
+% Row 1: Electron desktop UI.
+\node[layer, text=blue!65!black] at (-1.95,0.88) {Electron Desktop UI\\TypeScript / React};
 
-% ============================================================
-%  ROW 2: PYTHON PIPELINE
-% ============================================================
-\node[domainbox=gray, below=1.4cm of query] (fulltext) {
-    \textbf{\footnotesize oa\_filter}\\[-1pt]
-    {\scriptsize paper\_reading}\\[-2pt]
-    Full-Text
-    Acquisition};
+\node[stage=blue] (query) at (0,0) {\textbf{paper\_selection}\\Query builder\\schema editor};
+\node[stage=blue] (rank) at (3.8,0) {\textbf{paper\_selection}\\Gene relevance\\scoring};
+\node[aux] (ipc) at (7.3,0) {\textbf{IPC bridge}\\{\tiny PROGRESS | LOG | RESULT}};
+\node[stage=blue] (results) at (15.8,0) {\textbf{output view}\\Results explorer\\CSV / XLSX export};
 
-\node[domainbox=orange, right=of fulltext] (pubtator) {
-    \textbf{\footnotesize candidate\_discovery}\\[-1pt]
-    PubTator3 NER\\[-2pt]
-    {\tiny precision floor}};
+\node[file] at (0,-0.88) {QueryBuilder.tsx};
+\node[file] at (3.8,-0.88) {geneRelevanceScorer.ts};
+\node[file] at (7.3,-0.96) {python-bridge.ts};
+\node[file] at (15.8,-0.88) {Results.tsx};
 
-\node[widedomainbox=violet, right=of pubtator] (gemini) {
-    \textbf{\footnotesize detail\_extraction}\\[-1pt]
-    {\scriptsize Gemini structured extraction}\\[-2pt]
-    {\scriptsize + Figure analysis}};
+\draw[arr=blue] (query) -- (rank);
+\draw[arr=blue] (rank) -- (ipc);
 
-\node[box=gray, right=of gemini, minimum width=2.0cm,
-      dashed, minimum height=0.9cm, font=\sffamily\scriptsize] (orch) {
-    Worker Pool\\[-2pt]
-    {\tiny 2--4 processes}};
+% Row 2: Python extraction pipeline.
+\node[layer, text=yellow!45!black] at (-1.95,-2.02) {Python Pipeline\\2--4 local workers};
 
-% File labels - Pipeline
-\node[filelabel, below=1pt of fulltext] {full\_text\_fetcher.py};
-\node[filelabel, below=1pt of pubtator] {pubtator\_tool.py};
-\node[filelabel, below=1pt of gemini] {modules/paper\_analysis/};
-\node[filelabel, below=1pt of orch] {pipeline\_orchestrator.py};
+\node[stage=orange] (select) at (0,-3.0) {\textbf{paper\_selection}\\NCBI Entrez search\\selected PMIDs};
+\node[stage=orange] (read) at (3.95,-3.0) {\textbf{oa\_filter}\\\textbf{paper\_reading}\\open full text};
+\node[stage=orange] (cand) at (7.85,-3.0) {\textbf{candidate\_discovery}\\PubTator3 NER\\+ HGNC scan};
+\node[stage=violet] (detail) at (11.9,-3.0) {\textbf{detail\_extraction}\\Gemini schema fields\\citations required};
 
-% API pills above pipeline boxes
-\node[smallpill, above=3pt of fulltext] {PMC OA \quad Europe PMC};
-\node[smallpill, above=3pt of pubtator] {PubTator3 API};
-\node[smallpill, above=3pt of gemini] {Gemini Flash API};
+\node[file] at (0,-3.94) {query, author, or PMID list};
+\node[file] at (3.95,-3.94) {JATS XML, captions, tables};
+\node[file] at (7.85,-4.06) {precision floor + deterministic recall};
+\node[file] at (11.9,-4.06) {custom output columns};
 
-% Pipeline background
-\begin{scope}[on background layer]
-\node[fit=(fulltext)(orch), fill=yellow!4, draw=yellow!40!orange!30,
-      rounded corners=6pt, inner sep=10pt, inner ysep=14pt,
-      label={[layerlabel, text=yellow!40!black]north west:
-      Python Pipeline}] (pipelayer) {};
-\end{scope}
+\draw[arr=gray] (ipc.south) -- ++(0,-1.15) -| (select.north);
+\draw[arr=orange] (select) -- (read);
+\draw[arr=orange] (read) -- (cand);
+\draw[arr=orange] (cand) -- (detail);
+\draw[softarr] (cand.south) -- ++(0,-0.75) -| (detail.south);
 
-% Pipeline arrows
-\draw[arr] (ipc.south) -- ++(0,-0.35) -| (fulltext.north);
-\draw[arr] (fulltext) -- (pubtator);
-\draw[arr] (pubtator) -- (gemini);
+% Row 3: Validation and output.
+\node[layer, text=green!45!black] at (-1.95,-5.18) {Validation Framework};
 
-% Deterministic seeds (dashed feedback)
-\draw[dasharr] (pubtator.south) -- ++(0,-0.35)
-    -| node[pos=0.25, below, font=\sffamily\tiny\itshape, text=gray]
-       {deterministic candidate seeds} (gemini.south);
+\node[stage=green!62!black, minimum width=2.65cm] (gene) at (0,-6.25) {\textbf{validation}\\HGNC symbol\\+ alias check};
+\node[stage=green!62!black, minimum width=2.65cm] (ground) at (3.35,-6.25) {\textbf{validation}\\source-text\\grounding};
+\node[stage=green!62!black, minimum width=2.65cm] (cite) at (6.7,-6.25) {\textbf{validation}\\citation cross-ref\\SequenceMatcher};
+\node[stage=green!62!black, minimum width=2.65cm] (variant) at (10.05,-6.25) {\textbf{validation}\\variant matching\\12+ HGVS patterns};
+\node[gate, minimum width=2.45cm] (strict) at (13.25,-6.25) {\textbf{strict gate}\\confidence $\geq 0.7$\\$C=C_g+C_v$};
+\node[stage=gray, minimum width=2.55cm, minimum height=1.25cm] (output) at (16.45,-6.25) {\textbf{output\_writing}\\CSV, JSON, XLSX\\audit artifacts};
 
-% ============================================================
-%  ROW 3: VALIDATION FRAMEWORK
-% ============================================================
-\node[domainbox=green, below=1.4cm of fulltext] (geneval) {
-    \textbf{\footnotesize validation}\\[-1pt]
-    Gene Validation\\[-2pt]
-    {\tiny HGNC (44,943 genes)}};
+\node[file] at (0,-7.17) {HGNC snapshot / REST / MyGene.info};
+\node[file] at (3.35,-7.17) {canonical symbol + aliases};
+\node[file] at (6.7,-7.17) {citation text exists in paper};
+\node[file] at (10.05,-7.17) {HGVS pattern library};
+\node[file] at (13.25,-7.17) {FINAL\_VALIDATION\_MIN\_CONFIDENCE};
+\node[file] at (16.45,-7.17) {deduplicated review files};
 
-\node[domainbox=green, right=of geneval] (citeval) {
-    \textbf{\footnotesize validation}\\[-1pt]
-    Citation\\[-2pt]
-    Cross-Reference};
-
-\node[domainbox=green, right=of citeval] (vareval) {
-    \textbf{\footnotesize validation}\\[-1pt]
-    Variant\\[-2pt]
-    Matching};
-
-\node[box=red, right=of vareval, minimum width=2.0cm] (gate) {
-    \textbf{\footnotesize Strict Gate}\\[-1pt]
-    Confidence $\geq$ 0.7};
-
-% File labels - Validation
-\node[filelabel, below=1pt of geneval] {gene\_validator.py};
-\node[filelabel, below=1pt of citeval] {SequenceMatcher $\geq$0.85};
-\node[filelabel, below=1pt of vareval] {12+ HGVS patterns};
-
-% API pills
-\node[smallpill, above=3pt of geneval] {HGNC REST \quad MyGene.info};
-
-% Validation background
-\begin{scope}[on background layer]
-\node[fit=(geneval)(gate), fill=green!3, draw=green!30,
-      rounded corners=6pt, inner sep=10pt, inner ysep=14pt,
-      label={[layerlabel, text=green!35!black]north west:
-      Validation Framework}] (vallayer) {};
-\end{scope}
-
-% Validation arrows
-\draw[arr] (gemini.south) -- ++(0,-0.7) -| (geneval.north);
-\draw[arr] (geneval) -- (citeval);
-\draw[arr] (citeval) -- (vareval);
-\draw[arr] (vareval) -- (gate);
-
-% Output: gate -> results
-\draw[arr] (gate.east) -- ++(0.4,0) |- (results.south -| orch.east)
-    -- (results.south);
-
-% ============================================================
-%  LEGEND
-% ============================================================
-\node[anchor=north west, font=\sffamily\scriptsize\bfseries,
-      below=0.6cm of vallayer.south west] (legtitle) {Legend};
-\node[anchor=north west, font=\sffamily\tiny, below=1pt of legtitle.south west,
-      text width=12cm] {%
-    \tikz\fill[blue!6, draw=blue!50, rounded corners=2pt] (0,0) rectangle (0.35,0.2);
-    ~Electron UI \quad
-    \tikz\fill[orange!6, draw=orange!60, rounded corners=2pt] (0,0) rectangle (0.35,0.2);
-    ~PubTator NER (precision floor) \quad
-    \tikz\fill[violet!6, draw=violet!50, rounded corners=2pt] (0,0) rectangle (0.35,0.2);
-    ~LLM Extraction (recall ceiling) \quad
-    \tikz\fill[green!3, draw=green!50!black, rounded corners=2pt] (0,0) rectangle (0.35,0.2);
-    ~Validation (anti-hallucination) \quad
-    \tikz\fill[red!6, draw=red!60, rounded corners=2pt] (0,0) rectangle (0.35,0.2);
-    ~Confidence gate%
-};
+\draw[arr=violet] (detail.south) -- ++(0,-1.18) -| (gene.north);
+\draw[arr=green] (gene) -- (ground);
+\draw[arr=green] (ground) -- (cite);
+\draw[arr=green] (cite) -- (variant);
+\draw[arr=green] (variant) -- (strict);
+\draw[arr=red] (strict) -- (output);
+\draw[softarr] (output.north) -- ++(0,1.0) -| node[pos=0.72, right, font=\sffamily\tiny\itshape, text=gray!55]
+  {review in UI} (results.south);
 
 \end{tikzpicture}
 

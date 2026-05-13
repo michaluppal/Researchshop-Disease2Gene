@@ -638,3 +638,77 @@ class EvidenceMixin:
                 f"(per-source thresholds: LLM={llm_thresh}, Deterministic={det_thresh}, Mixed={mixed_thresh})"
             )
         return filtered
+
+    def _apply_citation_gate(
+        self, df: pd.DataFrame, column_descriptions: Dict[str, str]
+    ) -> pd.DataFrame:
+        """
+        Drop rows where user-facing citation fields are present but none are grounded.
+
+        Empty citation fields are handled by the evidence gate and confidence labels;
+        this gate is specifically for hallucinated or drifted citation text that the
+        citation validator has already marked as invalid.
+        """
+        if df.empty or not column_descriptions:
+            return df
+        if not getattr(config, "ENABLE_STRICT_CITATION_GATE", True):
+            return df
+
+        keep_mask = []
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            citation_fields: List[str] = []
+            valid_fields: List[str] = []
+            invalid_fields: List[Dict[str, str]] = []
+
+            for col in column_descriptions:
+                citation_col = f"{col} Citation"
+                if citation_col not in df.columns:
+                    continue
+                citation_text = str(row_dict.get(citation_col, "") or "").strip()
+                if not citation_text or citation_text == "Auto snippet from paper text":
+                    continue
+
+                citation_fields.append(citation_col)
+                valid_col = f"{col}_citation_valid"
+                sibling_valid_col = f"{citation_col}_citation_valid"
+                is_valid = bool(row_dict.get(valid_col)) or bool(row_dict.get(sibling_valid_col))
+                if is_valid:
+                    valid_fields.append(citation_col)
+                    continue
+
+                detail = (
+                    row_dict.get(f"{col}_citation_details")
+                    or row_dict.get(f"{citation_col}_citation_details")
+                    or "citation_not_grounded"
+                )
+                invalid_fields.append({"field": citation_col, "detail": str(detail)})
+
+            keep = not citation_fields or bool(valid_fields)
+            keep_mask.append(keep)
+            if not keep:
+                gene_name = str(row_dict.get("gene_name") or "").strip()
+                variant_name = self._normalize_variant_for_gene(
+                    gene_name,
+                    row_dict.get("variant_name", ""),
+                )
+                self.evidence_gate_drops.append(
+                    {
+                        "gene": gene_name,
+                        "variant": variant_name,
+                        "reason": "ungrounded_citation",
+                        "association_type": str(row_dict.get("Association Type") or ""),
+                        "association_group": str(row_dict.get("Association Group") or ""),
+                        "citation_fields": citation_fields,
+                        "invalid_fields": invalid_fields,
+                    }
+                )
+
+        before = len(df)
+        filtered = df[keep_mask].reset_index(drop=True)
+        dropped = before - len(filtered)
+        if dropped > 0:
+            logging.warning(
+                f"Strict citation gate dropped {dropped}/{before} rows with ungrounded citations"
+            )
+        return filtered

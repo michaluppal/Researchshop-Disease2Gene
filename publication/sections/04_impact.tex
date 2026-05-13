@@ -4,12 +4,12 @@
 
 \subsection{Key Contributions}
 
-ResearchShop Desktop makes three primary contributions:
+ResearchShop makes three primary contributions:
 
 \begin{enumerate}[itemsep=2pt]
-    \item \textbf{Hybrid NER--LLM architecture with validation.} The combination of PubTator3, deterministic HGNC candidate scanning, and Gemini Flash allows the system to identify candidate genes while applying multiple validation gates before output. This addresses a critical gap: neither traditional NER nor unconstrained LLM extraction alone is sufficient for reliable biomedical triage.
+    \item \textbf{Hybrid NER--LLM architecture with validation.} The combination of PubTator3, deterministic HGNC candidate scanning, and Gemini 2.5 Flash Lite extraction is designed to surface candidate genes while applying multiple validation gates before output. This addresses a critical workflow gap: neither traditional NER nor unconstrained LLM extraction alone provides the audit trail needed for reliable biomedical triage.
 
-    \item \textbf{Privacy-preserving desktop application.} The tool runs entirely on consumer hardware with no server infrastructure. Patient data, institutional queries, and research directions never leave the user's machine. Users provide their own API key, avoiding shared-infrastructure costs.
+    \item \textbf{Local-first desktop application.} The tool runs on consumer hardware with no central ResearchShop server. Literature queries, paper identifiers, and extraction prompts are sent directly from the user's machine to the configured external services needed for the workflow, and users provide their own Gemini API key rather than relying on shared ResearchShop infrastructure.
 
     \item \textbf{Transparent, auditable extraction.} Every output row includes provenance metadata: candidate source, normalisation applied, validation outcome, confidence score, association type, and association group. Separate audit artifacts record which candidate genes appeared before validation and which gates removed them.
 \end{enumerate}
@@ -17,10 +17,10 @@ ResearchShop Desktop makes three primary contributions:
 \subsection{Applications}
 
 \begin{itemize}[itemsep=2pt]
-    \item \textbf{VUS resolution:} Systematically extracts published gene-disease associations to accelerate variant classification.
-    \item \textbf{Rare disease research:} Enables comprehensive literature surveys for conditions with scattered, limited publications.
-    \item \textbf{Drug target discovery:} Identifies gene-disease associations relevant to therapeutic development across large corpora.
-    \item \textbf{Systematic reviews:} Reduces manual effort in evidence synthesis from months to hours.
+    \item \textbf{VUS evidence triage:} Helps researchers identify and review published gene-disease evidence relevant to variant interpretation.
+    \item \textbf{Rare disease research:} Supports broader literature surveys for conditions with scattered, limited publications.
+    \item \textbf{Drug target discovery:} Helps researchers assemble candidate gene--disease association tables for therapeutic-development review.
+    \item \textbf{Systematic reviews:} Produces auditable extraction tables that can support, but not replace, documented review and adjudication workflows.
 \end{itemize}
 
 \subsection{Limitations}
@@ -28,14 +28,14 @@ ResearchShop Desktop makes three primary contributions:
 The following limitations should guide interpretation of any ResearchShop output:
 
 \begin{itemize}[itemsep=2pt]
-    \item \textbf{LLM stochasticity:} Gemini Flash is non-deterministic; the same paper can yield different field wording or candidate ranking across runs. Important reviews should preserve audit artifacts and manually verify primary sources.
-    \item \textbf{Open-access only:} Full text is fetched only from open-access PMC and Europe PMC sources. Papers without accessible full text are processed with reduced context, limiting recall and citation grounding.
+    \item \textbf{LLM stochasticity:} Gemini 2.5 Flash Lite is non-deterministic; the same paper can yield different field wording or candidate ranking across runs. Important reviews should preserve audit artifacts and manually verify primary sources.
+    \item \textbf{Open-access only:} Full extraction requires open-access PMC or Europe PMC full text. Papers without accessible full text are not mined for full gene--evidence extraction; the software may retain metadata or review rows, but it does not bypass paywalls or scrape restricted content.
     \item \textbf{Clinical-vs-molecular ambiguity:} Abbreviations like ESR, AST, and CRP appear as both clinical lab tests and gene symbols. A prompt-based disambiguation clause provides soft mitigation; the corroboration gate provides hard backstop.
     \item \textbf{AI-extracted data requires expert review:} The tool is designed for research acceleration, not clinical decision-making. All outputs should be independently verified before use in publications, systematic reviews, or clinical contexts.
-    \item \textbf{Pharmacogenomics and guideline documents:} The pipeline achieves near-zero recall on clinical pharmacogenomics guidelines, where gene-drug associations are embedded in dosing tables and recommendation prose rather than experimental findings sections. The tool is optimised for primary research papers; guideline documents should be processed with domain-specific extraction approaches.
-    \item \textbf{Rare disease citation bias:} Citation-count ranking inherently deprioritises rare disease papers, which accumulate fewer citations than cancer genomics or GWAS studies regardless of scientific merit. Researchers studying rare conditions are advised to use direct PMID submission rather than query-based search to ensure relevant low-citation papers are included.
+    \item \textbf{Pharmacogenomics and guideline documents:} The current pipeline is not optimised for clinical pharmacogenomics guidelines, where gene-drug associations are embedded in dosing tables and recommendation prose rather than experimental findings sections. The tool is optimised for primary research papers; guideline documents should be processed with domain-specific extraction approaches.
+    \item \textbf{Rare disease ranking bias:} The topic-search recommendation score uses citation and journal-quality signals that can deprioritise rare disease papers, which accumulate fewer citations than cancer genomics or GWAS studies regardless of scientific merit. Researchers studying rare conditions are advised to use direct PMID submission rather than query-based search to ensure relevant low-citation papers are included.
     \item \textbf{Structural variant notation coverage:} The HGVS validation layer recognises common notation patterns (amino acid substitutions, frameshifts, splice-site variants, indels, copy-number variants, and others) but does not capture all structural rearrangement notations. Variants in non-standard or complex notation pass gene-level validation and appear in output but are not confirmed as HGVS-compliant.
     \item \textbf{Within-paper deduplication:} The first-occurrence deduplication strategy (one row per gene per paper) may collapse distinct variant-phenotype associations into a single row when the same gene is studied in multiple contexts within one paper. Researchers requiring per-variant granularity should treat the output as a starting index and retrieve the primary source for multi-variant genes.
-    \item \textbf{Search quality is not a systematic-review guarantee:} PubMed search, citation ranking, and UI-side relevance scoring help users find likely papers, but ResearchShop does not prove recall of all relevant papers for a systematic review question. Users conducting systematic reviews should document their search strategy independently.
+    \item \textbf{Search quality is not a systematic-review guarantee:} PubMed search and the topic-search recommendation score help users find likely papers, but ResearchShop does not prove recall of all relevant papers for a systematic review question. Users conducting systematic reviews should document their search strategy independently.
     \item \textbf{Batch workflow rather than interactive evidence synthesis:} The current application processes selected papers into spreadsheets. It does not yet provide notebook-style iterative review, claim-level adjudication, or multi-paper consensus inference.
 \end{itemize}
