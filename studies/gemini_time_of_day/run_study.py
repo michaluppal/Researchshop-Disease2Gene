@@ -49,6 +49,15 @@ DEFAULT_CORPUS = STUDY_DIR / "corpus.json"
 DEFAULT_SCHEDULE = STUDY_DIR / "schedule.json"
 DEFAULT_RUN_ROOT = STUDY_DIR / "runs"
 
+TOKEN_FIELDS = (
+    "gemini_usage_metadata_calls",
+    "gemini_prompt_tokens",
+    "gemini_response_tokens",
+    "gemini_total_tokens",
+    "gemini_cached_tokens",
+    "gemini_thought_tokens",
+)
+
 
 def load_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as fh:
@@ -235,6 +244,49 @@ def load_optional_json(path: str) -> dict[str, Any]:
         return {}
 
 
+def safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def paper_usage_summary(debug_payload: dict[str, Any]) -> dict[str, int]:
+    summary = debug_payload.get("gemini_usage_summary") or {}
+    records = debug_payload.get("gemini_usage") or []
+    if not isinstance(summary, dict):
+        summary = {}
+    if not isinstance(records, list):
+        records = []
+    return {
+        "gemini_api_calls": safe_int(
+            debug_payload.get("api_calls_this_paper")
+            or summary.get("gemini_api_calls")
+            or len(records)
+        ),
+        "gemini_usage_metadata_calls": safe_int(
+            summary.get("gemini_usage_metadata_calls") or len(records)
+        ),
+        "gemini_prompt_tokens": safe_int(summary.get("gemini_prompt_tokens")),
+        "gemini_response_tokens": safe_int(summary.get("gemini_response_tokens")),
+        "gemini_total_tokens": safe_int(summary.get("gemini_total_tokens")),
+        "gemini_cached_tokens": safe_int(summary.get("gemini_cached_tokens")),
+        "gemini_thought_tokens": safe_int(summary.get("gemini_thought_tokens")),
+    }
+
+
+def batch_usage_summary(pipeline_stats: dict[str, Any], per_paper: list[dict[str, Any]]) -> dict[str, int]:
+    totals = {
+        "gemini_api_calls": safe_int(pipeline_stats.get("gemini_api_calls")),
+    }
+    for key in TOKEN_FIELDS:
+        value = safe_int(pipeline_stats.get(key))
+        if value == 0:
+            value = sum(safe_int(paper.get(key)) for paper in per_paper)
+        totals[key] = value
+    return totals
+
+
 def summarize_run(
     *,
     run_id: str,
@@ -293,6 +345,7 @@ def summarize_run(
         dbg = paper_debug.get(pmid, {})
         audit = audit_by_pmid.get(pmid, {})
         fetch = fetch_by_pmid.get(pmid, {})
+        usage = paper_usage_summary(dbg)
         per_paper.append(
             {
                 "pmid": pmid,
@@ -308,10 +361,12 @@ def summarize_run(
                 "quota_limited": bool(dbg.get("quota_limited")),
                 "detail_extraction_status": dbg.get("detail_extraction_status", ""),
                 "detail_extraction_error": dbg.get("detail_extraction_error", ""),
+                **usage,
             }
         )
 
     pipeline_stats = debug.get("pipeline_stats", {})
+    usage_totals = batch_usage_summary(pipeline_stats, per_paper)
     completed = sum(1 for item in per_paper if item["status"] == "ok")
     quota_limited_papers = sum(1 for item in per_paper if item["quota_limited"])
     timeout_count = sum(1 for item in per_paper if item["status"] == "timeout")
@@ -355,7 +410,13 @@ def summarize_run(
             "quota_warning_count": len(quota_warnings),
             "timeout_count": timeout_count,
             "failed_papers": failed_papers,
-            "gemini_api_calls": int(pipeline_stats.get("gemini_api_calls", 0) or 0),
+            "gemini_api_calls": usage_totals["gemini_api_calls"],
+            "gemini_usage_metadata_calls": usage_totals["gemini_usage_metadata_calls"],
+            "gemini_prompt_tokens": usage_totals["gemini_prompt_tokens"],
+            "gemini_response_tokens": usage_totals["gemini_response_tokens"],
+            "gemini_total_tokens": usage_totals["gemini_total_tokens"],
+            "gemini_cached_tokens": usage_totals["gemini_cached_tokens"],
+            "gemini_thought_tokens": usage_totals["gemini_thought_tokens"],
             "gemini_error_count": gemini_error_count,
             "model_unavailable_count": unavailable_count,
             "permission_denied_count": permission_denied_count,

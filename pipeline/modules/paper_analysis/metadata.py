@@ -9,12 +9,41 @@ import pandas as pd
 from .. import config
 from ..association_policy import association_group_for_type
 
+_USAGE_SUMMARY_KEYS = {
+    "prompt_token_count": "gemini_prompt_tokens",
+    "candidates_token_count": "gemini_response_tokens",
+    "total_token_count": "gemini_total_tokens",
+    "cached_content_token_count": "gemini_cached_tokens",
+    "thoughts_token_count": "gemini_thought_tokens",
+}
+
+
+def summarize_gemini_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Aggregate Gemini SDK usage metadata records into stable counters."""
+    summary = {
+        "gemini_usage_metadata_calls": len(records),
+        "gemini_prompt_tokens": 0,
+        "gemini_response_tokens": 0,
+        "gemini_total_tokens": 0,
+        "gemini_cached_tokens": 0,
+        "gemini_thought_tokens": 0,
+    }
+    for record in records:
+        for source_key, dest_key in _USAGE_SUMMARY_KEYS.items():
+            try:
+                summary[dest_key] += int(record.get(source_key) or 0)
+            except (TypeError, ValueError):
+                continue
+    return summary
+
 
 class MetadataMixin:
     def _collect_debug_artifact(self) -> Dict[str, Any]:
         """
         Build a serializable debug artifact describing candidate lifecycle and drops.
         """
+        usage_records = list(getattr(self, "_gemini_usage_records", []) or [])
+        usage_summary = summarize_gemini_usage(usage_records)
         candidates: List[Dict[str, Any]] = []
         for meta in self.candidate_meta.values():
             gene = str(meta.get("gene") or "")
@@ -65,6 +94,8 @@ class MetadataMixin:
             "pubtator_genes_count": len(self.pubtator_genes),
             "paper_text_length": len(self.paper_text or ""),
             "api_calls_this_paper": self._paper_api_calls,
+            "gemini_usage": usage_records,
+            "gemini_usage_summary": usage_summary,
             "context_warning": self._context_warning,
             "truncation_rescue_count": self._truncation_rescue_count,
             "final_associations": [

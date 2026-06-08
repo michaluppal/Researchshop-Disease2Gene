@@ -216,6 +216,125 @@ def test_runner_counts_recovered_model_unavailable_events(tmp_path):
     assert manifest["batch"]["model_unavailable_count"] == 1
 
 
+def test_runner_summarizes_exact_gemini_token_usage(tmp_path):
+    runner = _load_module(RUNNER_PATH, "gemini_time_runner_tokens")
+    result_csv = tmp_path / "results.csv"
+    result_csv.write_text("Gene,PMID\nBRCA1,111\n", encoding="utf-8")
+    debug_path = tmp_path / "debug.json"
+    debug_path.write_text(
+        json.dumps(
+            {
+                "pipeline_stats": {
+                    "gemini_api_calls": 2,
+                    "gemini_usage_metadata_calls": 2,
+                    "gemini_prompt_tokens": 100,
+                    "gemini_response_tokens": 20,
+                    "gemini_total_tokens": 120,
+                },
+                "paper_debug": [
+                    {
+                        "pmid": "111",
+                        "status": "ok",
+                        "api_calls_this_paper": 2,
+                        "gemini_usage_summary": {
+                            "gemini_usage_metadata_calls": 2,
+                            "gemini_prompt_tokens": 100,
+                            "gemini_response_tokens": 20,
+                            "gemini_total_tokens": 120,
+                        },
+                        "emitted_rows": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    events = [
+        {
+            "epoch": 100.0,
+            "kind": "log",
+            "payload": {"msg": "Analyzing paper 1/1", "detail": "PMID 111"},
+        },
+        {
+            "epoch": 150.0,
+            "kind": "result",
+            "payload": {"local_path": str(result_csv), "debug_path": str(debug_path)},
+        },
+    ]
+
+    manifest = runner.summarize_run(
+        run_id="hour00",
+        planned_entry={"time_block": "night"},
+        pmids=["111"],
+        start_epoch=100.0,
+        end_epoch=160.0,
+        return_code=0,
+        events=events,
+        output_dir=tmp_path,
+        corpus_fingerprint="fingerprint",
+        timezone_name="Europe/Warsaw",
+        quota_snapshot_path=None,
+        usage_before=None,
+        usage_after=None,
+    )
+
+    assert manifest["batch"]["gemini_prompt_tokens"] == 100
+    assert manifest["batch"]["gemini_response_tokens"] == 20
+    assert manifest["batch"]["gemini_total_tokens"] == 120
+    assert manifest["per_paper"][0]["gemini_api_calls"] == 2
+    assert manifest["per_paper"][0]["gemini_total_tokens"] == 120
+
+
+def test_analyzer_computes_output_stability_jaccard(tmp_path):
+    analyzer = _load_module(ANALYZER_PATH, "gemini_time_analyzer_stability")
+    run1_csv = tmp_path / "run1.csv"
+    run1_csv.write_text(
+        "PMID,Gene,Variant\n111,BRCA1,c.1A>G\n111,TP53,\n",
+        encoding="utf-8",
+    )
+    run2_csv = tmp_path / "run2.csv"
+    run2_csv.write_text(
+        "PMID,Gene,Variant\n111,BRCA1,c.1A>G\n111,EGFR,\n",
+        encoding="utf-8",
+    )
+    manifests = [
+        {
+            "run_id": "hour00",
+            "outputs": {"csv": str(run1_csv)},
+            "per_paper": [
+                {
+                    "pmid": "111",
+                    "emitted_rows": 2,
+                    "strict_gate_drops": 1,
+                    "citation_gate_drops": 0,
+                }
+            ],
+        },
+        {
+            "run_id": "hour01",
+            "outputs": {"csv": str(run2_csv)},
+            "per_paper": [
+                {
+                    "pmid": "111",
+                    "emitted_rows": 2,
+                    "strict_gate_drops": 0,
+                    "citation_gate_drops": 1,
+                }
+            ],
+        },
+    ]
+
+    rows = analyzer.output_stability_rows(manifests)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["pmid"] == "111"
+    assert row["cv_emitted_rows"] == 0
+    assert round(row["mean_gene_jaccard"], 3) == 0.333
+    assert row["mean_gene_variant_jaccard"] == 1.0
+    assert round(row["mean_validation_gate_drop_rate"], 3) == 0.333
+
+
 def test_runner_refuses_unverified_full_corpus(tmp_path):
     runner = _load_module(RUNNER_PATH, "gemini_time_runner_unverified")
     corpus = {

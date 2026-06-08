@@ -27,6 +27,17 @@ from .schemas import (
 FigureAssociationResponse = CandidateAssociationResponse
 FigureDiscoveryResponse = CandidateDiscoveryResponse
 
+_USAGE_TOKEN_FIELDS = {
+    "prompt_token_count": ("prompt_token_count", "promptTokenCount"),
+    "candidates_token_count": ("candidates_token_count", "candidatesTokenCount"),
+    "total_token_count": ("total_token_count", "totalTokenCount"),
+    "cached_content_token_count": (
+        "cached_content_token_count",
+        "cachedContentTokenCount",
+    ),
+    "thoughts_token_count": ("thoughts_token_count", "thoughtsTokenCount"),
+}
+
 
 class GeminiClientMixin:
     @staticmethod
@@ -119,6 +130,63 @@ class GeminiClientMixin:
             return int(delay_match.group(1))
         return None
 
+    @staticmethod
+    def _usage_value(usage: Any, *names: str) -> int:
+        """Read a numeric usage metadata field from dict/Pydantic/SDK objects."""
+        if usage is None:
+            return 0
+        for name in names:
+            value = None
+            if isinstance(usage, dict):
+                value = usage.get(name)
+            else:
+                value = getattr(usage, name, None)
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
+    @classmethod
+    def _normalize_usage_metadata(cls, usage: Any) -> Dict[str, int]:
+        """Return stable snake_case Gemini usage counters."""
+        if hasattr(usage, "model_dump"):
+            try:
+                usage = usage.model_dump()
+            except Exception:
+                pass
+        elif hasattr(usage, "to_json_dict"):
+            try:
+                usage = usage.to_json_dict()
+            except Exception:
+                pass
+        return {
+            key: cls._usage_value(usage, *field_names)
+            for key, field_names in _USAGE_TOKEN_FIELDS.items()
+        }
+
+    def _record_gemini_usage(
+        self,
+        *,
+        response: Any,
+        model_name: str,
+        purpose: str,
+        call_index: int,
+    ) -> None:
+        """Persist per-call token counters returned by the Gemini SDK."""
+        usage = getattr(response, "usage_metadata", None)
+        normalized = self._normalize_usage_metadata(usage)
+        if not usage and not any(normalized.values()):
+            return
+        self._gemini_usage_records.append(
+            {
+                "call_index": call_index,
+                "purpose": purpose,
+                "model": model_name,
+                **normalized,
+            }
+        )
+
     def _can_make_gemini_call(
         self,
         purpose: str,
@@ -186,13 +254,21 @@ class GeminiClientMixin:
                 time.sleep(min_delay - elapsed)
 
         self._paper_api_calls += 1
+        call_index = self._paper_api_calls
         self._last_gemini_call_at = time.time()
         try:
-            return self.client.models.generate_content(
+            response = self.client.models.generate_content(
                 model=f"models/{model_name}",
                 contents=contents,
                 config=generate_content_config,
             )
+            self._record_gemini_usage(
+                response=response,
+                model_name=model_name,
+                purpose=purpose,
+                call_index=call_index,
+            )
+            return response
         except Exception as e:
             if self._is_rate_limit_error(e):
                 self._quota_limited = True

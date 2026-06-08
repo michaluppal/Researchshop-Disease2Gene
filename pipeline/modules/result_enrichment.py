@@ -10,6 +10,15 @@ import pandas as pd
 from . import config
 from .pipeline_artifacts import _ensure_unique_columns
 
+_GEMINI_USAGE_COUNTERS = (
+    "gemini_usage_metadata_calls",
+    "gemini_prompt_tokens",
+    "gemini_response_tokens",
+    "gemini_total_tokens",
+    "gemini_cached_tokens",
+    "gemini_thought_tokens",
+)
+
 
 def get_citation_record(pmid: str, citation_records: dict) -> dict:
     """Return a stable citation payload for a PMID."""
@@ -149,6 +158,11 @@ def finalize_paper_result(
         else:
             worker_debug = {"status": "ok"}
         pipeline_stats["gemini_api_calls"] += int(payload.get("gemini_api_calls", 0))
+        usage_summary = worker_debug.get("gemini_usage_summary") or {}
+        for key in _GEMINI_USAGE_COUNTERS:
+            pipeline_stats[key] = int(pipeline_stats.get(key, 0) or 0) + int(
+                usage_summary.get(key, 0) or 0
+            )
         ctx_warn = (worker_debug or {}).get("context_warning")
         if ctx_warn:
             emit_log("warn", f"PMID {pmid}: {ctx_warn}")
@@ -221,6 +235,9 @@ def finalize_paper_result(
         "validation_drops": worker_debug.get("validation_drops", []),
         "strict_gate_drops": paper_drops,
         "evidence_gate_drops": worker_debug.get("evidence_gate_drops", []),
+        "api_calls_this_paper": worker_debug.get("api_calls_this_paper"),
+        "gemini_usage": worker_debug.get("gemini_usage", []),
+        "gemini_usage_summary": worker_debug.get("gemini_usage_summary", {}),
         "final_associations": worker_debug.get("final_associations", []),
         "emitted_rows": int(len(paper_df)),
     }

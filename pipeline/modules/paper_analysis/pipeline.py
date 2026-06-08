@@ -159,6 +159,7 @@ class PaperAnalysisPipeline(
         self.table_inputs = self.prepared_content.table_inputs
         self.table_citation_index = self.prepared_content.table_citation_index
         self._paper_api_calls: int = 0
+        self._gemini_usage_records: List[Dict[str, Any]] = []
         self._last_gemini_call_at: Optional[float] = None
         self._quota_limited: bool = False
         self._context_warning: Optional[str] = None

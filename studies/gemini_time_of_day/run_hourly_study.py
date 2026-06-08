@@ -161,6 +161,7 @@ def compact_manifest_line(manifest: dict[str, Any]) -> str:
         f"runtime_s={manifest.get('runtime_seconds', 0)} "
         f"completed={batch.get('completed_papers', 0)}/{batch.get('total_papers', 0)} "
         f"calls={batch.get('gemini_api_calls', 0)} "
+        f"tokens={batch.get('gemini_total_tokens', 0)} "
         f"quota_rows={batch.get('quota_limited_rows', 0)} "
         f"unavailable={batch.get('model_unavailable_count', 0)} "
         f"timeouts={batch.get('timeout_count', 0)} "

@@ -146,7 +146,8 @@ per-quota-window headroom. The runner writes:
 
 - timestamped raw pipeline events
 - the normal ResearchShop CSV/JSON/XLSX/debug artifacts
-- `study_run.json`, the normalized study manifest
+- `study_run.json`, the normalized study manifest with per-paper Gemini calls
+  and exact SDK token counters when `usage_metadata` is returned
 
 Formal runs refuse to start before their scheduled Europe/Warsaw time and refuse
 to overwrite an existing `study_run.json`. Use `--allow-early-run` or

@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import math
 import json
 import statistics
 from collections import defaultdict
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +84,222 @@ def median(values: list[float]) -> float:
     return statistics.median(clean) if clean else 0.0
 
 
+def safe_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def stdev(values: list[float]) -> float:
+    clean = [float(v) for v in values if v is not None]
+    return statistics.stdev(clean) if len(clean) >= 2 else 0.0
+
+
+def p95(values: list[float]) -> float:
+    clean = sorted(float(v) for v in values if v is not None)
+    if not clean:
+        return 0.0
+    index = max(0, math.ceil(0.95 * len(clean)) - 1)
+    return clean[index]
+
+
+def describe_metric(name: str, values: list[float]) -> dict[str, Any]:
+    clean = [float(v) for v in values if v is not None]
+    if not clean:
+        return {
+            "metric": name,
+            "count": 0,
+            "mean": 0,
+            "median": 0,
+            "sd": 0,
+            "min": 0,
+            "max": 0,
+            "p95": 0,
+        }
+    return {
+        "metric": name,
+        "count": len(clean),
+        "mean": statistics.mean(clean),
+        "median": statistics.median(clean),
+        "sd": stdev(clean),
+        "min": min(clean),
+        "max": max(clean),
+        "p95": p95(clean),
+    }
+
+
+def descriptive_rows(
+    batch_rows: list[dict[str, Any]],
+    paper_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    metrics = [
+        ("batch_runtime_seconds", batch_rows, "runtime_seconds"),
+        ("batch_gemini_api_calls", batch_rows, "gemini_api_calls"),
+        ("batch_gemini_prompt_tokens", batch_rows, "gemini_prompt_tokens"),
+        ("batch_gemini_response_tokens", batch_rows, "gemini_response_tokens"),
+        ("batch_gemini_total_tokens", batch_rows, "gemini_total_tokens"),
+        ("batch_output_rows", batch_rows, "output_rows"),
+        ("paper_runtime_seconds", paper_rows, "runtime_seconds"),
+        ("paper_gemini_api_calls", paper_rows, "gemini_api_calls"),
+        ("paper_gemini_prompt_tokens", paper_rows, "gemini_prompt_tokens"),
+        ("paper_gemini_response_tokens", paper_rows, "gemini_response_tokens"),
+        ("paper_gemini_total_tokens", paper_rows, "gemini_total_tokens"),
+        ("paper_emitted_rows", paper_rows, "emitted_rows"),
+        ("paper_strict_gate_drops", paper_rows, "strict_gate_drops"),
+        ("paper_citation_gate_drops", paper_rows, "citation_gate_drops"),
+    ]
+    return [
+        describe_metric(name, [safe_float(row.get(key)) for row in rows])
+        for name, rows, key in metrics
+    ]
+
+
+def jaccard(a: set[str], b: set[str]) -> float:
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
+def mean_pairwise_jaccard(sets: list[set[str]]) -> float | None:
+    if len(sets) < 2:
+        return None
+    scores = [jaccard(left, right) for left, right in combinations(sets, 2)]
+    return statistics.mean(scores) if scores else None
+
+
+def first_present(fieldnames: list[str], candidates: tuple[str, ...]) -> str | None:
+    normalized = {name.lower(): name for name in fieldnames}
+    for candidate in candidates:
+        if candidate.lower() in normalized:
+            return normalized[candidate.lower()]
+    return None
+
+
+def normalize_output_value(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def load_output_observations(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    outputs = manifest.get("outputs") or {}
+    observations: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"rows": 0, "genes": set(), "gene_variants": set()}
+    )
+    csv_raw = str(outputs.get("csv") or "").strip()
+    if not csv_raw:
+        return observations
+    csv_path = Path(csv_raw)
+    if not csv_path.exists() or not csv_path.is_file():
+        return observations
+    with csv_path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        fieldnames = reader.fieldnames or []
+        pmid_col = first_present(fieldnames, ("PMID", "pmid"))
+        gene_col = first_present(fieldnames, ("Gene", "Gene/Group", "gene_name"))
+        variant_col = first_present(fieldnames, ("Variant", "Variant Name", "variant_name"))
+        if not pmid_col:
+            return observations
+        for row in reader:
+            pmid = normalize_output_value(row.get(pmid_col))
+            if not pmid:
+                continue
+            obs = observations[pmid]
+            obs["rows"] += 1
+            gene = normalize_output_value(row.get(gene_col)) if gene_col else ""
+            variant = normalize_output_value(row.get(variant_col)) if variant_col else ""
+            if gene:
+                gene_key = gene.upper()
+                obs["genes"].add(gene_key)
+                if variant:
+                    obs["gene_variants"].add(f"{gene_key}|{variant.upper()}")
+    return observations
+
+
+def output_stability_rows(manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    output_by_run = {
+        str(manifest.get("run_id", "")): load_output_observations(manifest)
+        for manifest in manifests
+    }
+    paper_metrics: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for manifest in manifests:
+        run_id = str(manifest.get("run_id", ""))
+        observed = output_by_run.get(run_id, {})
+        per_paper = {
+            str(paper.get("pmid", "")): paper
+            for paper in manifest.get("per_paper", [])
+            if str(paper.get("pmid", "")).strip()
+        }
+        pmids = set(observed.keys()) | set(per_paper.keys())
+        for pmid in pmids:
+            obs = observed.get(pmid, {"rows": 0, "genes": set(), "gene_variants": set()})
+            paper = per_paper.get(pmid, {})
+            emitted_rows = safe_float(paper.get("emitted_rows"))
+            if emitted_rows == 0 and obs.get("rows"):
+                emitted_rows = safe_float(obs.get("rows"))
+            strict_drops = safe_float(paper.get("strict_gate_drops"))
+            citation_drops = safe_float(paper.get("citation_gate_drops"))
+            denominator = emitted_rows + strict_drops + citation_drops
+            paper_metrics[pmid].append(
+                {
+                    "run_id": run_id,
+                    "emitted_rows": emitted_rows,
+                    "strict_gate_drops": strict_drops,
+                    "citation_gate_drops": citation_drops,
+                    "gate_drop_rate": (
+                        (strict_drops + citation_drops) / denominator
+                        if denominator > 0
+                        else 0.0
+                    ),
+                    "genes": set(obs.get("genes") or set()),
+                    "gene_variants": set(obs.get("gene_variants") or set()),
+                }
+            )
+
+    rows: list[dict[str, Any]] = []
+    for pmid, observations in sorted(paper_metrics.items()):
+        emitted = [float(item["emitted_rows"]) for item in observations]
+        mean_rows = statistics.mean(emitted) if emitted else 0.0
+        row_sd = stdev(emitted)
+        gene_sets = [set(item["genes"]) for item in observations]
+        gene_variant_sets = [set(item["gene_variants"]) for item in observations]
+        gene_jaccard = mean_pairwise_jaccard(gene_sets)
+        gene_variant_jaccard = mean_pairwise_jaccard(gene_variant_sets)
+        rows.append(
+            {
+                "pmid": pmid,
+                "runs": len(observations),
+                "mean_emitted_rows": mean_rows,
+                "sd_emitted_rows": row_sd,
+                "cv_emitted_rows": row_sd / mean_rows if mean_rows else 0.0,
+                "min_emitted_rows": min(emitted) if emitted else 0,
+                "max_emitted_rows": max(emitted) if emitted else 0,
+                "mean_strict_gate_drops": statistics.mean(
+                    [float(item["strict_gate_drops"]) for item in observations]
+                )
+                if observations
+                else 0,
+                "mean_citation_gate_drops": statistics.mean(
+                    [float(item["citation_gate_drops"]) for item in observations]
+                )
+                if observations
+                else 0,
+                "mean_validation_gate_drop_rate": statistics.mean(
+                    [float(item["gate_drop_rate"]) for item in observations]
+                )
+                if observations
+                else 0,
+                "mean_gene_jaccard": "" if gene_jaccard is None else gene_jaccard,
+                "mean_gene_variant_jaccard": (
+                    "" if gene_variant_jaccard is None else gene_variant_jaccard
+                ),
+            }
+        )
+    return rows
+
+
 def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     batch_rows: list[dict[str, Any]] = []
     paper_rows: list[dict[str, Any]] = []
@@ -123,6 +341,12 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
             "quota_warning_count": batch.get("quota_warning_count", 0),
             "timeout_count": batch.get("timeout_count", 0),
             "gemini_api_calls": batch.get("gemini_api_calls", 0),
+            "gemini_usage_metadata_calls": batch.get("gemini_usage_metadata_calls", 0),
+            "gemini_prompt_tokens": batch.get("gemini_prompt_tokens", 0),
+            "gemini_response_tokens": batch.get("gemini_response_tokens", 0),
+            "gemini_total_tokens": batch.get("gemini_total_tokens", 0),
+            "gemini_cached_tokens": batch.get("gemini_cached_tokens", 0),
+            "gemini_thought_tokens": batch.get("gemini_thought_tokens", 0),
             "gemini_error_count": batch.get("gemini_error_count", 0),
             "model_unavailable_count": batch.get("model_unavailable_count", 0),
             "permission_denied_count": batch.get("permission_denied_count", 0),
@@ -146,6 +370,13 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
                     "status": paper.get("status", ""),
                     "fetch_source": paper.get("fetch_source", ""),
                     "text_chars": paper.get("text_chars", ""),
+                    "gemini_api_calls": paper.get("gemini_api_calls", 0),
+                    "gemini_usage_metadata_calls": paper.get("gemini_usage_metadata_calls", 0),
+                    "gemini_prompt_tokens": paper.get("gemini_prompt_tokens", 0),
+                    "gemini_response_tokens": paper.get("gemini_response_tokens", 0),
+                    "gemini_total_tokens": paper.get("gemini_total_tokens", 0),
+                    "gemini_cached_tokens": paper.get("gemini_cached_tokens", 0),
+                    "gemini_thought_tokens": paper.get("gemini_thought_tokens", 0),
                     "candidate_count": paper.get("candidate_count", ""),
                     "emitted_rows": paper.get("emitted_rows", 0),
                     "strict_gate_drops": paper.get("strict_gate_drops", 0),
@@ -172,6 +403,12 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
                 ),
                 "timeout_runs": sum(1 for row in rows if int(row["timeout_count"] or 0) > 0),
                 "median_output_rows": median([float(row["output_rows"] or 0) for row in rows]),
+                "median_gemini_api_calls": median(
+                    [float(row["gemini_api_calls"] or 0) for row in rows]
+                ),
+                "median_gemini_total_tokens": median(
+                    [float(row["gemini_total_tokens"] or 0) for row in rows]
+                ),
             }
         )
     return batch_rows, paper_rows, block_rows
@@ -217,9 +454,31 @@ def write_markdown(
     path: Path,
     batch_rows: list[dict[str, Any]],
     block_rows: list[dict[str, Any]],
+    descriptive: list[dict[str, Any]],
+    stability: list[dict[str, Any]],
     verdict: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    descriptive_by_metric = {row["metric"]: row for row in descriptive}
+    batch_runtime = descriptive_by_metric.get("batch_runtime_seconds", {})
+    paper_runtime = descriptive_by_metric.get("paper_runtime_seconds", {})
+    batch_tokens = descriptive_by_metric.get("batch_gemini_total_tokens", {})
+    paper_tokens = descriptive_by_metric.get("paper_gemini_total_tokens", {})
+    row_cv_values = [
+        safe_float(row.get("cv_emitted_rows"))
+        for row in stability
+        if str(row.get("cv_emitted_rows", "")).strip() != ""
+    ]
+    gene_jaccards = [
+        safe_float(row.get("mean_gene_jaccard"))
+        for row in stability
+        if str(row.get("mean_gene_jaccard", "")).strip() != ""
+    ]
+    pair_jaccards = [
+        safe_float(row.get("mean_gene_variant_jaccard"))
+        for row in stability
+        if str(row.get("mean_gene_variant_jaccard", "")).strip() != ""
+    ]
     lines = [
         "# Gemini Free-Tier Time-of-Day Study Report",
         "",
@@ -227,14 +486,57 @@ def write_markdown(
         "",
         f"Formal runs analyzed: {len(batch_rows)}",
         "",
+        "## Overall Metrics",
+        "",
+        "| Metric | Mean | Median | SD | Min | Max | P95 |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Batch runtime (min) | {mean:.1f} | {median:.1f} | {sd:.1f} | {min:.1f} | {max:.1f} | {p95:.1f} |".format(
+            mean=safe_float(batch_runtime.get("mean")) / 60.0,
+            median=safe_float(batch_runtime.get("median")) / 60.0,
+            sd=safe_float(batch_runtime.get("sd")) / 60.0,
+            min=safe_float(batch_runtime.get("min")) / 60.0,
+            max=safe_float(batch_runtime.get("max")) / 60.0,
+            p95=safe_float(batch_runtime.get("p95")) / 60.0,
+        ),
+        "| Paper runtime (min) | {mean:.1f} | {median:.1f} | {sd:.1f} | {min:.1f} | {max:.1f} | {p95:.1f} |".format(
+            mean=safe_float(paper_runtime.get("mean")) / 60.0,
+            median=safe_float(paper_runtime.get("median")) / 60.0,
+            sd=safe_float(paper_runtime.get("sd")) / 60.0,
+            min=safe_float(paper_runtime.get("min")) / 60.0,
+            max=safe_float(paper_runtime.get("max")) / 60.0,
+            p95=safe_float(paper_runtime.get("p95")) / 60.0,
+        ),
+        "| Batch Gemini total tokens | {mean:.0f} | {median:.0f} | {sd:.0f} | {min:.0f} | {max:.0f} | {p95:.0f} |".format(
+            mean=safe_float(batch_tokens.get("mean")),
+            median=safe_float(batch_tokens.get("median")),
+            sd=safe_float(batch_tokens.get("sd")),
+            min=safe_float(batch_tokens.get("min")),
+            max=safe_float(batch_tokens.get("max")),
+            p95=safe_float(batch_tokens.get("p95")),
+        ),
+        "| Paper Gemini total tokens | {mean:.0f} | {median:.0f} | {sd:.0f} | {min:.0f} | {max:.0f} | {p95:.0f} |".format(
+            mean=safe_float(paper_tokens.get("mean")),
+            median=safe_float(paper_tokens.get("median")),
+            sd=safe_float(paper_tokens.get("sd")),
+            min=safe_float(paper_tokens.get("min")),
+            max=safe_float(paper_tokens.get("max")),
+            p95=safe_float(paper_tokens.get("p95")),
+        ),
+        "",
+        "## Output Stability",
+        "",
+        f"- Median per-PMID emitted-row CV: {median(row_cv_values):.3f}",
+        f"- Median per-PMID gene-set Jaccard: {median(gene_jaccards):.3f}",
+        f"- Median per-PMID gene-variant Jaccard: {median(pair_jaccards):.3f}",
+        "",
         "## Time Blocks",
         "",
-        "| Time block | Runs | Median runtime (min) | Median completion | Quota-limited runs | 503/high-demand runs | Timeout runs | Median output rows |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Time block | Runs | Median runtime (min) | Median completion | Quota-limited runs | 503/high-demand runs | Timeout runs | Median calls | Median total tokens | Median output rows |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in block_rows:
         lines.append(
-            "| {time_block} | {runs} | {runtime:.1f} | {completion:.0%} | {quota} | {unavailable} | {timeouts} | {rows:.0f} |".format(
+            "| {time_block} | {runs} | {runtime:.1f} | {completion:.0%} | {quota} | {unavailable} | {timeouts} | {calls:.0f} | {tokens:.0f} | {rows:.0f} |".format(
                 time_block=row["time_block"],
                 runs=row["runs"],
                 runtime=float(row["median_batch_runtime_seconds"] or 0) / 60.0,
@@ -242,6 +544,8 @@ def write_markdown(
                 quota=row["quota_limited_runs"],
                 unavailable=row["model_unavailable_runs"],
                 timeouts=row["timeout_runs"],
+                calls=safe_float(row.get("median_gemini_api_calls")),
+                tokens=safe_float(row.get("median_gemini_total_tokens")),
                 rows=float(row["median_output_rows"] or 0),
             )
         )
@@ -284,12 +588,23 @@ def main() -> int:
         include_unlocked_corpus_runs=args.include_unlocked_corpus_runs,
     )
     batch_rows, paper_rows, block_rows = summarize(manifests)
+    descriptive = descriptive_rows(batch_rows, paper_rows)
+    stability = output_stability_rows(manifests)
     verdict = classify(batch_rows, block_rows)
 
     write_csv(args.report_dir / "batch_metrics.csv", batch_rows)
     write_csv(args.report_dir / "paper_metrics.csv", paper_rows)
     write_csv(args.report_dir / "time_block_summary.csv", block_rows)
-    write_markdown(args.report_dir / "report.md", batch_rows, block_rows, verdict)
+    write_csv(args.report_dir / "descriptive_summary.csv", descriptive)
+    write_csv(args.report_dir / "stability_metrics.csv", stability)
+    write_markdown(
+        args.report_dir / "report.md",
+        batch_rows,
+        block_rows,
+        descriptive,
+        stability,
+        verdict,
+    )
 
     print(f"Analyzed {len(batch_rows)} run(s). Verdict: {verdict}")
     print(f"Report written: {args.report_dir / 'report.md'}")

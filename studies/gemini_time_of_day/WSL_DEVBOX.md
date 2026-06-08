@@ -89,6 +89,8 @@ Important files:
 - `reports/batch_metrics.csv`
 - `reports/paper_metrics.csv`
 - `reports/time_block_summary.csv`
+- `reports/descriptive_summary.csv`
+- `reports/stability_metrics.csv`
 - `hourXX/study_run.json` for every attempted run
 
 The driver skips slots when the current Pacific-reset quota window approaches
