@@ -1,0 +1,5 @@
+{
+  "Association Type": "Classify the reported relationship, for example disease association, variant effect, expression change, biomarker, pathway involvement, or no supported association.",
+  "Key Finding": "Concise statement of the gene, variant, disease, phenotype, cohort, and main evidence reported in the paper.",
+  "Evidence Context": "Short source-grounded context needed to understand the finding, including relevant method, cohort, result, figure, table, or section references when present."
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "gemini_time_of_day_schedule_v4",
+  "timezone": "Europe/Warsaw",
+  "cadence_minutes": 60,
+  "quota_policy": {
+    "active_daily_limit_requests": 500,
+    "active_model": "gemini-3.1-flash-lite",
+    "quota_source": "User-confirmed AI Studio active limit on 2026-06-08",
+    "quota_reset_reference": "midnight Pacific time",
+    "quota_reset_local_time_summer": "09:00",
+    "estimated_requests_per_10_paper_batch": 18,
+    "estimated_24_hour_requests": 432,
+    "rationale": "AI Studio shows 500 RPD for gemini-3.1-flash-lite. With the observed 18 calls per 10-paper batch, hourly 24-hour sampling should stay below the daily cap while measuring time-of-day effects."
+  },
+  "policy": {
+    "same_pmids_every_run": true,
+    "skip_if_previous_batch_running": true,
+    "run_hourly_when_quota_headroom_allows": true
+  },
+  "time_blocks": {
+    "night": "00:00-05:59",
+    "morning": "06:00-11:59",
+    "afternoon": "12:00-17:59",
+    "evening": "18:00-23:59"
+  },
+  "runs": [
+    {"run_id": "hour00", "repeat": 1, "time_block": "night", "planned_local_time": "00:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour01", "repeat": 1, "time_block": "night", "planned_local_time": "01:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour02", "repeat": 1, "time_block": "night", "planned_local_time": "02:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour03", "repeat": 1, "time_block": "night", "planned_local_time": "03:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour04", "repeat": 1, "time_block": "night", "planned_local_time": "04:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour05", "repeat": 1, "time_block": "night", "planned_local_time": "05:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour06", "repeat": 1, "time_block": "morning", "planned_local_time": "06:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour07", "repeat": 1, "time_block": "morning", "planned_local_time": "07:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour08", "repeat": 1, "time_block": "morning", "planned_local_time": "08:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-08"},
+    {"run_id": "hour09", "repeat": 1, "time_block": "morning", "planned_local_time": "09:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour10", "repeat": 1, "time_block": "morning", "planned_local_time": "10:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour11", "repeat": 1, "time_block": "morning", "planned_local_time": "11:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour12", "repeat": 1, "time_block": "afternoon", "planned_local_time": "12:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour13", "repeat": 1, "time_block": "afternoon", "planned_local_time": "13:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour14", "repeat": 1, "time_block": "afternoon", "planned_local_time": "14:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour15", "repeat": 1, "time_block": "afternoon", "planned_local_time": "15:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour16", "repeat": 1, "time_block": "afternoon", "planned_local_time": "16:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour17", "repeat": 1, "time_block": "afternoon", "planned_local_time": "17:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour18", "repeat": 1, "time_block": "evening", "planned_local_time": "18:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour19", "repeat": 1, "time_block": "evening", "planned_local_time": "19:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour20", "repeat": 1, "time_block": "evening", "planned_local_time": "20:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour21", "repeat": 1, "time_block": "evening", "planned_local_time": "21:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour22", "repeat": 1, "time_block": "evening", "planned_local_time": "22:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"},
+    {"run_id": "hour23", "repeat": 1, "time_block": "evening", "planned_local_time": "23:00", "planned_date": "2026-06-09", "quota_window_start_date": "2026-06-09"}
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "schema_version": "gemini_time_of_day_corpus_v1",
+  "verified": true,
+  "verification_note": "CLI verification on 2026-06-06: the original PMID 36929942 resolved in the UI but failed the CLI full-text fetch path, so it was replaced with PMID 39009607. The replacement was verified by PMC efetch from PMC11250857 with 61,679 chars and quality 0.90. Keep this revised PMID list fixed for every formal free-tier timing run.",
+  "selection_policy": {
+    "total_pmids": 10,
+    "size_classes": {
+      "small": 4,
+      "medium": 4,
+      "large": 2
+    },
+    "rules": [
+      "Use the same PMIDs for every study run.",
+      "Prefer PMC/Europe PMC open-access full text.",
+      "Exclude papers that require OCR, Playwright fallback, or figure analysis to be useful.",
+      "Replace any candidate that cannot be fetched consistently before the study starts."
+    ]
+  },
+  "pmids": [
+    {
+      "pmid": "36552004",
+      "size_class": "small",
+      "source_hint": "PMC9776003",
+      "notes": "Existing repository fixture reports about 29k chars from PMC browser extraction."
+    },
+    {
+      "pmid": "35177862",
+      "size_class": "small",
+      "source_hint": "PIMS/MIS-C project-history PMID",
+      "notes": "Project-history gold-standard PMID; verify current OA full-text fetch before locking."
+    },
+    {
+      "pmid": "23544013",
+      "size_class": "small",
+      "source_hint": "PMC3609646",
+      "notes": "BRCA1 mutation carrier GWAS; PubMed/PMC candidate, verify before locking."
+    },
+    {
+      "pmid": "34669946",
+      "size_class": "small",
+      "source_hint": "PMC8728162",
+      "notes": "webTWAS disease candidate susceptibility gene resource; verify before locking."
+    },
+    {
+      "pmid": "41169353",
+      "size_class": "medium",
+      "source_hint": "PMC12568354",
+      "notes": "Existing repository fixture reports about 82k chars from PMC printable extraction; keep as medium unless verification confirms large."
+    },
+    {
+      "pmid": "41017238",
+      "size_class": "medium",
+      "source_hint": "PMC12477333",
+      "notes": "Existing repository fixture reports about 95k chars from PMC browser extraction; keep as medium unless verification confirms large."
+    },
+    {
+      "pmid": "39009607",
+      "size_class": "medium",
+      "source_hint": "PMC11250857",
+      "notes": "Large-scale whole-exome sequencing analysis of immune-mediated diseases; CLI-verified PMC efetch on 2026-06-06."
+    },
+    {
+      "pmid": "34711957",
+      "size_class": "medium",
+      "source_hint": "PMC7611956",
+      "notes": "Open Targets Genetics causal variant/gene prioritization paper; verify before locking."
+    },
+    {
+      "pmid": "29625052",
+      "size_class": "large",
+      "source_hint": "PMC5949147",
+      "notes": "Pathogenic germline variants in 10,389 adult cancers; likely large, verify before locking."
+    },
+    {
+      "pmid": "41929321",
+      "size_class": "large",
+      "source_hint": "PMC13042129",
+      "notes": "Rare coding/noncoding variant PheWAS paper; likely large, verify before locking."
+    }
+  ]
+}

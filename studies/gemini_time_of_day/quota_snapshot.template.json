@@ -1,0 +1,20 @@
+{
+  "captured_at": "YYYY-MM-DDTHH:MM:SS+02:00",
+  "captured_by": "",
+  "google_project": "",
+  "api_key_label": "",
+  "model": "gemini-3.1-flash-lite",
+  "tier": "free",
+  "limits_source": {
+    "rate_limits_url": "https://ai.google.dev/gemini-api/docs/rate-limits",
+    "pricing_url": "https://ai.google.dev/gemini-api/docs/pricing",
+    "notes": "Record the currently visible AI Studio / Google Cloud quota values before every study run."
+  },
+  "observed_limits": {
+    "rpm": null,
+    "tpm": null,
+    "rpd": 500,
+    "daily_reset": "midnight Pacific time"
+  },
+  "notes": ""
+}
