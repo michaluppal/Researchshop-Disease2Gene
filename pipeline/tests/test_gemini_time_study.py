@@ -281,7 +281,7 @@ def test_formal_schedule_uses_hourly_runs_with_500_rpd_headroom():
 
     assert schedule["quota_policy"]["active_model"] == "gemini-3.1-flash-lite"
     assert schedule["quota_policy"]["active_daily_limit_requests"] == 500
-    assert schedule["quota_policy"]["estimated_24_hour_requests"] <= 500
+    assert schedule["quota_policy"]["estimated_max_requests_per_quota_window"] <= 500
     assert len(runs) == 24
     assert blocks == {"night": 6, "morning": 6, "afternoon": 6, "evening": 6}
 
@@ -301,3 +301,6 @@ def test_hourly_driver_generates_24_hour_balanced_schedule():
     assert blocks == {"night": 6, "morning": 6, "afternoon": 6, "evening": 6}
     assert runs[8]["quota_window_start_date"] == "2026-06-08"
     assert runs[9]["quota_window_start_date"] == "2026-06-09"
+    assert schedule["quota_policy"]["estimated_requests_per_10_paper_batch"] == 22
+    assert schedule["quota_policy"]["estimated_total_24_hour_requests"] == 528
+    assert schedule["quota_policy"]["max_requests_per_quota_window"] == 480

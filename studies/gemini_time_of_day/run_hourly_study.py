@@ -28,7 +28,7 @@ DEFAULT_RUN_ROOT = STUDY_DIR / "runs"
 DEFAULT_ENV_FILE = REPO_ROOT / ".env"
 DEFAULT_QUOTA_LIMIT = 500
 DEFAULT_MAX_CALLS = 480
-DEFAULT_ESTIMATED_CALLS = 18
+DEFAULT_ESTIMATED_CALLS = 22
 
 
 def load_env_file(path: Path) -> dict[str, str]:
@@ -99,6 +99,8 @@ def generate_schedule(start_at: datetime, hours: int, timezone_name: str) -> dic
             "active_model": "gemini-3.1-flash-lite",
             "quota_source": "User-confirmed AI Studio active limit on 2026-06-08",
             "estimated_requests_per_10_paper_batch": DEFAULT_ESTIMATED_CALLS,
+            "estimated_total_24_hour_requests": DEFAULT_ESTIMATED_CALLS * hours,
+            "max_requests_per_quota_window": DEFAULT_MAX_CALLS,
         },
         "policy": {
             "same_pmids_every_run": True,
@@ -229,6 +231,7 @@ def main() -> int:
     append_log(log_path, f"env_file={args.env_file} run_root={session_dir}")
 
     cumulative_calls = 0
+    calls_by_quota_window: dict[str, int] = {}
     completed_runs = 0
     consecutive_failures = 0
     session_records: list[dict[str, Any]] = []
@@ -239,16 +242,31 @@ def main() -> int:
             f"{planned['planned_date']}T{planned['planned_local_time']}:00"
         ).replace(tzinfo=timezone)
         now = datetime.now(timezone)
-        if completed_runs:
-            projected_next_calls = max(DEFAULT_ESTIMATED_CALLS, round(cumulative_calls / completed_runs))
-        else:
-            projected_next_calls = DEFAULT_ESTIMATED_CALLS
-        if cumulative_calls + projected_next_calls > args.max_gemini_calls:
+        quota_window = str(planned.get("quota_window_start_date") or "")
+        window_calls = calls_by_quota_window.get(quota_window, 0)
+        projected_next_calls = (
+            max(DEFAULT_ESTIMATED_CALLS, round(cumulative_calls / completed_runs))
+            if completed_runs
+            else DEFAULT_ESTIMATED_CALLS
+        )
+        if window_calls + projected_next_calls > args.max_gemini_calls:
             append_log(
                 log_path,
-                f"stop reason=call_headroom cumulative={cumulative_calls} projected_next={projected_next_calls}",
+                "skip "
+                f"run_id={run_id} reason=quota_window_headroom "
+                f"quota_window={quota_window} window_calls={window_calls} "
+                f"projected_next={projected_next_calls}",
             )
-            break
+            session_records.append(
+                {
+                    "run_id": run_id,
+                    "status": "skipped_call_headroom",
+                    "quota_window_start_date": quota_window,
+                    "window_calls": window_calls,
+                    "projected_next_calls": projected_next_calls,
+                }
+            )
+            continue
         if now > planned_at + timedelta(minutes=args.late_grace_minutes):
             append_log(log_path, f"skip run_id={run_id} reason=late planned={planned_at.isoformat(timespec='minutes')}")
             session_records.append({"run_id": run_id, "status": "skipped_late", "planned_at": planned_at.isoformat()})
@@ -283,7 +301,9 @@ def main() -> int:
         if manifest:
             append_log(log_path, compact_manifest_line(manifest))
             batch = manifest.get("batch", {})
-            cumulative_calls += int(batch.get("gemini_api_calls", 0) or 0)
+            run_calls = int(batch.get("gemini_api_calls", 0) or 0)
+            cumulative_calls += run_calls
+            calls_by_quota_window[quota_window] = calls_by_quota_window.get(quota_window, 0) + run_calls
             completed_runs += 1
             if int(batch.get("quota_limited_rows", 0) or 0) > 0:
                 append_log(log_path, f"stop reason=quota_limited run_id={run_id}")
@@ -319,6 +339,7 @@ def main() -> int:
             "session_dir": str(session_dir),
             "schedule_path": str(schedule_path),
             "cumulative_gemini_calls": cumulative_calls,
+            "calls_by_quota_window": calls_by_quota_window,
             "completed_runs": completed_runs,
             "records": session_records,
             "report_dir": str(report_dir),

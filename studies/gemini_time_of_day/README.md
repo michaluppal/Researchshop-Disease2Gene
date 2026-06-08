@@ -72,6 +72,9 @@ export GEMINI_API_KEY="..."
 export ENTREZ_EMAIL="you@example.com"
 ```
 
+For the Windows/WSL devbox study, use `ENTREZ_EMAIL=michal.uppal1@gmail.com`.
+See `WSL_DEVBOX.md` for the tmux-based unattended runbook.
+
 For the Windows WSL devbox, use:
 
 ```bash
@@ -136,8 +139,10 @@ python3 studies/gemini_time_of_day/run_study.py \
 
 Use the run IDs from `schedule.json`. Do not add 30-minute repeats unless AI
 Studio shows enough active free-tier headroom for the measured calls-per-batch.
-At the observed 18 calls per 10-paper batch, 24 hourly runs would use roughly
-432 of the 500 daily requests. The runner writes:
+At the observed 22 calls per 10-paper validation batch, 24 hourly runs would use
+roughly 528 total requests. The static midnight-start schedule splits these
+across the 09:00 local quota reset, and the hourly WSL driver enforces
+per-quota-window headroom. The runner writes:
 
 - timestamped raw pipeline events
 - the normal ResearchShop CSV/JSON/XLSX/debug artifacts
@@ -158,9 +163,25 @@ For each run, record that it was launched through the CLI harness, plus the
 exact git commit, environment settings, and output paths captured in
 `study_run.json`.
 
+For the Windows laptop run, prefer the hourly driver:
+
+```bash
+pipeline/.venv/bin/python studies/gemini_time_of_day/run_hourly_study.py \
+  --hours 24 \
+  --captured-by "WSL Windows laptop"
+```
+
 ## WSL Hourly Driver
 
-On the Windows laptop, run the 24-hour study inside `tmux` from the WSL checkout:
+When launching remotely over SSH, start the 24-hour study as a Windows-owned
+`wsl.exe` process so it stays alive after SSH disconnects:
+
+```powershell
+cmd /c start "ResearchShop Gemini Study" wsl -d Ubuntu --cd /home/student/projects/Researchshop-Disease2Gene -- bash -lc "pipeline/.venv/bin/python studies/gemini_time_of_day/run_hourly_study.py --hours 24 --captured-by 'WSL Windows laptop'"
+```
+
+When using the Windows laptop interactively, `tmux` is also acceptable from the
+WSL checkout:
 
 ```bash
 cd /home/student/projects/Researchshop-Disease2Gene

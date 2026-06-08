@@ -8,9 +8,10 @@
     "quota_source": "User-confirmed AI Studio active limit on 2026-06-08",
     "quota_reset_reference": "midnight Pacific time",
     "quota_reset_local_time_summer": "09:00",
-    "estimated_requests_per_10_paper_batch": 18,
-    "estimated_24_hour_requests": 432,
-    "rationale": "AI Studio shows 500 RPD for gemini-3.1-flash-lite. With the observed 18 calls per 10-paper batch, hourly 24-hour sampling should stay below the daily cap while measuring time-of-day effects."
+    "estimated_requests_per_10_paper_batch": 22,
+    "estimated_total_24_hour_requests": 528,
+    "estimated_max_requests_per_quota_window": 330,
+    "rationale": "AI Studio shows 500 RPD for gemini-3.1-flash-lite. A validation batch used 22 calls. The static midnight-start schedule splits calls across the 09:00 local quota reset, keeping the largest quota-window estimate below 500; the WSL hourly driver enforces per-window headroom."
   },
   "policy": {
     "same_pmids_every_run": true,

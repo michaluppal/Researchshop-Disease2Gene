@@ -44,6 +44,7 @@ before PMID `36929942` was replaced.
 AI Studio showed an active free-tier limit of 500 requests/day for
 `gemini-3.1-flash-lite`, so the active study condition was switched from
 `gemini-2.5-flash-lite` to `gemini-3.1-flash-lite`. The schedule was changed
-back to hourly 24-hour sampling. With the observed 18 Gemini calls per 10-paper
-batch, 24 hourly runs are expected to use about 432 requests, below the
-500-request daily limit if call counts stay stable.
+back to hourly 24-hour sampling. A validation batch used 22 Gemini calls, so 24
+hourly runs are expected to use about 528 total requests. The midnight-start
+schedule splits those calls across the 09:00 local quota reset, and the WSL
+driver enforces per-quota-window headroom.
