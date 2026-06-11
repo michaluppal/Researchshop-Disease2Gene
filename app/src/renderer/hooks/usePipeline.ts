@@ -15,6 +15,7 @@ interface PipelineState {
   // is exposed separately via `strict_gate_drops_count` (number).
   stats: Record<string, number>
   result: { local_path?: string; metadata_path?: string; excel_path?: string; json_path?: string; candidate_audit_path?: string; debug_path?: string; drop_debug_path?: string; warning?: string; error?: string } | null
+  currentJobId: string | null
   isRunning: boolean
   error: string | null
   logs: string[]
@@ -34,6 +35,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     percent: 0,
     stats: {},
     result: null,
+    currentJobId: null,
     isRunning: false,
     error: null,
     logs: [],
@@ -91,13 +93,18 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         isRunning: true,
         error: null,
         result: null,
+        currentJobId: null,
         stage: 'Starting...',
         percent: 0,
         stats: {},
         logs: [],
         structuredLogs: [],
       }))
-      return window.api.pipeline.start(args)
+      const result = await window.api.pipeline.start(args)
+      if (result.jobId) {
+        setState((s) => ({ ...s, currentJobId: result.jobId || null }))
+      }
+      return result
     },
     []
   )

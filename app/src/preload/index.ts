@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { RunInputSnapshot } from '../shared/run-input'
 
 export interface ElectronAPI {
   settings: {
@@ -20,6 +21,7 @@ export interface ElectronAPI {
       authors: string[]
       columns: Record<string, string>
       topN: number
+      runInput?: RunInputSnapshot
     }) => Promise<{ jobId?: string; error?: string }>
     cancel: () => Promise<{ cancelled: boolean }>
     onProgress: (
@@ -44,6 +46,7 @@ export interface ElectronAPI {
         id: string
         query: string
         columns: string
+        run_input: string | null
         status: string
         created_at: string
         completed_at: string | null
@@ -56,7 +59,22 @@ export interface ElectronAPI {
         error: string | null
       }>
     >
-    get: (id: string) => Promise<unknown>
+    get: (id: string) => Promise<{
+      id: string
+      query: string
+      columns: string
+      run_input: string | null
+      status: string
+      created_at: string
+      completed_at: string | null
+      result_path: string | null
+      metadata_path: string | null
+      excel_path: string | null
+      json_path: string | null
+      candidate_audit_path: string | null
+      stats: string | null
+      error: string | null
+    } | null>
     delete: (id: string) => Promise<boolean>
   }
   dialog: {

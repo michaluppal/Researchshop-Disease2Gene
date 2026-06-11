@@ -6,6 +6,7 @@ export interface Job {
   id: string
   query: string
   columns: string // JSON
+  run_input: string | null // JSON RunInputSnapshot
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   created_at: string
   completed_at: string | null
@@ -30,6 +31,7 @@ function getDb(): Database.Database {
         id TEXT PRIMARY KEY,
         query TEXT NOT NULL,
         columns TEXT NOT NULL DEFAULT '{}',
+        run_input TEXT,
         status TEXT NOT NULL DEFAULT 'queued',
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         completed_at TEXT,
@@ -44,7 +46,7 @@ function getDb(): Database.Database {
     `)
     const tableInfo = db.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>
     const columnNames = new Set(tableInfo.map((column) => column.name))
-    const nullableTextColumns = ['metadata_path', 'excel_path', 'json_path', 'candidate_audit_path']
+    const nullableTextColumns = ['metadata_path', 'excel_path', 'json_path', 'candidate_audit_path', 'run_input']
     for (const column of nullableTextColumns) {
       if (!columnNames.has(column)) {
         db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT`)
@@ -54,10 +56,10 @@ function getDb(): Database.Database {
   return db
 }
 
-export function createJob(id: string, query: string, columns: string): Job {
+export function createJob(id: string, query: string, columns: string, runInput: string | null = null): Job {
   const d = getDb()
-  const stmt = d.prepare('INSERT INTO jobs (id, query, columns) VALUES (?, ?, ?)')
-  stmt.run(id, query, columns)
+  const stmt = d.prepare('INSERT INTO jobs (id, query, columns, run_input) VALUES (?, ?, ?, ?)')
+  stmt.run(id, query, columns, runInput)
   return getJob(id)!
 }
 

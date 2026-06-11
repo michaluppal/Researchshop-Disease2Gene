@@ -4,6 +4,7 @@ export interface Job {
   id: string
   query: string
   columns: string
+  run_input: string | null
   status: string
   created_at: string
   completed_at: string | null

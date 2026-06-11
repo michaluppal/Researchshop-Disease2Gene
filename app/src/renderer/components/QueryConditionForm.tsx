@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   RotateCcw,
 } from 'lucide-react'
-import type { QueryFilters } from '../pages/QueryBuilder'
+import type { QueryFilters } from '../../shared/run-input'
 
 interface QueryConditionFormProps {
   baseQuery: string

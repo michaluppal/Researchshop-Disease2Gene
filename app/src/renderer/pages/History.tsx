@@ -153,7 +153,7 @@ export default function History() {
 
   const openResult = (job: Job) => {
     if (!job.result_path) return
-    const params = new URLSearchParams({ path: job.result_path })
+    const params = new URLSearchParams({ path: job.result_path, jobId: job.id })
     if (job.excel_path) params.set('excel', job.excel_path)
     if (job.metadata_path) params.set('meta', job.metadata_path)
     if (job.json_path) params.set('json', job.json_path)

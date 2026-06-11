@@ -67,7 +67,12 @@ export function registerIpcHandlers(): void {
     }
 
     const jobId = randomUUID()
-    createJob(jobId, args.query || (args.pmids?.length ? `${args.pmids.length} selected papers` : 'Custom query'), JSON.stringify(args.columns))
+    createJob(
+      jobId,
+      args.query || (args.pmids?.length ? `${args.pmids.length} selected papers` : 'Custom query'),
+      JSON.stringify(args.columns),
+      args.runInput ? JSON.stringify(args.runInput) : null
+    )
 
     try {
       startPipeline(jobId, args)

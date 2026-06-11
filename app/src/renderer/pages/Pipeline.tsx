@@ -33,7 +33,7 @@ function formatTime(timestamp: string): string {
 
 export default function Pipeline() {
   const navigate = useNavigate()
-  const { stage, percent, stats, result, isRunning, error, logs, structuredLogs, cancel } =
+  const { stage, percent, stats, result, currentJobId, isRunning, error, logs, structuredLogs, cancel } =
     usePipeline()
   const userLogRef = useRef<HTMLDivElement>(null)
   const techLogRef = useRef<HTMLDivElement>(null)
@@ -95,6 +95,7 @@ export default function Pipeline() {
   useEffect(() => {
     if (result?.local_path && !result.error) {
       const params = new URLSearchParams({ path: result.local_path })
+      if (currentJobId) params.set('jobId', currentJobId)
       if (result.excel_path) params.set('excel', result.excel_path)
       if (result.metadata_path) params.set('meta', result.metadata_path)
       if (result.json_path) params.set('json', result.json_path)
@@ -109,7 +110,7 @@ export default function Pipeline() {
       }
       navigate(`/results?${params.toString()}`)
     }
-  }, [result, navigate, stats])
+  }, [result, currentJobId, navigate, stats])
 
   useEffect(() => {
     if (userLogRef.current) {

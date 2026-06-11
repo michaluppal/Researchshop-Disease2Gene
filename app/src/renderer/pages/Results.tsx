@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Download, Loader2, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, Settings2, X, Search, ChevronLeft, ChevronRight, FolderOpen, ArrowLeft } from 'lucide-react'
+import { Download, Loader2, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, Settings2, X, Search, ChevronLeft, ChevronRight, FolderOpen, ArrowLeft, Copy, Check } from 'lucide-react'
 import Papa from 'papaparse'
 import Tooltip from '../components/Tooltip'
+import type { RunInputSnapshot } from '../../shared/run-input'
 
 // ── Confidence badge ────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ function ExportDropdown({ csvPath, excelPath, jsonPath }: { csvPath: string; exc
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700"
+        className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg bg-brand-600 px-3.5 text-sm font-medium text-white shadow-sm hover:bg-brand-700"
       >
         <Download className="w-4 h-4" />
         Export
@@ -353,6 +354,25 @@ interface CandidateAuditPayload {
     association_group_counts?: Record<string, number>
   }
   papers?: CandidateAuditPaper[]
+}
+
+interface ResultJob {
+  id: string
+  query: string
+  run_input: string | null
+}
+
+function parseRunInputSnapshot(raw: string | null): RunInputSnapshot | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<RunInputSnapshot>
+    if (parsed.schemaVersion === 1 && parsed.activeModules) {
+      return parsed as RunInputSnapshot
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 function CandidateAuditPanel({
@@ -590,6 +610,7 @@ export default function Results() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const filePath  = searchParams.get('path')  || ''
+  const jobId     = searchParams.get('jobId') || ''
   const excelPath = searchParams.get('excel') || ''
   const metaPath  = searchParams.get('meta')  || ''
   const jsonPath  = searchParams.get('json')  || ''
@@ -618,6 +639,33 @@ export default function Results() {
   const [candidateAudit, setCandidateAudit] = useState<CandidateAuditPayload | null>(null)
   const [candidateAuditLoading, setCandidateAuditLoading] = useState(false)
   const [candidateAuditError, setCandidateAuditError] = useState<string | null>(null)
+  const [job, setJob] = useState<ResultJob | null>(null)
+  const [queryCopied, setQueryCopied] = useState(false)
+
+  useEffect(() => {
+    if (!jobId) {
+      setJob(null)
+      return
+    }
+    let cancelled = false
+    window.api.history.get(jobId).then((result) => {
+      if (cancelled) return
+      if (result) {
+        setJob({
+          id: result.id,
+          query: result.query,
+          run_input: result.run_input,
+        })
+      } else {
+        setJob(null)
+      }
+    }).catch(() => {
+      if (!cancelled) setJob(null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [jobId])
 
   // Search, sort, pagination state
   const [searchQuery, setSearchQuery] = useState('')
@@ -826,6 +874,36 @@ export default function Results() {
     if (dir) window.api.shell.openPath(dir)
   }
 
+  const runInput = useMemo(() => parseRunInputSnapshot(job?.run_input || null), [job])
+  const selectedPaperPreview = useMemo(() => {
+    if (!runInput) return []
+    const seen = new Set<string>()
+    const papers = [
+      ...(runInput.topicPapers || []),
+      ...(runInput.specificPapers || []),
+      ...(runInput.authorPapers || []),
+    ]
+    return papers.filter((paper) => {
+      const key = paper.pmid || paper.doi || paper.pmc || paper.url
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [runInput])
+
+  const openStudySelection = (mode: 'review' | 'clone') => {
+    if (!jobId) return
+    const params = new URLSearchParams({ fromJob: jobId, mode })
+    navigate(`/query?${params.toString()}`)
+  }
+
+  const copyQuery = async () => {
+    if (!job?.query) return
+    await navigator.clipboard.writeText(job.query)
+    setQueryCopied(true)
+    setTimeout(() => setQueryCopied(false), 1600)
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
@@ -844,35 +922,74 @@ export default function Results() {
   return (
     <div className="p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <button
             onClick={() => navigate('/')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+            className="mt-1 inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            title="Back to Query"
+            aria-label="Back to Query"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Query
           </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-1">Results</h1>
-            <p className="text-sm text-slate-500">{filePath.split(/[/\\]/).pop()}</p>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-slate-900 leading-tight">Results</h1>
+            <p className="mt-1 truncate text-sm font-medium text-slate-500">
+              {filePath.split(/[/\\]/).pop()}
+            </p>
+            {job?.query && (
+              <div className="group/query mt-1 flex max-w-4xl items-center gap-1.5">
+                <p className="min-w-0 truncate text-xs text-slate-400">
+                  <span className="font-medium text-slate-500">Query:</span> {job.query}
+                </p>
+                <Tooltip content={queryCopied ? 'Copied' : 'Copy query'}>
+                  <button
+                    onClick={copyQuery}
+                    className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition-all hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-500 group-hover/query:opacity-100"
+                    aria-label="Copy query"
+                  >
+                    {queryCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </Tooltip>
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
+          {jobId && runInput && (
+            <button
+              onClick={() => openStudySelection('review')}
+              className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              title={`${(runInput.selectedPmids || []).length} selected paper${(runInput.selectedPmids || []).length !== 1 ? 's' : ''}`}
+            >
+              <FileText className="w-4 h-4" />
+              Study Selection
+            </button>
+          )}
+          {jobId && (
+            <button
+              onClick={() => openStudySelection('clone')}
+              className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              title="Start a new run from the same query"
+            >
+              <Search className="w-4 h-4" />
+              Rerun Query
+            </button>
+          )}
           <button
             onClick={handleOpenFolder}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors"
+            className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
             <FolderOpen className="w-4 h-4" />
-            View in Folder
+            Folder
           </button>
           {metaPath && (
             <button
               onClick={handleTogglePicker}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+              className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border px-3.5 text-sm font-medium transition-colors ${
                 showMetaPicker
                   ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-slate-300 hover:bg-slate-50 text-slate-700'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
               <Settings2 className="w-4 h-4" />
@@ -882,19 +999,59 @@ export default function Results() {
           {candidateAuditPath && (
             <button
               onClick={() => setShowAuditPanel((v) => !v)}
-              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+              className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border px-3.5 text-sm font-medium transition-colors ${
                 showAuditPanel
                   ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-slate-300 hover:bg-slate-50 text-slate-700'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
               <FileText className="w-4 h-4" />
-              Candidate Audit
+              Audit
             </button>
           )}
           <ExportDropdown csvPath={filePath} excelPath={excelPath} jsonPath={jsonPath} />
         </div>
       </div>
+
+      {runInput && (
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Original Selection
+              </p>
+              <p className="text-sm font-medium text-slate-800 mt-1">
+                {(runInput.selectedPmids || []).length} selected paper{(runInput.selectedPmids || []).length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => openStudySelection('review')}
+              className="text-xs font-medium text-brand-600 hover:text-brand-700 flex-shrink-0"
+            >
+              Review selection
+            </button>
+          </div>
+          {selectedPaperPreview.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {selectedPaperPreview.slice(0, 3).map((paper) => (
+                <div key={paper.pmid || paper.doi || paper.pmc || paper.url} className="flex items-start gap-2 text-xs">
+                  <span className="mt-0.5 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-500">
+                    {paper.pmid ? `PMID ${paper.pmid}` : paper.doi || paper.pmc || 'Paper'}
+                  </span>
+                  <span className="min-w-0 truncate text-slate-600">
+                    {paper.title || paper.url}
+                  </span>
+                </div>
+              ))}
+              {selectedPaperPreview.length > 3 && (
+                <p className="text-xs text-slate-400">
+                  +{selectedPaperPreview.length - 3} more
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Research use banner */}
       {!researchBannerDismissed && (

@@ -6,6 +6,7 @@ import { getSettings } from './settings-store'
 import { updateJob, getJob } from './job-store'
 import { addGeminiApiCalls } from './usage-store'
 import { app } from 'electron'
+import type { RunInputSnapshot } from '../shared/run-input'
 
 export interface PipelineArgs {
   query: string
@@ -13,6 +14,7 @@ export interface PipelineArgs {
   authors: string[]
   columns: Record<string, string>
   topN: number
+  runInput?: RunInputSnapshot
 }
 
 // Payload type guards for Python stdout protocol
