@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import html
 import math
 import json
 import statistics
@@ -16,6 +17,7 @@ from typing import Any
 
 
 STUDY_DIR = Path(__file__).resolve().parent
+REPO_ROOT = STUDY_DIR.parents[1]
 DEFAULT_RUN_ROOT = STUDY_DIR / "runs"
 DEFAULT_REPORT_DIR = STUDY_DIR / "reports"
 DEFAULT_CORPUS = STUDY_DIR / "corpus.json"
@@ -91,6 +93,13 @@ def safe_float(value: Any) -> float:
         return 0.0
 
 
+def safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def stdev(values: list[float]) -> float:
     clean = [float(v) for v in values if v is not None]
     return statistics.stdev(clean) if len(clean) >= 2 else 0.0
@@ -132,6 +141,8 @@ def describe_metric(name: str, values: list[float]) -> dict[str, Any]:
 def descriptive_rows(
     batch_rows: list[dict[str, Any]],
     paper_rows: list[dict[str, Any]],
+    *,
+    scope: str = "all_attempted_runs",
 ) -> list[dict[str, Any]]:
     metrics = [
         ("batch_runtime_seconds", batch_rows, "runtime_seconds"),
@@ -149,10 +160,13 @@ def descriptive_rows(
         ("paper_strict_gate_drops", paper_rows, "strict_gate_drops"),
         ("paper_citation_gate_drops", paper_rows, "citation_gate_drops"),
     ]
-    return [
+    rows_out = [
         describe_metric(name, [safe_float(row.get(key)) for row in rows])
         for name, rows, key in metrics
     ]
+    for row in rows_out:
+        row["scope"] = scope
+    return rows_out
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -183,6 +197,50 @@ def normalize_output_value(value: Any) -> str:
     return str(value or "").strip()
 
 
+def manifest_artifact_path(manifest: dict[str, Any], raw_path: str) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    candidates = [REPO_ROOT / path]
+    manifest_path = str(manifest.get("_manifest_path") or "").strip()
+    if manifest_path:
+        candidates.append(Path(manifest_path).parent / path)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def batch_success(row: dict[str, Any]) -> bool:
+    return (
+        safe_int(row.get("total_papers")) > 0
+        and safe_int(row.get("completed_papers")) == safe_int(row.get("total_papers"))
+        and safe_float(row.get("completion_rate")) >= 1.0
+    )
+
+
+def failure_class(row: dict[str, Any]) -> str:
+    if batch_success(row):
+        if safe_int(row.get("quota_limited_rows")) or safe_int(row.get("quota_limited_papers")):
+            return "complete_with_quota_limit"
+        if safe_int(row.get("timeout_count")):
+            return "complete_with_timeout"
+        if safe_int(row.get("gemini_error_count")) or safe_int(row.get("model_unavailable_count")):
+            return "complete_recovered_gemini_errors"
+        return "complete_clean"
+    if safe_int(row.get("quota_limited_rows")) or safe_int(row.get("quota_limited_papers")):
+        return "quota_limited"
+    if safe_int(row.get("timeout_count")):
+        return "timeout"
+    if safe_int(row.get("gemini_error_count")) or safe_int(row.get("model_unavailable_count")):
+        return "gemini_api_failure"
+    if safe_int(row.get("gemini_api_calls")) == 0 and safe_int(row.get("output_rows")) == 0:
+        return "upstream_metadata_or_fulltext_failure"
+    if safe_int(row.get("return_code")) != 0:
+        return "runner_error"
+    return "partial_or_unclassified_failure"
+
+
 def load_output_observations(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     outputs = manifest.get("outputs") or {}
     observations: dict[str, dict[str, Any]] = defaultdict(
@@ -191,7 +249,7 @@ def load_output_observations(manifest: dict[str, Any]) -> dict[str, dict[str, An
     csv_raw = str(outputs.get("csv") or "").strip()
     if not csv_raw:
         return observations
-    csv_path = Path(csv_raw)
+    csv_path = manifest_artifact_path(manifest, csv_raw)
     if not csv_path.exists() or not csv_path.is_file():
         return observations
     with csv_path.open("r", encoding="utf-8", newline="") as fh:
@@ -353,6 +411,8 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
             "output_rows": batch.get("output_rows", 0),
             "manifest_path": manifest.get("_manifest_path", ""),
         }
+        batch_row["successful_batch"] = batch_success(batch_row)
+        batch_row["failure_class"] = failure_class(batch_row)
         batch_rows.append(batch_row)
         by_block[str(batch_row["time_block"])].append(batch_row)
 
@@ -389,12 +449,15 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
 
     block_rows = []
     for block, rows in sorted(by_block.items()):
-        runtimes = [float(row["runtime_seconds"]) for row in rows]
+        successful_rows = [row for row in rows if batch_success(row)]
+        runtime_source = successful_rows or rows
+        runtimes = [float(row["runtime_seconds"]) for row in runtime_source]
         completion_rates = [float(row["completion_rate"]) for row in rows]
         block_rows.append(
             {
                 "time_block": block,
                 "runs": len(rows),
+                "successful_runs": len(successful_rows),
                 "median_batch_runtime_seconds": median(runtimes),
                 "median_completion_rate": median(completion_rates),
                 "quota_limited_runs": sum(1 for row in rows if int(row["quota_limited_rows"] or 0) > 0),
@@ -402,12 +465,19 @@ def summarize(manifests: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
                     1 for row in rows if int(row["model_unavailable_count"] or 0) > 0
                 ),
                 "timeout_runs": sum(1 for row in rows if int(row["timeout_count"] or 0) > 0),
-                "median_output_rows": median([float(row["output_rows"] or 0) for row in rows]),
+                "upstream_failure_runs": sum(
+                    1
+                    for row in rows
+                    if row.get("failure_class") == "upstream_metadata_or_fulltext_failure"
+                ),
+                "median_output_rows": median(
+                    [float(row["output_rows"] or 0) for row in runtime_source]
+                ),
                 "median_gemini_api_calls": median(
-                    [float(row["gemini_api_calls"] or 0) for row in rows]
+                    [float(row["gemini_api_calls"] or 0) for row in runtime_source]
                 ),
                 "median_gemini_total_tokens": median(
-                    [float(row["gemini_total_tokens"] or 0) for row in rows]
+                    [float(row["gemini_total_tokens"] or 0) for row in runtime_source]
                 ),
             }
         )
@@ -450,6 +520,353 @@ def classify(batch_rows: list[dict[str, Any]], block_rows: list[dict[str, Any]])
     return "not_usable"
 
 
+def planned_label(row: dict[str, Any]) -> str:
+    planned = str(row.get("planned_local_time") or "").strip()
+    return planned or str(row.get("run_id") or "").strip()
+
+
+def quantile(values: list[float], q: float) -> float:
+    clean = sorted(float(v) for v in values)
+    if not clean:
+        return 0.0
+    if len(clean) == 1:
+        return clean[0]
+    position = (len(clean) - 1) * q
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return clean[lower]
+    return clean[lower] * (upper - position) + clean[upper] * (position - lower)
+
+
+def svg_text(
+    x: float,
+    y: float,
+    text: Any,
+    *,
+    size: int = 12,
+    anchor: str = "start",
+    weight: str = "400",
+    fill: str = "#111827",
+    rotate: int | None = None,
+) -> str:
+    transform = f' transform="rotate({rotate} {x:.1f} {y:.1f})"' if rotate is not None else ""
+    return (
+        f'<text x="{x:.1f}" y="{y:.1f}" font-family="Arial, sans-serif" '
+        f'font-size="{size}" font-weight="{weight}" text-anchor="{anchor}" '
+        f'fill="{fill}"{transform}>{html.escape(str(text))}</text>'
+    )
+
+
+def svg_line(x1: float, y1: float, x2: float, y2: float, *, stroke: str = "#111827", width: float = 1.0) -> str:
+    return (
+        f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+        f'stroke="{stroke}" stroke-width="{width:.1f}" />'
+    )
+
+
+def svg_rect(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    *,
+    fill: str,
+    stroke: str = "none",
+    rx: float = 0.0,
+) -> str:
+    return (
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{width:.1f}" height="{height:.1f}" '
+        f'rx="{rx:.1f}" fill="{fill}" stroke="{stroke}" />'
+    )
+
+
+def write_svg(path: Path, width: int, height: int, elements: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+                '<rect width="100%" height="100%" fill="white" />',
+                *elements,
+                "</svg>",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def nice_ticks(max_value: float, count: int = 5) -> list[float]:
+    if max_value <= 0:
+        return [0.0]
+    raw_step = max_value / max(count - 1, 1)
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    normalized = raw_step / magnitude
+    if normalized <= 1:
+        step = magnitude
+    elif normalized <= 2:
+        step = 2 * magnitude
+    elif normalized <= 5:
+        step = 5 * magnitude
+    else:
+        step = 10 * magnitude
+    top = math.ceil(max_value / step) * step
+    ticks = []
+    value = 0.0
+    while value <= top + step * 0.1:
+        ticks.append(value)
+        value += step
+    return ticks
+
+
+def format_tick(value: float) -> str:
+    if abs(value) >= 1000:
+        return f"{value / 1000:.0f}k"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.1f}"
+
+
+def write_hour_line_plot(
+    path: Path,
+    batch_rows: list[dict[str, Any]],
+    *,
+    title: str,
+    y_key: str,
+    y_label: str,
+    transform=lambda x: x,
+    color: str = "#2563eb",
+) -> None:
+    rows = sorted(batch_rows, key=lambda row: str(row.get("planned_local_time") or row.get("run_id") or ""))
+    width, height = 1120, 520
+    left, right, top, bottom = 78, 32, 58, 96
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    success_rows = [row for row in rows if batch_success(row)]
+    values = [transform(safe_float(row.get(y_key))) for row in success_rows]
+    y_max = max(values) if values else 1.0
+    ticks = nice_ticks(y_max)
+    y_top = max(ticks) if ticks else y_max
+
+    def x_pos(index: int) -> float:
+        if len(rows) <= 1:
+            return left + plot_w / 2
+        return left + index * (plot_w / (len(rows) - 1))
+
+    def y_pos(value: float) -> float:
+        return top + plot_h - (value / (y_top or 1)) * plot_h
+
+    elements = [
+        svg_text(left, 28, title, size=20, weight="700"),
+        svg_text(left, 48, y_label, size=12, fill="#4b5563"),
+    ]
+    for tick in ticks:
+        y = y_pos(tick)
+        elements.append(svg_line(left, y, width - right, y, stroke="#e5e7eb", width=1))
+        elements.append(svg_text(left - 8, y + 4, format_tick(tick), size=11, anchor="end", fill="#6b7280"))
+    elements.append(svg_line(left, top, left, top + plot_h, stroke="#9ca3af", width=1))
+    elements.append(svg_line(left, top + plot_h, width - right, top + plot_h, stroke="#9ca3af", width=1))
+
+    points = []
+    row_index = {id(row): idx for idx, row in enumerate(rows)}
+    for row in success_rows:
+        idx = row_index[id(row)]
+        value = transform(safe_float(row.get(y_key)))
+        points.append((x_pos(idx), y_pos(value), row))
+    if len(points) >= 2:
+        path_data = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in points)
+        elements.append(
+            f'<polyline points="{path_data}" fill="none" stroke="{color}" stroke-width="2.5" />'
+        )
+    for x, y, row in points:
+        elements.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{color}" />')
+        elements.append(
+            f'<title>{html.escape(str(row.get("run_id")))}: {transform(safe_float(row.get(y_key))):.2f}</title>'
+        )
+    for idx, row in enumerate(rows):
+        x = x_pos(idx)
+        elements.append(svg_text(x, top + plot_h + 24, planned_label(row), size=10, anchor="end", rotate=-45, fill="#374151"))
+        if not batch_success(row):
+            y = top + plot_h - 7
+            elements.append(svg_line(x - 6, y - 6, x + 6, y + 6, stroke="#dc2626", width=2))
+            elements.append(svg_line(x - 6, y + 6, x + 6, y - 6, stroke="#dc2626", width=2))
+            elements.append(svg_text(x, y - 14, "failed", size=10, anchor="middle", fill="#dc2626"))
+    write_svg(path, width, height, elements)
+
+
+def write_failure_matrix(path: Path, batch_rows: list[dict[str, Any]]) -> None:
+    rows = sorted(batch_rows, key=lambda row: str(row.get("planned_local_time") or row.get("run_id") or ""))
+    categories = [
+        ("complete", lambda row: batch_success(row), "#16a34a"),
+        ("upstream fetch failure", lambda row: row.get("failure_class") == "upstream_metadata_or_fulltext_failure", "#dc2626"),
+        ("quota limited", lambda row: safe_int(row.get("quota_limited_rows")) > 0 or safe_int(row.get("quota_limited_papers")) > 0, "#7c3aed"),
+        ("timeout", lambda row: safe_int(row.get("timeout_count")) > 0, "#ea580c"),
+        ("recovered Gemini/API error", lambda row: safe_int(row.get("gemini_error_count")) > 0 or safe_int(row.get("model_unavailable_count")) > 0, "#f59e0b"),
+    ]
+    cell = 28
+    left = 190
+    top = 74
+    width = max(620, left + len(rows) * cell + 40)
+    height = top + len(categories) * cell + 88
+    elements = [
+        svg_text(28, 30, "Failure and Recovery Matrix", size=20, weight="700"),
+        svg_text(28, 50, "Each column is one scheduled hourly batch.", size=12, fill="#4b5563"),
+    ]
+    for idx, row in enumerate(rows):
+        x = left + idx * cell + cell / 2
+        elements.append(svg_text(x, top - 12, planned_label(row), size=10, anchor="end", rotate=-45, fill="#374151"))
+    for y_idx, (label, predicate, color) in enumerate(categories):
+        y = top + y_idx * cell
+        elements.append(svg_text(left - 12, y + 19, label, size=12, anchor="end"))
+        for x_idx, row in enumerate(rows):
+            x = left + x_idx * cell
+            active = predicate(row)
+            fill = color if active else "#f3f4f6"
+            stroke = "#ffffff" if active else "#d1d5db"
+            elements.append(svg_rect(x, y, cell - 3, cell - 3, fill=fill, stroke=stroke, rx=2))
+    write_svg(path, width, height, elements)
+
+
+def write_runtime_boxplot(path: Path, batch_rows: list[dict[str, Any]]) -> None:
+    grouped: dict[str, list[float]] = defaultdict(list)
+    for row in batch_rows:
+        if batch_success(row):
+            grouped[str(row.get("time_block") or "unknown")].append(safe_float(row.get("runtime_seconds")) / 60.0)
+    blocks = [block for block in ("night", "morning", "afternoon", "evening") if grouped.get(block)]
+    width, height = 760, 460
+    left, right, top, bottom = 76, 40, 58, 76
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    values = [value for block in blocks for value in grouped[block]]
+    ticks = nice_ticks(max(values) if values else 1.0)
+    y_top = max(ticks)
+
+    def y_pos(value: float) -> float:
+        return top + plot_h - (value / (y_top or 1)) * plot_h
+
+    elements = [
+        svg_text(left, 30, "Batch Runtime by Time Block", size=20, weight="700"),
+        svg_text(left, 50, "Successful 10-paper batches only.", size=12, fill="#4b5563"),
+    ]
+    for tick in ticks:
+        y = y_pos(tick)
+        elements.append(svg_line(left, y, width - right, y, stroke="#e5e7eb"))
+        elements.append(svg_text(left - 8, y + 4, format_tick(tick), size=11, anchor="end", fill="#6b7280"))
+    elements.append(svg_line(left, top, left, top + plot_h, stroke="#9ca3af"))
+    elements.append(svg_line(left, top + plot_h, width - right, top + plot_h, stroke="#9ca3af"))
+    for idx, block in enumerate(blocks):
+        vals = sorted(grouped[block])
+        x = left + (idx + 0.5) * (plot_w / max(len(blocks), 1))
+        q1, med, q3 = quantile(vals, 0.25), quantile(vals, 0.5), quantile(vals, 0.75)
+        vmin, vmax = min(vals), max(vals)
+        box_w = 58
+        elements.append(svg_line(x, y_pos(vmin), x, y_pos(vmax), stroke="#374151", width=1.5))
+        elements.append(svg_line(x - 18, y_pos(vmin), x + 18, y_pos(vmin), stroke="#374151", width=1.5))
+        elements.append(svg_line(x - 18, y_pos(vmax), x + 18, y_pos(vmax), stroke="#374151", width=1.5))
+        elements.append(svg_rect(x - box_w / 2, y_pos(q3), box_w, max(1, y_pos(q1) - y_pos(q3)), fill="#dbeafe", stroke="#2563eb", rx=3))
+        elements.append(svg_line(x - box_w / 2, y_pos(med), x + box_w / 2, y_pos(med), stroke="#1d4ed8", width=2.5))
+        for value in vals:
+            elements.append(f'<circle cx="{x + 42:.1f}" cy="{y_pos(value):.1f}" r="3" fill="#64748b" opacity="0.75" />')
+        elements.append(svg_text(x, top + plot_h + 28, f"{block} (n={len(vals)})", size=12, anchor="middle"))
+    write_svg(path, width, height, elements)
+
+
+def write_pmid_heatmap(path: Path, paper_rows: list[dict[str, Any]], batch_rows: list[dict[str, Any]]) -> None:
+    successful_run_ids = {str(row.get("run_id")) for row in batch_rows if batch_success(row)}
+    rows = [row for row in paper_rows if str(row.get("run_id")) in successful_run_ids]
+    run_ids = sorted({str(row.get("run_id")) for row in rows})
+    pmids = sorted({str(row.get("pmid")) for row in rows})
+    values: dict[tuple[str, str], float] = {
+        (str(row.get("pmid")), str(row.get("run_id"))): safe_float(row.get("emitted_rows"))
+        for row in rows
+    }
+    max_value = max(values.values()) if values else 1.0
+    cell_w, cell_h = 44, 24
+    left, top = 92, 82
+    width = max(760, left + len(run_ids) * cell_w + 40)
+    height = max(360, top + len(pmids) * cell_h + 78)
+
+    def color(value: float) -> str:
+        if max_value <= 0:
+            intensity = 0
+        else:
+            intensity = value / max_value
+        r = int(239 - 202 * intensity)
+        g = int(246 - 117 * intensity)
+        b = int(255 - 57 * intensity)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    elements = [
+        svg_text(28, 30, "Per-PMID Output Row Stability", size=20, weight="700"),
+        svg_text(28, 50, "Cell color encodes emitted rows for a paper in a successful run.", size=12, fill="#4b5563"),
+    ]
+    for idx, run_id in enumerate(run_ids):
+        x = left + idx * cell_w + cell_w / 2
+        label = run_id.replace("hour", "")
+        elements.append(svg_text(x, top - 12, label, size=10, anchor="end", rotate=-45, fill="#374151"))
+    for y_idx, pmid in enumerate(pmids):
+        y = top + y_idx * cell_h
+        elements.append(svg_text(left - 8, y + 16, pmid, size=11, anchor="end"))
+        for x_idx, run_id in enumerate(run_ids):
+            value = values.get((pmid, run_id), 0.0)
+            x = left + x_idx * cell_w
+            elements.append(svg_rect(x, y, cell_w - 2, cell_h - 2, fill=color(value), stroke="#ffffff"))
+            if cell_w >= 34:
+                elements.append(svg_text(x + cell_w / 2 - 1, y + 16, int(value), size=9, anchor="middle", fill="#111827"))
+    write_svg(path, width, height, elements)
+
+
+def write_plots(report_dir: Path, batch_rows: list[dict[str, Any]], paper_rows: list[dict[str, Any]]) -> list[Path]:
+    plot_dir = report_dir / "plots"
+    plots = [
+        plot_dir / "batch_runtime_by_hour.svg",
+        plot_dir / "gemini_calls_by_hour.svg",
+        plot_dir / "gemini_tokens_by_hour.svg",
+        plot_dir / "output_rows_by_hour.svg",
+        plot_dir / "failure_matrix.svg",
+        plot_dir / "runtime_by_time_block.svg",
+        plot_dir / "per_pmid_output_rows_heatmap.svg",
+    ]
+    write_hour_line_plot(
+        plots[0],
+        batch_rows,
+        title="10-Paper Batch Runtime by Scheduled Hour",
+        y_key="runtime_seconds",
+        y_label="Runtime (minutes); failed upstream slots marked in red",
+        transform=lambda value: value / 60.0,
+        color="#2563eb",
+    )
+    write_hour_line_plot(
+        plots[1],
+        batch_rows,
+        title="Gemini API Calls by Scheduled Hour",
+        y_key="gemini_api_calls",
+        y_label="Gemini API calls per batch",
+        color="#7c3aed",
+    )
+    write_hour_line_plot(
+        plots[2],
+        batch_rows,
+        title="Gemini Total Tokens by Scheduled Hour",
+        y_key="gemini_total_tokens",
+        y_label="Total Gemini tokens per batch (thousands)",
+        transform=lambda value: value / 1000.0,
+        color="#0891b2",
+    )
+    write_hour_line_plot(
+        plots[3],
+        batch_rows,
+        title="Final Output Rows by Scheduled Hour",
+        y_key="output_rows",
+        y_label="Final emitted rows per batch",
+        color="#16a34a",
+    )
+    write_failure_matrix(plots[4], batch_rows)
+    write_runtime_boxplot(plots[5], batch_rows)
+    write_pmid_heatmap(plots[6], paper_rows, batch_rows)
+    return plots
+
+
 def write_markdown(
     path: Path,
     batch_rows: list[dict[str, Any]],
@@ -457,8 +874,14 @@ def write_markdown(
     descriptive: list[dict[str, Any]],
     stability: list[dict[str, Any]],
     verdict: str,
+    plots: list[Path] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    plots = plots or []
+    successful_rows = [row for row in batch_rows if batch_success(row)]
+    failure_counts: dict[str, int] = defaultdict(int)
+    for row in batch_rows:
+        failure_counts[str(row.get("failure_class") or "unknown")] += 1
     descriptive_by_metric = {row["metric"]: row for row in descriptive}
     batch_runtime = descriptive_by_metric.get("batch_runtime_seconds", {})
     paper_runtime = descriptive_by_metric.get("paper_runtime_seconds", {})
@@ -484,9 +907,31 @@ def write_markdown(
         "",
         f"Verdict: **{verdict}**",
         "",
-        f"Formal runs analyzed: {len(batch_rows)}",
+        f"Formal runs analyzed: {len(batch_rows)} attempted slots; {len(successful_rows)} complete 10-paper batches.",
+        "",
+        "Failure / recovery classes:",
+        "",
+        "| Class | Runs |",
+        "|---|---:|",
+    ]
+    for label, count in sorted(failure_counts.items()):
+        lines.append(f"| {label} | {count} |")
+    lines.extend(
+        [
+            "",
+            "## Plots",
+            "",
+        ]
+    )
+    for plot in plots:
+        rel = plot.relative_to(path.parent)
+        lines.append(f"- [{plot.stem}]({rel.as_posix()})")
+    lines.extend(
+        [
         "",
         "## Overall Metrics",
+        "",
+        "Runtime, token, and row-count summaries below use successful 10-paper batches only.",
         "",
         "| Metric | Mean | Median | SD | Min | Max | P95 |",
         "|---|---:|---:|---:|---:|---:|---:|",
@@ -531,17 +976,20 @@ def write_markdown(
         "",
         "## Time Blocks",
         "",
-        "| Time block | Runs | Median runtime (min) | Median completion | Quota-limited runs | 503/high-demand runs | Timeout runs | Median calls | Median total tokens | Median output rows |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+        "| Time block | Runs | Successful | Median runtime (min) | Median completion | Quota-limited runs | Upstream failures | 503/high-demand runs | Timeout runs | Median calls | Median total tokens | Median output rows |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
     for row in block_rows:
         lines.append(
-            "| {time_block} | {runs} | {runtime:.1f} | {completion:.0%} | {quota} | {unavailable} | {timeouts} | {calls:.0f} | {tokens:.0f} | {rows:.0f} |".format(
+            "| {time_block} | {runs} | {successful} | {runtime:.1f} | {completion:.0%} | {quota} | {upstream} | {unavailable} | {timeouts} | {calls:.0f} | {tokens:.0f} | {rows:.0f} |".format(
                 time_block=row["time_block"],
                 runs=row["runs"],
+                successful=row.get("successful_runs", ""),
                 runtime=float(row["median_batch_runtime_seconds"] or 0) / 60.0,
                 completion=float(row["median_completion_rate"] or 0),
                 quota=row["quota_limited_runs"],
+                upstream=row.get("upstream_failure_runs", 0),
                 unavailable=row["model_unavailable_runs"],
                 timeouts=row["timeout_runs"],
                 calls=safe_float(row.get("median_gemini_api_calls")),
@@ -557,6 +1005,10 @@ def write_markdown(
             "- Usable: >=90% batch completion, median runtime <=90 minutes, no time block >2x another, no quota-limited or timeout runs.",
             "- Marginal: >=70% completion but one or more usability criteria missed.",
             "- Not usable: <70% completion.",
+            "",
+            "## Interim Interpretation",
+            "",
+            "Treat this report as a snapshot until the 24-hour schedule has finished. A failed upstream metadata/full-text slot should be described separately from Gemini quota or model failures because it does not consume Gemini requests and does not test free-tier capacity.",
             "",
         ]
     )
@@ -588,22 +1040,68 @@ def main() -> int:
         include_unlocked_corpus_runs=args.include_unlocked_corpus_runs,
     )
     batch_rows, paper_rows, block_rows = summarize(manifests)
-    descriptive = descriptive_rows(batch_rows, paper_rows)
-    stability = output_stability_rows(manifests)
+    successful_run_ids = {
+        str(row.get("run_id"))
+        for row in batch_rows
+        if batch_success(row)
+    }
+    successful_batch_rows = [
+        row for row in batch_rows if str(row.get("run_id")) in successful_run_ids
+    ]
+    successful_paper_rows = [
+        row for row in paper_rows if str(row.get("run_id")) in successful_run_ids
+    ]
+    successful_manifests = [
+        manifest for manifest in manifests if str(manifest.get("run_id")) in successful_run_ids
+    ]
+    descriptive_all = descriptive_rows(batch_rows, paper_rows, scope="all_attempted_runs")
+    descriptive_success = descriptive_rows(
+        successful_batch_rows,
+        successful_paper_rows,
+        scope="successful_10_paper_batches",
+    )
+    descriptive = descriptive_all + descriptive_success
+    stability = output_stability_rows(successful_manifests)
     verdict = classify(batch_rows, block_rows)
+    plots = write_plots(args.report_dir, batch_rows, paper_rows)
 
     write_csv(args.report_dir / "batch_metrics.csv", batch_rows)
     write_csv(args.report_dir / "paper_metrics.csv", paper_rows)
     write_csv(args.report_dir / "time_block_summary.csv", block_rows)
     write_csv(args.report_dir / "descriptive_summary.csv", descriptive)
+    write_csv(
+        args.report_dir / "failure_events.csv",
+        [
+            {
+                "run_id": row.get("run_id"),
+                "planned_local_time": row.get("planned_local_time"),
+                "time_block": row.get("time_block"),
+                "failure_class": row.get("failure_class"),
+                "successful_batch": row.get("successful_batch"),
+                "completed_papers": row.get("completed_papers"),
+                "total_papers": row.get("total_papers"),
+                "runtime_seconds": row.get("runtime_seconds"),
+                "gemini_api_calls": row.get("gemini_api_calls"),
+                "gemini_error_count": row.get("gemini_error_count"),
+                "model_unavailable_count": row.get("model_unavailable_count"),
+                "quota_limited_rows": row.get("quota_limited_rows"),
+                "quota_limited_papers": row.get("quota_limited_papers"),
+                "timeout_count": row.get("timeout_count"),
+                "output_rows": row.get("output_rows"),
+                "manifest_path": row.get("manifest_path"),
+            }
+            for row in batch_rows
+        ],
+    )
     write_csv(args.report_dir / "stability_metrics.csv", stability)
     write_markdown(
         args.report_dir / "report.md",
         batch_rows,
         block_rows,
-        descriptive,
+        descriptive_success or descriptive_all,
         stability,
         verdict,
+        plots,
     )
 
     print(f"Analyzed {len(batch_rows)} run(s). Verdict: {verdict}")

@@ -4,38 +4,26 @@
 
 \subsection{Key Contributions}
 
-ResearchShop makes three primary contributions:
+ResearchShop addresses the practical scale mismatch between biomedical literature and manual gene-evidence review. PubMed now indexes more than 40 million biomedical and life-science citations~\cite{pubmed_about_2026}; ResearchShop does not replace curation, but turns selected open-access papers into auditable gene--evidence tables that reviewers can inspect.
+
 
 \begin{enumerate}[itemsep=2pt]
-    \item \textbf{Hybrid NER--LLM architecture with validation.} The combination of PubTator3, deterministic HGNC candidate scanning, and Gemini 2.5 Flash Lite extraction is designed to surface candidate genes while applying multiple validation gates before output. This addresses a critical workflow gap: neither traditional NER nor unconstrained LLM extraction alone provides the audit trail needed for reliable biomedical triage.
-
-    \item \textbf{Local-first desktop application.} The tool runs on consumer hardware with no central ResearchShop server. Literature queries, paper identifiers, and extraction prompts are sent directly from the user's machine to the configured external services needed for the workflow, and users provide their own Gemini API key rather than relying on shared ResearchShop infrastructure.
-
-    \item \textbf{Transparent, auditable extraction.} Every output row includes provenance metadata: candidate source, normalisation applied, validation outcome, confidence score, association type, and association group. Separate audit artifacts record which candidate genes appeared before validation and which gates removed them.
+    \item \textbf{Hybrid extraction with auditable validation.} PubTator3, HGNC scanning, and configurable LLM extraction surface candidate genes, while grounding, citation checks, and confidence gates decide what reaches the primary export. Output rows include candidate source, normalization, validation outcome, confidence score, association type, and paper metadata; audit files preserve pre-validation candidates and gate drops.
 \end{enumerate}
 
 \subsection{Applications}
 
 \begin{itemize}[itemsep=2pt]
-    \item \textbf{VUS evidence triage:} Helps researchers identify and review published gene-disease evidence relevant to variant interpretation.
-    \item \textbf{Rare disease research:} Supports broader literature surveys for conditions with scattered, limited publications.
+    \item \textbf{Variant of Uncertain Significance (VUS) evidence triage:} Helps researchers identify and review published gene-disease evidence relevant to variant interpretation.
+    \item \textbf{Rare disease evidence triage:} Helps process curated PMID sets or focused PubMed searches where relevant reports are sparse and require source-level review.
     \item \textbf{Drug target discovery:} Helps researchers assemble candidate gene--disease association tables for therapeutic-development review.
     \item \textbf{Systematic reviews:} Produces auditable extraction tables that can support, but not replace, documented review and adjudication workflows.
 \end{itemize}
 
+\subsection{Execution and Performance}
+
+ResearchShop records runtime, API-call counts, token usage, quota warnings, timeout status, and output paths in run manifests. This instrumentation is part of the software design rather than a benchmark claim: it lets users separate model/API failures from PubMed or full-text acquisition failures and supports repeated-run analysis on a locked PMID corpus. Formal performance statistics should be reported only from completed study manifests, because runtime and output stability depend on paper length, model availability, quota state, and the selected extraction schema.
+
 \subsection{Limitations}
 
-The following limitations should guide interpretation of any ResearchShop output:
-
-\begin{itemize}[itemsep=2pt]
-    \item \textbf{LLM stochasticity:} Gemini 2.5 Flash Lite is non-deterministic; the same paper can yield different field wording or candidate ranking across runs. Important reviews should preserve audit artifacts and manually verify primary sources.
-    \item \textbf{Open-access only:} Full extraction requires open-access PMC or Europe PMC full text. Papers without accessible full text are not mined for full gene--evidence extraction; the software may retain metadata or review rows, but it does not bypass paywalls or scrape restricted content.
-    \item \textbf{Clinical-vs-molecular ambiguity:} Abbreviations like ESR, AST, and CRP appear as both clinical lab tests and gene symbols. A prompt-based disambiguation clause provides soft mitigation; the corroboration gate provides hard backstop.
-    \item \textbf{AI-extracted data requires expert review:} The tool is designed for research acceleration, not clinical decision-making. All outputs should be independently verified before use in publications, systematic reviews, or clinical contexts.
-    \item \textbf{Pharmacogenomics and guideline documents:} The current pipeline is not optimised for clinical pharmacogenomics guidelines, where gene-drug associations are embedded in dosing tables and recommendation prose rather than experimental findings sections. The tool is optimised for primary research papers; guideline documents should be processed with domain-specific extraction approaches.
-    \item \textbf{Rare disease ranking bias:} The topic-search recommendation score uses citation and journal-quality signals that can deprioritise rare disease papers, which accumulate fewer citations than cancer genomics or GWAS studies regardless of scientific merit. Researchers studying rare conditions are advised to use direct PMID submission rather than query-based search to ensure relevant low-citation papers are included.
-    \item \textbf{Structural variant notation coverage:} The HGVS validation layer recognises common notation patterns (amino acid substitutions, frameshifts, splice-site variants, indels, copy-number variants, and others) but does not capture all structural rearrangement notations. Variants in non-standard or complex notation pass gene-level validation and appear in output but are not confirmed as HGVS-compliant.
-    \item \textbf{Within-paper deduplication:} The first-occurrence deduplication strategy (one row per gene per paper) may collapse distinct variant-phenotype associations into a single row when the same gene is studied in multiple contexts within one paper. Researchers requiring per-variant granularity should treat the output as a starting index and retrieve the primary source for multi-variant genes.
-    \item \textbf{Search quality is not a systematic-review guarantee:} PubMed search and the topic-search recommendation score help users find likely papers, but ResearchShop does not prove recall of all relevant papers for a systematic review question. Users conducting systematic reviews should document their search strategy independently.
-    \item \textbf{Batch workflow rather than interactive evidence synthesis:} The current application processes selected papers into spreadsheets. It does not yet provide notebook-style iterative review, claim-level adjudication, or multi-paper consensus inference.
-\end{itemize}
+The LLM used in the pipeline is non-deterministic, which limits strict reproducibility of the system. At its current stage, ResearchShop relies on PubMed-based discovery, open-access full-text availability, and the Gemini API, all of which may introduce additional biases or limitations. Rare-disease searches require particular care: the topic-search ranking uses citation and journal-quality signals that can deprioritise low-citation rare-disease papers, so users studying rare conditions should prefer direct PMID submission or carefully documented focused PubMed queries. Architecturally, however, the system remains modular and can be extended to alternative search sources or local models in future versions. Consequently, outputs generated by ResearchShop should be treated as a starting point for further investigation and always subjected to professional review and verification.
