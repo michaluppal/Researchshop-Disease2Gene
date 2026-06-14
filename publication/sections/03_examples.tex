@@ -6,50 +6,7 @@
 
 ResearchShop supports a compact literature-curation loop: users provide a PubMed query, author search, or PMID list; select papers; define schema columns such as \emph{Key Finding}, \emph{Disease Association}, \emph{Statistical Evidence}, and \emph{Conclusion}; and receive spreadsheet-ready gene--paper rows with provenance and validation metadata. For each selected open-access paper, the pipeline parses text, tables, captions, figures, and supplementary metadata where available; combines PubTator, HGNC scanning, and LLM candidate discovery; fills the requested schema only for grounded candidates; and exports citation status, NCBI identifiers, candidate source, association grouping, confidence label, and paper metadata. The same backend can be run through the desktop interface or from the command line for scripted analyses.
 
-Figures~\ref{fig:app_workflow_screens} and~\ref{fig:app_results_screen} show the protocol, query/schema, and results views. Table~\ref{tab:demo_output_trace} uses a local demonstration result file to illustrate the visible data model; it is not an accuracy benchmark.
-
-\begin{table*}[t]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{1.8cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.1cm}}
-\toprule
-\textbf{Output row} & \textbf{Candidate source} & \textbf{Displayed evidence trail} & \textbf{Audit interpretation} \\
-\midrule
-\textit{IFNG} & LLM text; deterministic lexicon & The result row keeps a gene-normalized immune-response finding, a citation field, a confidence label, and metadata indicating local HGNC validation and matched citation text. & The researcher can inspect the source sentence before reusing the row. \\
-\textit{HLA-C} / HLA-C*04 & LLM text & The allele-like input is preserved in the variant field while the gene label is normalized to an HGNC-compatible symbol for review. & The row is treated as a triage lead because HLA nomenclature requires expert interpretation. \\
-\textit{CXCL10} & PubTator & Sparse evidence is retained with a conservative confidence label and a needs-review citation status in the metadata view. & The row remains visible as an index into the paper rather than being presented as a final assertion. \\
-\bottomrule
-\end{tabularx}
-\caption{Illustrative output and audit trail from a local demonstration result file.}
-\label{tab:demo_output_trace}
-\end{table*}
-
-\begin{figure*}[t]
-    \centering
-    \begin{subfigure}[t]{0.49\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figures/app_protocol_selection.png}
-        \caption{Protocol selection screen.}
-        \label{fig:app_protocol_selection}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[t]{0.49\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{figures/app_query_builder.png}
-        \caption{Paper-analysis query builder and extraction-column editor.}
-        \label{fig:app_query_builder}
-    \end{subfigure}
-    \caption{ResearchShop desktop workflow before extraction.}
-    \label{fig:app_workflow_screens}
-\end{figure*}
-
-\begin{figure*}[t]
-    \centering
-    \includegraphics[width=0.95\textwidth]{figures/app_results_explorer.png}
-    \caption{Results explorer showing confidence labels, evidence columns, metadata controls, export controls, and the research-use warning.}
-    \label{fig:app_results_screen}
-\end{figure*}
+Figure~\ref{fig:app_workflow_screens} shows the protocol, query/schema, and results views. Table~\ref{tab:demo_output_trace} uses a local demonstration result file to illustrate the visible data model; it is not an accuracy benchmark.
 
 \subsection{Audit Artifacts}
 
@@ -60,6 +17,50 @@ Each run writes the final CSV plus metadata CSV, XLSX, JSON, candidate-audit, dr
 Many genomics papers encode primary findings in figures, tables, and supplementary files rather than in prose. ResearchShop parses PMC and Europe PMC JATS XML, extracts structured table text, collects figure captions and image URL candidates, and passes table/caption context into evidence validation. When figure analysis is enabled and images are downloadable, a multimodal Gemini model can inspect figures as an optional signal; when images are unavailable, the pipeline degrades to caption and text evidence rather than failing the run.
 
 The parser path uses ResearchShop-owned fetchers for PubMed, PMC, Europe PMC, and citation services. A small adapter uses \texttt{pubmed\_parser} for selected JATS parsing tasks such as body paragraphs and figure metadata, while ResearchShop keeps its own open-access gates, URL probing, CDN fallback, table extraction, supplementary file handling, PubTator integration, and output schema.
+
+\begin{strip}
+\vspace{-0.6em}
+\centering
+\begingroup
+\scriptsize
+\captionsetup{hypcap=false}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{0.92}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{1.55cm} >{\raggedright\arraybackslash}p{2.15cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.75cm}@{}}
+\toprule
+\textbf{Output row} & \textbf{Candidate source} & \textbf{Displayed evidence trail} & \textbf{Audit interpretation} \\
+\midrule
+\textit{IFNG} & LLM text; deterministic lexicon & Gene-normalized immune-response finding with citation status, confidence label, local HGNC validation, and matched source text. & Inspect source sentence before reuse. \\
+\textit{HLA-C} / HLA-C*04 & LLM text & Allele-like input remains in the variant field while the gene label normalizes to an HGNC-compatible symbol. & Triage lead; HLA nomenclature requires expert interpretation. \\
+\textit{CXCL10} & PubTator & Sparse evidence is retained with a conservative confidence label and needs-review citation status. & Visible as a paper index, not a final assertion. \\
+\bottomrule
+\end{tabularx}
+\captionof{table}{Illustrative output and audit trail from a local demonstration result file.}
+\label{tab:demo_output_trace}
+\vspace{0.55em}
+
+\begin{minipage}[t]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/app_protocol_selection.png}
+        \scriptsize (a) Protocol selection.
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/app_query_builder.png}
+        \scriptsize (b) Query and schema.
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/app_results_explorer.png}
+        \scriptsize (c) Results explorer.
+\end{minipage}
+\captionof{figure}{ResearchShop desktop workflow: protocol selection, paper-analysis setup, and validated results review.}
+\label{fig:app_workflow_screens}
+\endgroup
+\vspace{-0.6em}
+\end{strip}
 
 % \subsection{Reproducibility Checks}
 

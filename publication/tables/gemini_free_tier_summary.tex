@@ -1,0 +1,28 @@
+\begin{table}[!ht]
+\centering
+\caption{24-hour Gemini free-tier operational summary. Successful-batch summaries exclude the single upstream full-text failure.}
+\label{tab:gemini-free-tier-summary}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Hourly slots & 24 \\
+Complete batches & 23/24 (95.8\%) \\
+Completed papers & 230/240 \\
+Median batch runtime & 11.6 min \\
+P95 batch runtime & 13.8 min \\
+Median paper runtime & 0.6 min \\
+Median calls/batch & 21.0 \\
+Total Gemini calls & 493 \\
+Median tokens/batch & 422,304 \\
+Quota-limited rows & 0 \\
+Timeouts & 0 \\
+Upstream failures & 1 \\
+Recovered API events & 95 \\
+Median gene Jaccard & 0.953 \\
+Median gene-variant Jaccard & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}

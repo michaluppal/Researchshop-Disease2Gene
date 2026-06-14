@@ -109,7 +109,7 @@ For each paper, validation begins with a constrained candidate set assembled fro
 \begin{enumerate}[itemsep=2pt]
     \item \textbf{Identifier normalisation.} The reported gene string is mapped to an HGNC-approved symbol when possible. Previous symbols and aliases are retained as provenance, but the exported gene field uses the canonical symbol. This prevents rows built on misspelled or obsolete labels from being treated as authoritative identifiers.
     \item \textbf{Source presence.} The canonical symbol, any HGNC alias, or the raw mention supplied by the LLM must occur in the fetched article text. This rejects real but off-topic genes that the model may know from pre-training but that are absent from the paper.
-    \item \textbf{Citation anchoring.} The citation or evidence quote supplied by the LLM is matched back to the article using normalized dense sequence matching. Rows with citation-bearing fields are removed from the primary export when none of the supplied citations can be grounded.
+    \item \textbf{Citation anchoring.} The citation or evidence quote supplied by the LLM is matched back to the article using normalized dense sequence matching~\cite{python_difflib,ratcliff1988gestalt}. Rows with citation-bearing fields are removed from the primary export when none of the supplied citations can be grounded.
     \item \textbf{Local gene context.} A matched citation must be within a bounded source window around the relevant gene mention, not merely somewhere in the same article. This reduces errors where a generic disease or pathway sentence is attached to the wrong gene.
     \item \textbf{Numerical preservation.} Numeric tokens in the LLM citation, such as p-values, odds ratios, cohort sizes, percentages, or variant positions, must be present in the matched source passage. This catches a common failure mode where an LLM preserves the qualitative claim but invents, rounds, or substitutes quantitative detail.
     \item \textbf{Variant sanity check.} Variant-like strings are tested against HGVS-oriented regular-expression patterns. Non-matching variants can remain visible as review metadata, but they are not treated as validated HGVS evidence.
@@ -117,7 +117,7 @@ For each paper, validation begins with a constrained candidate set assembled fro
     \item \textbf{Confidence label and audit trail.} Rows that pass the required gates receive a confidence score and a plain-language label. Rows below the configured threshold are omitted from the primary CSV and recorded with the failed check, allowing users to inspect false negatives.
 \end{enumerate}
 
-These heuristics are not presented as a substitute for expert curation. Their purpose is to make the LLM's contribution bounded: the model may summarize and structure evidence, but exported associations must be tied back to identifiers and text that ResearchShop can locate in the paper.
+These heuristics bound the LLM's role rather than replacing expert curation: the model may summarize and structure evidence, but exported rows must remain tied to identifiers and source passages that ResearchShop can locate in the paper.
 
 \begin{table*}[t]
 \centering
@@ -141,9 +141,9 @@ Confidence gate & After required gates pass, export rows only when $C_{\mathrm{t
 \label{tab:llm_validation_decisions}
 \end{table*}
 
-The thresholds in Table~\ref{tab:llm_validation_decisions} are implementation heuristics, not biological constants. They were selected to favour precision in the default export and are exposed through configuration where appropriate. The dense citation threshold of 0.85 is high enough to reject paraphrases and semantically different near-misses, but permits formatting drift introduced by XML extraction, Unicode variants, and line wrapping. The local context window of $\pm$1,500 characters is deliberately wider than a single sentence because gene labels may appear in an adjacent paragraph, caption, or table lead-in; it is still bounded so an article-level co-mention cannot validate an unrelated citation. The final confidence threshold of 0.7 corresponds to the minimum score for a source-grounded, HGNC-valid gene row after hard gates have passed; it is a conservative export threshold rather than a calibrated probability.
+The thresholds in Table~\ref{tab:llm_validation_decisions} are implementation heuristics selected to favour precision in the default export, not biological constants. The 0.85 citation threshold permits XML, Unicode, and line-wrapping drift while rejecting paraphrases; the $\pm$1,500-character context window allows nearby captions, tables, or lead-in sentences without accepting article-level co-mentions; and the 0.7 confidence threshold is a conservative export cutoff applied only after required hard gates pass, not a calibrated probability.
 
-The validation framework then applies several implementation layers, each targeting different error types:
+The remaining validation layers target specific error types:
 
 \subsubsection{Gene Symbol Validation}
 Every extracted gene is verified against authoritative databases in priority order:
