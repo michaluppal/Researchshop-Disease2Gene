@@ -172,6 +172,32 @@ Per-PMID stability summary:
 
 Interpretation: output row counts were not perfectly identical, especially for PMIDs with more extracted rows and citation-gate drops, but gene-level and gene-variant-level sets were highly stable across repeated runs.
 
+## Numerical-Preservation Gate
+
+Post-hoc analysis of the same WSL session found that numerical preservation was triggered 23 times across 17,854 citation validations. The events affected 12 rows in 8 of 24 hourly batches. Three rows were excluded from the primary export with a numeric-mismatch citation-gate signal; the remaining events were retained in exported metadata because another citation or validation path kept the row reviewable. This supports the intended role of the check: catching quantitative drift in LLM-provided evidence quotes without turning most citation-validation failures into export-blocking events.
+
+| Metric | Value |
+|---|---:|
+| Hourly batches analyzed | 24 |
+| Total citation validations | 17,854 |
+| Numeric-bearing citations | 14 |
+| Numeric mismatch events | 23 |
+| Affected rows | 12 |
+| Batches with >=1 mismatch | 8 |
+| Rows excluded from primary export | 3 |
+| Rows removed only after numeric mismatch | 3 |
+| Mean mismatches per 10-paper batch | 0.958 |
+| Median mismatches per 10-paper batch | 0.0 |
+| Mismatches per emitted row | 0.0033 |
+| Mismatches per citation validation | 0.0013 |
+
+Generated numeric-preservation artifacts:
+
+- [Numeric-preservation report](reports/numeric_preservation_report.md)
+- [Numeric-preservation events CSV](reports/numeric_preservation_events.csv)
+- [Numeric-preservation PMID summary](reports/numeric_preservation_by_pmid.csv)
+- [Numeric-preservation heatmap](reports/numeric_preservation_heatmap.svg)
+
 ## Linked Figures
 
 Generated plots are available in the ignored session report folder:
@@ -183,6 +209,7 @@ Generated plots are available in the ignored session report folder:
 - [Failure matrix](runs/session_20260609_0100_scheduler/reports/plots/failure_matrix.svg)
 - [Runtime by time block](runs/session_20260609_0100_scheduler/reports/plots/runtime_by_time_block.svg)
 - [Per-PMID output rows heatmap](runs/session_20260609_0100_scheduler/reports/plots/per_pmid_output_rows_heatmap.svg)
+- [Numerical-preservation heatmap](reports/numeric_preservation_heatmap.svg)
 
 ## Paper-Ready Interpretation
 

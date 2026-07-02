@@ -243,20 +243,49 @@ function SetupScreen({
   )
 }
 
+function BrowserUnsupportedScreen() {
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-slate-50 p-6">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-3">
+          <BrandMark className="h-11 w-11 rounded-lg" />
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">ResearchShop Desktop</h1>
+            <p className="text-sm text-slate-500">Electron app required</p>
+          </div>
+        </div>
+        <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">This browser preview cannot run the app.</p>
+            <p className="mt-1 text-amber-700">
+              Use the ResearchShop window opened by dev mode. The localhost page does not include the
+              desktop APIs for Python setup, files, PubMed actions, or history.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function App() {
+  const electronApi = (window as typeof window & { api?: Window['api'] }).api
+  const hasElectronApi = Boolean(electronApi?.pythonSetup && electronApi?.settings)
   const [pythonReady, setPythonReady] = useState(false)
   const [pythonError, setPythonError] = useState<string | null>(null)
   const [setupMessage, setSetupMessage] = useState('')
   const [logs, setLogs] = useState<string[]>([])
 
   useEffect(() => {
-    const removeProgress = window.api.pythonSetup.onProgress((data) => {
+    if (!hasElectronApi || !electronApi) return
+    const removeProgress = electronApi.pythonSetup.onProgress((data) => {
       setSetupMessage(data.message)
     })
-    const removeLog = window.api.pythonSetup.onLog((line) => {
+    const removeLog = electronApi.pythonSetup.onLog((line) => {
       setLogs((prev) => [...prev, line])
     })
-    const removeComplete = window.api.pythonSetup.onComplete((data) => {
+    const removeComplete = electronApi.pythonSetup.onComplete((data) => {
       if (data.ready) {
         setPythonReady(true)
       } else {
@@ -268,7 +297,11 @@ function App() {
       removeLog()
       removeComplete()
     }
-  }, [])
+  }, [electronApi, hasElectronApi])
+
+  if (!hasElectronApi) {
+    return <BrowserUnsupportedScreen />
+  }
 
   if (!pythonReady) {
     return (

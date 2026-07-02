@@ -144,6 +144,59 @@ class TestCitationExistsInPaper:
         )
         assert exists is False, "Fabricated citation should not match"
 
+    def test_numeric_preservation_passes_when_number_is_present(self, sample_paper_text):
+        citation = "TP53 mutations were detected in 23% of triple-negative breast cancer cases."
+
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, sample_paper_text, gene_symbol="TP53"
+        )
+
+        assert exists is True, reason
+        assert confidence >= 0.85
+
+    def test_numeric_preservation_fails_when_number_is_substituted(self, sample_paper_text, monkeypatch):
+        monkeypatch.setattr(config, "CITATION_DENSE_MATCH_MIN_RATIO", 0.75)
+        citation = "TP53 mutations were detected in 24% of triple-negative breast cancer cases."
+
+        exists, confidence, reason = _citation_exists_in_paper(
+            citation, sample_paper_text, gene_symbol="TP53"
+        )
+
+        assert exists is False
+        assert "Numerical mismatch: '24'" in reason
+
+    def test_table_numeric_preservation_reports_all_values_matched(self):
+        tables = [
+            {
+                "label": "Table 1",
+                "rows": [["Gene", "OR", "p"], ["BRCA1", "2.7", "0.01"]],
+            }
+        ]
+
+        result = validate_table_citation(
+            "BRCA1 showed OR 2.7 with p 0.01", tables, "BRCA1"
+        )
+
+        assert result is not None
+        assert result.confidence_score == 1.0
+        assert result.values_missing == []
+
+    def test_table_numeric_preservation_reports_missing_values(self):
+        tables = [
+            {
+                "label": "Table 1",
+                "rows": [["Gene", "OR", "p"], ["BRCA1", "2.7", "0.01"]],
+            }
+        ]
+
+        result = validate_table_citation(
+            "BRCA1 showed OR 3.1 with p 0.01", tables, "BRCA1"
+        )
+
+        assert result is not None
+        assert result.confidence_score == 0.7
+        assert result.values_missing == ["3.1"]
+
     def test_gene_context_required(self, sample_paper_text):
         """A real sentence from the paper that mentions only a different gene should fail
         the gene context gate when checked against a mismatched gene."""

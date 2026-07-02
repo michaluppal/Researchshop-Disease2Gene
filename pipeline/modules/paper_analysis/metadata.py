@@ -18,6 +18,39 @@ _USAGE_SUMMARY_KEYS = {
 }
 
 
+def _citation_failure_type(reason: str) -> str:
+    lower = str(reason or "").lower()
+    if lower.startswith("table_match:"):
+        return "table_match"
+    if "numerical mismatch" in lower:
+        return "numeric_mismatch"
+    if "gene symbols" in lower and "not found" in lower:
+        return "gene_context_failure"
+    if "empty citation" in lower or "no citation" in lower:
+        return "empty_citation"
+    if "no similar text" in lower or "near-miss match" in lower or "no exact match" in lower:
+        return "dense_match_failure"
+    if "match found" in lower:
+        return ""
+    return "citation_validation_failure" if reason else ""
+
+
+def _numeric_citation_telemetry(citation_text: str, reason: str) -> Dict[str, Any]:
+    from ..gene_validator import _extract_numbers
+
+    tokens = list(dict.fromkeys(_extract_numbers(str(citation_text or ""))))
+    missing = re.findall(r"Numerical mismatch:\s*'([^']+)'", str(reason or ""))
+    missing_set = set(missing)
+    matched = [token for token in tokens if token not in missing_set]
+    return {
+        "numeric_tokens_in_citation": ";".join(tokens),
+        "numeric_tokens_matched": ";".join(matched),
+        "numeric_tokens_missing": ";".join(missing),
+        "numeric_preservation_passed": bool(tokens and not missing),
+        "numeric_preservation_failure_count": len(missing),
+    }
+
+
 def summarize_gemini_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
     """Aggregate Gemini SDK usage metadata records into stable counters."""
     summary = {
@@ -312,6 +345,12 @@ class MetadataMixin:
                 or col.endswith("_citation_valid")
                 or col.endswith("_citation_confidence")
                 or col.endswith("_citation_details")
+                or col.endswith("_citation_failure_type")
+                or col.endswith("_numeric_tokens_in_citation")
+                or col.endswith("_numeric_tokens_matched")
+                or col.endswith("_numeric_tokens_missing")
+                or col.endswith("_numeric_preservation_passed")
+                or col.endswith("_numeric_preservation_failure_count")
             ):
                 continue
             citation_col = f"{col} Citation"
@@ -327,6 +366,12 @@ class MetadataMixin:
                 df[f"{col}_citation_valid"] = False
                 df[f"{col}_citation_confidence"] = 0.0
                 df[f"{col}_citation_details"] = "No citation provided"
+                df[f"{col}_citation_failure_type"] = "empty_citation"
+                df[f"{col}_numeric_tokens_in_citation"] = ""
+                df[f"{col}_numeric_tokens_matched"] = ""
+                df[f"{col}_numeric_tokens_missing"] = ""
+                df[f"{col}_numeric_preservation_passed"] = False
+                df[f"{col}_numeric_preservation_failure_count"] = 0
 
         total_validated = 0
         total_found = 0
@@ -381,10 +426,28 @@ class MetadataMixin:
                     is_valid = exists and confidence >= config.CITATION_MIN_CONFIDENCE
 
                     # Write results to both the content column and its Citation sibling
+                    failure_type = _citation_failure_type(reason)
+                    numeric_meta = _numeric_citation_telemetry(citation_text, reason)
                     for col in (content_col, citation_col):
                         df.at[i, f"{col}_citation_valid"] = is_valid
                         df.at[i, f"{col}_citation_confidence"] = round(confidence, 3)
                         df.at[i, f"{col}_citation_details"] = reason
+                        df.at[i, f"{col}_citation_failure_type"] = failure_type
+                        df.at[i, f"{col}_numeric_tokens_in_citation"] = numeric_meta[
+                            "numeric_tokens_in_citation"
+                        ]
+                        df.at[i, f"{col}_numeric_tokens_matched"] = numeric_meta[
+                            "numeric_tokens_matched"
+                        ]
+                        df.at[i, f"{col}_numeric_tokens_missing"] = numeric_meta[
+                            "numeric_tokens_missing"
+                        ]
+                        df.at[i, f"{col}_numeric_preservation_passed"] = numeric_meta[
+                            "numeric_preservation_passed"
+                        ]
+                        df.at[i, f"{col}_numeric_preservation_failure_count"] = numeric_meta[
+                            "numeric_preservation_failure_count"
+                        ]
 
                     total_validated += 1
                     if is_valid:
