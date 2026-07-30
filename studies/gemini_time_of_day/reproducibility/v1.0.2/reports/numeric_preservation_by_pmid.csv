@@ -1,0 +1,3 @@
+citation_gate_drops_attributable_to_numeric_mismatch,mismatch_rate_per_run,numeric_mismatch_count,pmid,runs_observed,runs_with_numeric_mismatch
+1,0.7083,17,23544013,24,6
+2,0.25,6,41169353,24,2

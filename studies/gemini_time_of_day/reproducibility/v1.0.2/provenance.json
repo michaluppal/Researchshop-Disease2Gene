@@ -1,0 +1,28 @@
+{
+  "accuracy_scope": "No expert-labelled reference set was used. The bundle does not estimate biological precision, recall, F1, or clinical validity.",
+  "attempted_slots": 24,
+  "corpus_fingerprints": [
+    "75e48a979e5f9e8cc08b138a5e980e58ad886b3b5443203585b0d40fa6151707"
+  ],
+  "execution_environment": "Windows laptop; WSL Ubuntu",
+  "git_dirty_caveat": "The WSL manifests contain both clean and dirty git states. The recorded commit identifies the base source, but later-run uncommitted changes cannot be reconstructed from the bundle.",
+  "git_dirty_values_recorded": [
+    false,
+    true
+  ],
+  "models": [
+    "gemini-3.1-flash-lite"
+  ],
+  "planned_dates": [
+    "2026-06-09",
+    "2026-06-10"
+  ],
+  "release_source_ref": "v1.0.2",
+  "release_version": "v1.0.2",
+  "schema_version": "researchshop_wsl_reproducibility_bundle_v1",
+  "study_execution_commits": [
+    "f2ae56d2d01515c425abc67606fd4d036b48ef47"
+  ],
+  "study_type": "operational reliability and output-stability study",
+  "timezone": "Europe/Warsaw"
+}

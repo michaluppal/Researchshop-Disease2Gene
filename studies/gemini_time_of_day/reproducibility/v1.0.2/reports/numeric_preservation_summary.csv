@@ -1,0 +1,14 @@
+metric,value
+Hourly batches analyzed,24
+Total citation validations,17854
+Numeric-bearing citations,14
+Numeric mismatch events,23
+Affected rows,12
+Batches with >=1 mismatch,8
+Rows excluded from primary export,3
+Rows removed only after numeric mismatch,3
+Mean mismatches per 10-paper batch,0.958
+Median mismatches per 10-paper batch,0.0
+Mismatches per emitted row,0.0033
+Mismatches per citation validation,0.0013
+Numeric-attributed share of citation-gate drops,0.0085

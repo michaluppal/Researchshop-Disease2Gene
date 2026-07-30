@@ -1,0 +1,167 @@
+\documentclass[final,5p,times,twocolumn]{elsarticle}
+
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{shapes,shapes.geometric,arrows.meta,positioning,calc,decorations.pathreplacing,fit,backgrounds}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{placeins}
+\hypersetup{hidelinks}
+\hbadness=10000
+\hfuzz=3pt
+\raggedbottom
+\newcommand{\frontlabel}[1]{\textbf{\MakeUppercase{#1}}}
+\newcommand{\frontspaced}[1]{\textbf{\MakeUppercase{#1}}}
+
+% Code listing style
+\lstset{
+  basicstyle=\footnotesize\ttfamily,
+  frame=single,
+  breaklines=true,
+  columns=flexible,
+  keywordstyle=\color{blue!60!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+  upquote=true,
+  keepspaces=true,
+}
+
+\journal{SoftwareX}
+
+\bibliographystyle{elsarticle-num}
+
+% Editorial diff markup for Overleaf review copy
+\RequirePackage{xcolor}
+\RequirePackage{soul}
+\sethlcolor{yellow}
+\soulregister\cite7
+\soulregister\citep7
+\soulregister\citet7
+\soulregister\ref7
+\soulregister\pageref7
+\soulregister\texttt7
+\soulregister\textit7
+\soulregister\emph7
+\soulregister\textbf7
+\newcommand{\DIFadd}[1]{\hl{#1}}
+\newcommand{\DIFdel}[1]{\textcolor{red!70!black}{\st{#1}}}
+\newcommand{\DIFaddbegin}{}
+\newcommand{\DIFaddend}{}
+\newcommand{\DIFdelbegin}{}
+\newcommand{\DIFdelend}{}
+\newcommand{\DIFaddFL}[1]{\DIFadd{#1}}
+\newcommand{\DIFdelFL}[1]{\DIFdel{#1}}
+\newcommand{\DIFaddbeginFL}{}
+\newcommand{\DIFaddendFL}{}
+\newcommand{\DIFdelbeginFL}{}
+\newcommand{\DIFdelendFL}{}
+\newcommand{\LucasNote}[1]{%
+  \par\smallskip\noindent
+  \begingroup
+  \setlength{\fboxsep}{4pt}%
+  \fcolorbox{orange!75!black}{yellow!35}{%
+    \parbox{0.95\linewidth}{\footnotesize\sffamily #1}%
+  }%
+  \endgroup
+  \par\smallskip
+}
+\newcommand{\KasiaNote}[1]{%
+  \par\smallskip\noindent
+  \begingroup
+  \setlength{\fboxsep}{5pt}%
+  \fcolorbox{orange!75!black}{yellow!35}{%
+    \parbox{0.95\linewidth}{\footnotesize\sffamily
+      \textbf{Expert assessment pending (Kasia Suski):} #1}%
+  }%
+  \endgroup
+  \par\smallskip
+}
+
+
+\begin{document}
+
+\makeatletter
+\twocolumn[
+\begin{@twocolumnfalse}
+\vspace*{-0.7cm}
+{\Large\bfseries ResearchShop: A Desktop Application for Auditable Gene and Variant Extraction from Biomedical Literature Using Hybrid NER--LLM Architecture\par}
+\vspace{0.45em}
+{\normalsize Micha{\l} Bujniewicz-Uppal\textsuperscript{a, *}, {\L}ukasz G\'{o}rski\textsuperscript{a, b}, Catherine Suski-Grabowski\textsuperscript{a}\par}
+\vspace{0.25em}
+{\footnotesize\itshape \textsuperscript{a}Interdisciplinary Centre for Mathematical and Computational Modelling, University of Warsaw, Warsaw, Poland\par
+\textsuperscript{b}Faculty of Mathematics and Computer Science, Nicolaus Copernicus University in Toruń, Toruń, Poland\par}
+\vspace{0.9em}
+\hrule
+\vspace{0.75em}
+\noindent
+{\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.23\textwidth} >{\raggedright\arraybackslash}X}
+\frontspaced{Article Info} &
+\frontspaced{Abstract} \\
+\addlinespace[0.4em]
+\frontlabel{Keywords:}\par
+Gene-disease association\par
+Biomedical text mining\par
+Large Language Models\par
+Named Entity Recognition\par
+Hallucination mitigation\par
+Full-text processing
+&
+We present ResearchShop, a free, open-source desktop application that assists biomedical researchers with structured extraction of gene and variant associations from PubMed literature. The system combines PubTator3 Named Entity Recognition, open-access full-text parsing from PubMed Central and Europe PMC, and Google Gemini 2.5 Flash Lite extraction behind a validation-oriented pipeline. Its safeguards include HGNC gene symbol verification, source-text grounding checks, HGVS-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no ResearchShop server infrastructure; users provide their own Gemini API key and NCBI Entrez email for direct calls to external services.
+
+The contribution of ResearchShop is a reproducible desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and CSV/XLSX export. The project includes electron-builder packaging targets for macOS, Windows, and Linux, an offline test suite for core parser and validation behavior, and audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; extracted associations require expert review before use in publications, systematic reviews, or clinical contexts.
+\end{tabularx}
+}
+\vspace{0.75em}
+\hrule
+\vspace{0.95em}
+\input{softwarex_metadata}
+\vspace{1.0em}
+\noindent{\footnotesize\textsuperscript{*}\textit{Corresponding author. Email address:} \texttt{michal.uppal@gmail.com}.}
+\vspace{1.2em}
+\end{@twocolumnfalse}
+]
+\makeatother
+
+% \linenumbers  % Uncomment for manuscript submission with line numbers
+
+%%====================================================================
+%% Sections — each in its own file for manageable editing
+%%====================================================================
+
+\input{sections/01_motivation}      % 1. Motivation and Significance
+\input{sections/02_description}     % 2. Software Description
+\input{sections/03_examples}        % 3. Illustrative Examples
+\input{sections/04_impact}          % 4. Impact
+\input{sections/05_conclusions}     % 5. Conclusions
+
+%%====================================================================
+%% Back matter
+%%====================================================================
+
+\section*{Acknowledgements}
+We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling (ICM) at the University of Warsaw. Initial development of ResearchShop was supported by an
+%USD 1,000
+Amazon Founders grant awarded to Micha{\l} Bujniewicz-Uppal for this project.
+
+\section*{Declaration of Competing Interest}
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+%% References
+\begingroup
+\footnotesize
+\setlength{\bibsep}{0pt}
+\bibliography{references}
+\endgroup
+
+\end{document}

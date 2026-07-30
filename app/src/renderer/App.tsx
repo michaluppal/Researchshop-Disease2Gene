@@ -237,7 +237,7 @@ function SetupScreen({
 
       {/* Bottom version tag */}
       <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
-        <span className="text-[10px] text-white/10 font-mono">v1.0.1</span>
+        <span className="text-[10px] text-white/10 font-mono">v1.0.2</span>
       </div>
     </div>
   )

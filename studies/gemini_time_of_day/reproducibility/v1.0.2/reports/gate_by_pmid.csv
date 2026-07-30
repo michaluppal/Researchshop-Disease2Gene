@@ -1,0 +1,11 @@
+candidate_passed,candidate_records,candidate_rejected,candidate_rejected_low_confidence,candidate_rejected_uncorroborated_deterministic,candidate_rejected_ungrounded,pmid,row_citation_gate_drops,row_decisions,row_emitted,row_strict_gate_drops,runs_observed
+621,621,0,0,0,0,23544013,11,608,597,0,23
+1219,1633,414,0,414,0,29625052,56,1288,1232,0,23
+23,115,92,0,92,0,34669946,0,23,23,0,23
+253,299,46,0,46,0,34711957,0,276,276,0,23
+1679,1932,253,0,253,0,35177862,208,1679,1471,0,23
+46,46,0,0,0,0,36552004,25,69,44,0,23
+967,1151,184,23,161,0,39009607,3,967,964,0,23
+879,1040,161,0,138,23,41017238,4,878,874,0,23
+514,629,115,46,69,0,41169353,46,514,468,0,23
+1058,1104,46,0,46,0,41929321,0,1058,1058,0,23

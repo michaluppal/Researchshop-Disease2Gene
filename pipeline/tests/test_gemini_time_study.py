@@ -9,6 +9,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ANALYZER_PATH = REPO_ROOT / "studies" / "gemini_time_of_day" / "analyze_results.py"
 RUNNER_PATH = REPO_ROOT / "studies" / "gemini_time_of_day" / "run_study.py"
 HOURLY_DRIVER_PATH = REPO_ROOT / "studies" / "gemini_time_of_day" / "run_hourly_study.py"
+BUNDLE_PATH = (
+    REPO_ROOT
+    / "studies"
+    / "gemini_time_of_day"
+    / "build_reproducibility_bundle.py"
+)
 
 
 def _load_module(path: Path, name: str):
@@ -333,6 +339,102 @@ def test_analyzer_computes_output_stability_jaccard(tmp_path):
     assert round(row["mean_gene_jaccard"], 3) == 0.333
     assert row["mean_gene_variant_jaccard"] == 1.0
     assert round(row["mean_validation_gate_drop_rate"], 3) == 0.333
+
+
+def test_analyzer_keeps_candidate_and_row_gate_denominators_separate(tmp_path):
+    analyzer = _load_module(ANALYZER_PATH, "gemini_time_analyzer_gate_stats")
+    debug_path = tmp_path / "drop_debug.json"
+    debug_path.write_text(
+        json.dumps(
+            {
+                "paper_debug": [
+                    {
+                        "pmid": "111",
+                        "candidates": [
+                            {"validation_outcome": "passed"},
+                            {"validation_outcome": "passed_deterministic_context"},
+                            {
+                                "validation_outcome": "rejected_uncorroborated_deterministic"
+                            },
+                            {"validation_outcome": "rejected_low_confidence"},
+                            {"validation_outcome": "rejected_ungrounded"},
+                        ],
+                        "emitted_rows": 2,
+                        "evidence_gate_drops": [
+                            {"reason": "ungrounded_citation"},
+                        ],
+                        "strict_gate_drops": [
+                            {"reason": "below_final_validation_threshold"},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifests = [
+        {
+            "run_id": "hour00",
+            "planned_local_time": "00:00",
+            "time_block": "night",
+            "outputs": {"debug": str(debug_path)},
+        }
+    ]
+
+    events, by_run, by_pmid, summary = analyzer.collect_gate_statistics(manifests)
+    summary_values = {row["metric"]: row["value"] for row in summary}
+
+    assert len(events) == 8
+    assert by_run[0]["candidate_records"] == 5
+    assert by_run[0]["candidate_passed"] == 2
+    assert by_run[0]["candidate_rejected"] == 3
+    assert by_run[0]["row_decisions"] == 4
+    assert by_run[0]["row_emitted"] == 2
+    assert by_run[0]["row_citation_gate_drops"] == 1
+    assert by_run[0]["row_strict_gate_drops"] == 1
+    assert by_pmid[0]["pmid"] == "111"
+    assert summary_values["candidate_records"] == 5
+    assert summary_values["row_decisions"] == 4
+
+
+def test_analyzer_records_missing_debug_without_inventing_gate_events():
+    analyzer = _load_module(ANALYZER_PATH, "gemini_time_analyzer_missing_debug")
+    manifests = [
+        {
+            "run_id": "hour07",
+            "planned_local_time": "07:00",
+            "time_block": "morning",
+            "outputs": {},
+        }
+    ]
+
+    events, by_run, by_pmid, summary = analyzer.collect_gate_statistics(manifests)
+
+    assert events == []
+    assert by_pmid == []
+    assert by_run[0]["debug_available"] is False
+    assert by_run[0]["candidate_records"] == 0
+    assert by_run[0]["row_decisions"] == 0
+    assert all(row["value"] == 0 for row in summary)
+
+
+def test_reproducibility_bundle_removes_sensitive_csv_columns(tmp_path):
+    bundle = _load_module(BUNDLE_PATH, "gemini_time_bundle")
+    source = tmp_path / "input.csv"
+    destination = tmp_path / "output.csv"
+    source.write_text(
+        "run_id,manifest_path,detail_extraction_error,value\n"
+        "hour00,/home/student/run.json,secret-looking error,12\n",
+        encoding="utf-8",
+    )
+
+    bundle.sanitize_csv(source, destination)
+    output = destination.read_text(encoding="utf-8")
+
+    assert output.splitlines()[0] == "run_id,value"
+    assert "manifest_path" not in output
+    assert "detail_extraction_error" not in output
+    assert "/home/student/" not in output
 
 
 def test_runner_refuses_unverified_full_corpus(tmp_path):

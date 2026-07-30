@@ -10,7 +10,7 @@ import html
 import math
 import json
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -209,6 +209,280 @@ def manifest_artifact_path(manifest: dict[str, Any], raw_path: str) -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def gate_reason_for_candidate_outcome(outcome: str) -> str:
+    mapping = {
+        "rejected_uncorroborated_deterministic": "deterministic_uncorroborated",
+        "rejected_low_confidence": "low_confidence",
+        "rejected_ungrounded": "ungrounded",
+    }
+    return mapping.get(outcome, "")
+
+
+def collect_gate_statistics(
+    manifests: list[dict[str, Any]],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Aggregate mechanical gate dispositions without treating them as accuracy labels."""
+
+    event_rows: list[dict[str, Any]] = []
+    run_metrics: dict[str, Counter[str]] = defaultdict(Counter)
+    pmid_metrics: dict[str, Counter[str]] = defaultdict(Counter)
+    run_metadata: dict[str, dict[str, Any]] = {}
+
+    def add_event(
+        *,
+        run_id: str,
+        pmid: str,
+        unit: str,
+        stage: str,
+        outcome: str,
+        reason: str,
+        count: int,
+    ) -> None:
+        if count <= 0:
+            return
+        event_rows.append(
+            {
+                "run_id": run_id,
+                "pmid": pmid,
+                "unit": unit,
+                "stage": stage,
+                "outcome": outcome,
+                "reason": reason,
+                "count": count,
+            }
+        )
+        key = f"{unit}.{stage}.{outcome}.{reason or 'none'}"
+        run_metrics[run_id][key] += count
+        pmid_metrics[pmid][key] += count
+
+    for manifest in manifests:
+        run_id = str(manifest.get("run_id") or "")
+        run_metadata[run_id] = {
+            "run_id": run_id,
+            "planned_local_time": manifest.get("planned_local_time", ""),
+            "time_block": manifest.get("time_block", ""),
+            "debug_available": False,
+        }
+        debug_raw = str((manifest.get("outputs") or {}).get("debug") or "").strip()
+        if not debug_raw:
+            continue
+        debug_path = manifest_artifact_path(manifest, debug_raw)
+        if not debug_path.exists():
+            continue
+        debug = load_json(debug_path)
+        run_metadata[run_id]["debug_available"] = True
+
+        for paper in debug.get("paper_debug") or []:
+            pmid = str(paper.get("pmid") or "").strip()
+            if not pmid:
+                continue
+
+            candidate_outcomes = Counter(
+                str(candidate.get("validation_outcome") or "unknown")
+                for candidate in paper.get("candidates") or []
+            )
+            for outcome, count in sorted(candidate_outcomes.items()):
+                add_event(
+                    run_id=run_id,
+                    pmid=pmid,
+                    unit="candidate",
+                    stage="candidate_validation",
+                    outcome=outcome,
+                    reason=gate_reason_for_candidate_outcome(outcome),
+                    count=count,
+                )
+
+            emitted_rows = safe_int(paper.get("emitted_rows"))
+            add_event(
+                run_id=run_id,
+                pmid=pmid,
+                unit="row",
+                stage="primary_export",
+                outcome="emitted",
+                reason="",
+                count=emitted_rows,
+            )
+
+            evidence_reasons = Counter(
+                str(drop.get("reason") or "unknown")
+                for drop in paper.get("evidence_gate_drops") or []
+            )
+            for reason, count in sorted(evidence_reasons.items()):
+                add_event(
+                    run_id=run_id,
+                    pmid=pmid,
+                    unit="row",
+                    stage="citation_gate",
+                    outcome="dropped",
+                    reason=reason,
+                    count=count,
+                )
+
+            strict_reasons = Counter(
+                str(drop.get("reason") or "unknown")
+                for drop in paper.get("strict_gate_drops") or []
+            )
+            for reason, count in sorted(strict_reasons.items()):
+                add_event(
+                    run_id=run_id,
+                    pmid=pmid,
+                    unit="row",
+                    stage="strict_gate",
+                    outcome="dropped",
+                    reason=reason,
+                    count=count,
+                )
+
+    candidate_pass_outcomes = {
+        "passed",
+        "passed_deterministic_context",
+        "passed_untruncated_rescue",
+    }
+
+    def flatten_metrics(
+        counter: Counter[str],
+        *,
+        base: dict[str, Any],
+    ) -> dict[str, Any]:
+        candidate_total = sum(
+            count
+            for key, count in counter.items()
+            if key.startswith("candidate.candidate_validation.")
+        )
+        candidate_passed = sum(
+            count
+            for key, count in counter.items()
+            if key.split(".")[2] in candidate_pass_outcomes
+        )
+        candidate_rejected = candidate_total - candidate_passed
+        emitted = counter["row.primary_export.emitted.none"]
+        citation_drops = sum(
+            count
+            for key, count in counter.items()
+            if key.startswith("row.citation_gate.dropped.")
+        )
+        strict_drops = sum(
+            count
+            for key, count in counter.items()
+            if key.startswith("row.strict_gate.dropped.")
+        )
+        return {
+            **base,
+            "candidate_records": candidate_total,
+            "candidate_passed": candidate_passed,
+            "candidate_rejected": candidate_rejected,
+            "candidate_rejected_uncorroborated_deterministic": counter[
+                "candidate.candidate_validation.rejected_uncorroborated_deterministic.deterministic_uncorroborated"
+            ],
+            "candidate_rejected_low_confidence": counter[
+                "candidate.candidate_validation.rejected_low_confidence.low_confidence"
+            ],
+            "candidate_rejected_ungrounded": counter[
+                "candidate.candidate_validation.rejected_ungrounded.ungrounded"
+            ],
+            "row_emitted": emitted,
+            "row_citation_gate_drops": citation_drops,
+            "row_strict_gate_drops": strict_drops,
+            "row_decisions": emitted + citation_drops + strict_drops,
+        }
+
+    run_rows = [
+        flatten_metrics(
+            run_metrics[run_id],
+            base=run_metadata[run_id],
+        )
+        for run_id in sorted(run_metadata)
+    ]
+    pmid_rows = [
+        flatten_metrics(
+            counter,
+            base={
+                "pmid": pmid,
+                "runs_observed": len(
+                    {
+                        row["run_id"]
+                        for row in event_rows
+                        if row["pmid"] == pmid
+                    }
+                ),
+            },
+        )
+        for pmid, counter in sorted(pmid_metrics.items())
+    ]
+
+    totals = Counter()
+    for counter in run_metrics.values():
+        totals.update(counter)
+    aggregate = flatten_metrics(totals, base={})
+    summary_definitions = [
+        (
+            "candidate_records",
+            "candidate",
+            "Candidate records evaluated by the candidate-validation stage.",
+        ),
+        (
+            "candidate_passed",
+            "candidate",
+            "Candidate records retained after candidate validation.",
+        ),
+        (
+            "candidate_rejected",
+            "candidate",
+            "Candidate records rejected by candidate validation.",
+        ),
+        (
+            "candidate_rejected_uncorroborated_deterministic",
+            "candidate",
+            "Deterministic candidates rejected because source context did not corroborate them.",
+        ),
+        (
+            "candidate_rejected_low_confidence",
+            "candidate",
+            "Candidate records rejected below the candidate-confidence rule.",
+        ),
+        (
+            "candidate_rejected_ungrounded",
+            "candidate",
+            "Candidate records rejected because they could not be grounded to source text.",
+        ),
+        (
+            "row_decisions",
+            "row",
+            "Recorded final row dispositions; independent of the candidate-record denominator.",
+        ),
+        (
+            "row_emitted",
+            "row",
+            "Rows written to the primary export.",
+        ),
+        (
+            "row_citation_gate_drops",
+            "row",
+            "Rows excluded because citation-bearing evidence did not ground to source text.",
+        ),
+        (
+            "row_strict_gate_drops",
+            "row",
+            "Rows excluded by the final confidence gate after earlier checks.",
+        ),
+    ]
+    summary_rows = [
+        {
+            "metric": metric,
+            "unit": unit,
+            "value": aggregate[metric],
+            "description": description,
+        }
+        for metric, unit, description in summary_definitions
+    ]
+    return event_rows, run_rows, pmid_rows, summary_rows
 
 
 def batch_success(row: dict[str, Any]) -> bool:
@@ -873,6 +1147,7 @@ def write_markdown(
     block_rows: list[dict[str, Any]],
     descriptive: list[dict[str, Any]],
     stability: list[dict[str, Any]],
+    gate_summary: list[dict[str, Any]],
     verdict: str,
     plots: list[Path] | None = None,
 ) -> None:
@@ -902,6 +1177,10 @@ def write_markdown(
         for row in stability
         if str(row.get("mean_gene_variant_jaccard", "")).strip() != ""
     ]
+    gate_values = {
+        str(row.get("metric")): safe_int(row.get("value"))
+        for row in gate_summary
+    }
     lines = [
         "# Gemini Free-Tier Time-of-Day Study Report",
         "",
@@ -974,6 +1253,21 @@ def write_markdown(
         f"- Median per-PMID gene-set Jaccard: {median(gene_jaccards):.3f}",
         f"- Median per-PMID gene-variant Jaccard: {median(pair_jaccards):.3f}",
         "",
+        "## Mechanical Gate Dispositions",
+        "",
+        "Candidate records and final row decisions use independent denominators. These are operational dispositions, not expert correctness labels.",
+        "",
+        "| Unit | Disposition | Count |",
+        "|---|---|---:|",
+        f"| Candidate | Evaluated | {gate_values.get('candidate_records', 0)} |",
+        f"| Candidate | Retained | {gate_values.get('candidate_passed', 0)} |",
+        f"| Candidate | Rejected: uncorroborated deterministic | {gate_values.get('candidate_rejected_uncorroborated_deterministic', 0)} |",
+        f"| Candidate | Rejected: low confidence | {gate_values.get('candidate_rejected_low_confidence', 0)} |",
+        f"| Candidate | Rejected: ungrounded | {gate_values.get('candidate_rejected_ungrounded', 0)} |",
+        f"| Row | Emitted | {gate_values.get('row_emitted', 0)} |",
+        f"| Row | Citation-gate drop | {gate_values.get('row_citation_gate_drops', 0)} |",
+        f"| Row | Strict-gate drop | {gate_values.get('row_strict_gate_drops', 0)} |",
+        "",
         "## Time Blocks",
         "",
         "| Time block | Runs | Successful | Median runtime (min) | Median completion | Quota-limited runs | Upstream failures | 503/high-demand runs | Timeout runs | Median calls | Median total tokens | Median output rows |",
@@ -1006,9 +1300,9 @@ def write_markdown(
             "- Marginal: >=70% completion but one or more usability criteria missed.",
             "- Not usable: <70% completion.",
             "",
-            "## Interim Interpretation",
+            "## Interpretation",
             "",
-            "Treat this report as a snapshot until the 24-hour schedule has finished. A failed upstream metadata/full-text slot should be described separately from Gemini quota or model failures because it does not consume Gemini requests and does not test free-tier capacity.",
+            "The completed 24-hour schedule supports an operational assessment only. The failed upstream metadata/full-text slot is reported separately from Gemini quota or model failures because it consumed no Gemini requests and did not test free-tier capacity. Mechanical gate counts describe pipeline dispositions and do not estimate biological correctness.",
             "",
         ]
     )
@@ -1062,6 +1356,9 @@ def main() -> int:
     )
     descriptive = descriptive_all + descriptive_success
     stability = output_stability_rows(successful_manifests)
+    gate_events, gate_by_run, gate_by_pmid, gate_summary = collect_gate_statistics(
+        manifests
+    )
     verdict = classify(batch_rows, block_rows)
     plots = write_plots(args.report_dir, batch_rows, paper_rows)
 
@@ -1094,12 +1391,17 @@ def main() -> int:
         ],
     )
     write_csv(args.report_dir / "stability_metrics.csv", stability)
+    write_csv(args.report_dir / "gate_events.csv", gate_events)
+    write_csv(args.report_dir / "gate_by_run.csv", gate_by_run)
+    write_csv(args.report_dir / "gate_by_pmid.csv", gate_by_pmid)
+    write_csv(args.report_dir / "gate_summary.csv", gate_summary)
     write_markdown(
         args.report_dir / "report.md",
         batch_rows,
         block_rows,
         descriptive_success or descriptive_all,
         stability,
+        gate_summary,
         verdict,
         plots,
     )

@@ -1,0 +1,11 @@
+description,metric,unit,value
+Candidate records evaluated by the candidate-validation stage.,candidate_records,candidate,8570
+Candidate records retained after candidate validation.,candidate_passed,candidate,7259
+Candidate records rejected by candidate validation.,candidate_rejected,candidate,1311
+Deterministic candidates rejected because source context did not corroborate them.,candidate_rejected_uncorroborated_deterministic,candidate,1219
+Candidate records rejected below the candidate-confidence rule.,candidate_rejected_low_confidence,candidate,69
+Candidate records rejected because they could not be grounded to source text.,candidate_rejected_ungrounded,candidate,23
+Recorded final row dispositions; independent of the candidate-record denominator.,row_decisions,row,7360
+Rows written to the primary export.,row_emitted,row,7007
+Rows excluded because citation-bearing evidence did not ground to source text.,row_citation_gate_drops,row,353
+Rows excluded by the final confidence gate after earlier checks.,row_strict_gate_drops,row,0

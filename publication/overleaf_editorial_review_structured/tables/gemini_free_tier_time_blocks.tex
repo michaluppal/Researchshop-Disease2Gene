@@ -1,0 +1,18 @@
+\begin{table}[!ht]
+\centering
+\caption{Time-of-day comparison; runtime uses successful batches.}
+\label{tab:gemini-free-tier-blocks}
+\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Block & Complete & Runtime & Calls & API rec. & Upstr. \\
+ & batches & min & med. & runs & fail. \\
+\midrule
+Night & 6/6 & 12.1 & 22.0 & 6 & 0 \\
+Morning & 5/6 & 11.7 & 21.0 & 4 & 1 \\
+Afternoon & 6/6 & 11.6 & 20.5 & 4 & 0 \\
+Evening & 6/6 & 10.5 & 20.5 & 5 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -13,8 +13,12 @@ files:
   - '!app/src/*'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!config/**/*'
+  - '!demo/**/*'
   - '!docs/**/*'
+  - '!pipeline/**/*'
   - '!publication/**/*'
+  - '!studies/**/*'
+  - '!tmp/**/*'
 extraResources:
   - from: pipeline
     to: pipeline
@@ -36,6 +40,7 @@ extraResources:
       - '!caches/**'
       - '!outputs/**'
       - '!.venv/**'
+      - '!.venv*/**'
       - '!**/__pycache__/**'
       - '!**/*.pyc'
 mac:

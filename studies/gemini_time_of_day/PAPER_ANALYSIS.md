@@ -11,7 +11,7 @@ Primary session bundle:
 - Driver log: `studies/gemini_time_of_day/runs/session_20260609_0100_scheduler/driver.log`
 - Per-slot manifests: `studies/gemini_time_of_day/runs/session_20260609_0100_scheduler/hourXX/study_run.json`
 - Regenerated report: `studies/gemini_time_of_day/runs/session_20260609_0100_scheduler/reports/report.md`
-- Regenerated CSV summaries: `batch_metrics.csv`, `paper_metrics.csv`, `time_block_summary.csv`, `descriptive_summary.csv`, `stability_metrics.csv`, `failure_events.csv`
+- Regenerated CSV summaries: `batch_metrics.csv`, `paper_metrics.csv`, `time_block_summary.csv`, `descriptive_summary.csv`, `stability_metrics.csv`, `failure_events.csv`, `gate_events.csv`, `gate_by_run.csv`, `gate_by_pmid.csv`, and `gate_summary.csv`
 
 The plan requested `session_summary.json`, but that file was not present in the copied WSL bundle. Aggregate consistency was therefore checked against the 24 `study_run.json` manifests and the regenerated `batch_metrics.csv`/summary CSVs.
 
@@ -172,6 +172,31 @@ Per-PMID stability summary:
 
 Interpretation: output row counts were not perfectly identical, especially for PMIDs with more extracted rows and citation-gate drops, but gene-level and gene-variant-level sets were highly stable across repeated runs.
 
+## Mechanical Gate Dispositions
+
+The gate analysis uses two independent statistical units. Candidate dispositions describe records evaluated during candidate validation. Row dispositions describe final export decisions after row construction. The counts therefore must not be presented as one continuous attrition funnel, and neither unit is an expert correctness label.
+
+| Unit | Recorded disposition | Count |
+|---|---|---:|
+| Candidate | Evaluated | 8,570 |
+| Candidate | Retained | 7,259 |
+| Candidate | Rejected: uncorroborated deterministic candidate | 1,219 |
+| Candidate | Rejected: low confidence | 69 |
+| Candidate | Rejected: ungrounded | 23 |
+| Row | Final decisions recorded | 7,360 |
+| Row | Emitted to the primary export | 7,007 |
+| Row | Excluded by the citation gate | 353 |
+| Row | Excluded by the strict confidence gate | 0 |
+
+Across the 23 successful batches, candidate validation rejected 1,311 of 8,570 candidate records (15.3%). Most were deterministic candidates without corroborating source context. Separately, the final row stage emitted 7,007 of 7,360 recorded row decisions (95.2%); all 353 recorded row exclusions occurred at the citation gate, and none occurred at the final strict-confidence gate. These results quantify how often the implemented checks changed pipeline output. They do not show whether accepted or rejected findings were biologically correct, which requires expert adjudication.
+
+Generated gate-analysis artifacts:
+
+- `runs/session_20260609_0100_scheduler/reports/gate_events.csv`
+- `runs/session_20260609_0100_scheduler/reports/gate_by_run.csv`
+- `runs/session_20260609_0100_scheduler/reports/gate_by_pmid.csv`
+- `runs/session_20260609_0100_scheduler/reports/gate_summary.csv`
+
 ## Numerical-Preservation Gate
 
 Post-hoc analysis of the same WSL session found that numerical preservation was triggered 23 times across 17,854 citation validations. The events affected 12 rows in 8 of 24 hourly batches. Three rows were excluded from the primary export with a numeric-mismatch citation-gate signal; the remaining events were retained in exported metadata because another citation or validation path kept the row reviewable. This supports the intended role of the check: catching quantitative drift in LLM-provided evidence quotes without turning most citation-validation failures into export-blocking events.
@@ -219,7 +244,7 @@ Under this 24-hour WSL study design, Gemini free-tier operation was usable for a
 
 Draft text, pending author review:
 
-ResearchShop was also evaluated in a 24-hour operational free-tier study on a Windows/WSL laptop using a fixed 10-paper open-access corpus and hourly repeated runs with `gemini-3.1-flash-lite`. Of 24 scheduled hourly batches, 23 completed all 10 papers (95.8%); the single incomplete slot was due to upstream metadata/full-text acquisition rather than Gemini quota exhaustion. Successful batches completed quickly (median 11.6 min; p95 13.8 min), used a median of 21 Gemini calls, and showed no quota-limited rows or per-paper timeouts. Output sets were stable across repeated runs, with median per-PMID gene-set Jaccard similarity of 0.953 and gene-variant Jaccard similarity of 1.000. These results indicate that, for the tested corpus and configuration, the free tier was sufficient for small-batch exploratory use, provided that transient API unavailability is handled by retries and surfaced in the audit log.
+ResearchShop was also evaluated in a 24-hour operational free-tier study on a Windows/WSL laptop using a fixed 10-paper open-access corpus and hourly repeated runs with `gemini-3.1-flash-lite`. Of 24 scheduled hourly batches, 23 completed all 10 papers (95.8%); the single incomplete slot was due to upstream metadata/full-text acquisition rather than Gemini quota exhaustion. Successful batches had median runtime of 11.6 min (p95 13.8 min), used a median of 21 Gemini calls, and showed no quota-limited rows or per-paper timeouts. Across successful runs, candidate validation retained 7,259 of 8,570 candidate records, while final row decisions emitted 7,007 rows and excluded 353 at the citation gate. Output sets were stable across repeated runs, with median per-PMID gene-set Jaccard similarity of 0.953 and gene-variant Jaccard similarity of 1.000. These results support small-batch operational use under the tested configuration, provided that transient API unavailability is handled by retries and surfaced in the audit log; they do not estimate biological accuracy.
 
 Small Section 4 table draft:
 

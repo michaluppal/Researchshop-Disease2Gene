@@ -1,0 +1,67 @@
+%%====================================================================
+\section{Impact}
+\label{sec:impact}
+
+\subsection{Primary Contribution}
+
+\DIFdelbegin
+\DIFdel{ResearchShop addresses the practical scale mismatch between biomedical literature and manual gene-evidence review. PubMed now indexes more than 40 million biomedical and life-science citations~\cite{pubmed_about_2026}; ResearchShop does not replace curation, but turns selected open-access papers into auditable gene--evidence tables that reviewers can inspect.}
+
+\begin{enumerate}[itemsep=2pt]
+    \item \DIFdel{\textbf{Hybrid extraction with auditable validation.} PubTator3, HGNC scanning, and configurable LLM extraction surface candidate genes, while grounding, citation checks, and confidence gates decide what reaches the primary export. Output rows include candidate source, normalization, validation outcome, confidence score, association type, and paper metadata; audit files preserve pre-validation candidates and gate drops.}
+\end{enumerate}
+\DIFdelend
+\LucasNote{Jaki jest związek tej listy z resztą tekstu? I składa się tylko z jednego punktu}
+
+\DIFaddbegin
+\DIFadd{ResearchShop addresses the practical scale mismatch between biomedical literature and manual gene-evidence review. Its role is not to replace curation, but to turn selected open-access papers into auditable gene--evidence tables that reviewers can inspect. The contribution is the coupling of hybrid extraction with auditable validation. PubTator3, HGNC scanning, and configurable LLM extraction surface candidate genes; grounding, citation checks, and confidence gates then decide what reaches the primary export. Output rows retain candidate source, normalization, validation outcome, confidence score, association type, and paper metadata, while audit files preserve pre-validation candidates and gate drops.}
+\DIFaddend
+
+\subsection{Applications}
+
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Variant of Uncertain Significance (VUS) evidence triage:} Helps researchers identify and review published gene-disease evidence relevant to variant interpretation.
+    \item \textbf{Rare disease evidence triage:} Helps process curated PMID sets or focused PubMed searches where relevant reports are sparse and require source-level review.
+    \item \textbf{Drug target discovery:} Helps researchers assemble candidate gene--disease association tables for therapeutic-development review.
+    \item \textbf{Systematic reviews:} Produces auditable extraction tables that can support, but not replace, documented review and adjudication workflows.
+\end{itemize}
+
+\subsection{Free-tier Execution Study}
+
+\DIFdelbegin
+\DIFdel{We ran the same 10 open-access PMIDs hourly for 24 Warsaw-local slots on a Windows/WSL laptop using \texttt{gemini-3.1-flash-lite}, one worker, and a three-call cap per paper. This is an operational reliability check, not a clinical accuracy benchmark.}
+\DIFdelend
+\DIFaddbegin
+\DIFadd{We ran the same 10 open-access PMIDs hourly for 24 Warsaw-local slots on a Windows/WSL laptop using \texttt{gemini-3.1-flash-lite}, one worker, and a three-call cap per paper. This configurable model override was the tested free-tier condition; the released application defaults to \texttt{gemini-2.5-flash-lite}. The study measures operational reliability and output stability, not biological precision or recall.}
+\DIFaddend
+
+\input{tables/gemini_free_tier_summary}
+
+\begin{figure*}[!ht]
+\centering
+\begin{minipage}[t]{0.61\textwidth}
+\centering
+\resizebox{\linewidth}{!}{\input{figures/gemini_free_tier_operational_tikz}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.36\textwidth}
+\centering
+\resizebox{\linewidth}{!}{\input{figures/gemini_gate_dispositions_tikz}}
+\end{minipage}
+\caption{Gemini free-tier execution study. The hourly panel reports runtime, API calls, and emitted rows for the fixed corpus; the gate panel reports mechanical dispositions using separate candidate and row denominators. Marker color identifies clean and API-recovered runs. The 07:00 slot failed during upstream full-text acquisition, not because of quota exhaustion. Gate counts describe pipeline behavior, not biological correctness.}
+\label{fig:gemini-free-tier-operational}
+\end{figure*}
+
+\input{tables/gemini_free_tier_time_blocks}
+
+The condition was operationally usable: 23/24 batches completed, with no quota-limited rows or timeouts. Across successful runs, candidate validation retained 7,259 of 8,570 candidate records; final row decisions emitted 7,007 rows and excluded 353 at the citation gate, with no strict-gate drops. These independent operational counts do not estimate precision or recall. The logs recorded 95 recovered model-unavailable/API events; these are recovery log events, not necessarily 95 unique failed requests, so retries and explicit failure reporting remain required.
+
+\subsection{Limitations}
+
+\DIFdelbegin
+\DIFdel{The LLM used in the pipeline is non-deterministic, which limits strict reproducibility of the system. At its current stage, ResearchShop relies on PubMed-based discovery, open-access full-text availability, and the Gemini API, all of which may introduce additional biases or limitations. Rare-disease searches require particular care: the topic-search ranking uses citation and journal-quality signals that can deprioritise low-citation rare-disease papers, so users studying rare conditions should prefer direct PMID submission or carefully documented focused PubMed queries. Architecturally, however, the system remains modular and can be extended to alternative search sources or local models in future versions. Consequently, outputs generated by ResearchShop should be treated as a starting point for further investigation and always subjected to professional review and verification.}
+\DIFdelend
+\DIFaddbegin
+\DIFadd{LLM non-determinism limits exact reproducibility, and the workflow depends on PubMed discovery, open-access full text, and an external Gemini service. Citation- and journal-based ranking may also deprioritise low-citation rare-disease reports; direct PMID lists or documented focused queries are preferable in that setting. Neither the illustrative example nor the free-tier study estimates extraction accuracy, which requires expert adjudication against a predefined reference set. Future work therefore includes an expert-labelled benchmark, alternative search sources, and local-model support for fully private processing. All outputs remain research leads requiring professional review.}
+\DIFaddend
+
+\FloatBarrier

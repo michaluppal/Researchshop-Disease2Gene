@@ -1,0 +1,70 @@
+{
+  "pmids": [
+    {
+      "pmid": "36552004",
+      "size_class": "small",
+      "source_hint": "PMC9776003"
+    },
+    {
+      "pmid": "35177862",
+      "size_class": "small",
+      "source_hint": "PIMS/MIS-C project-history PMID"
+    },
+    {
+      "pmid": "23544013",
+      "size_class": "small",
+      "source_hint": "PMC3609646"
+    },
+    {
+      "pmid": "34669946",
+      "size_class": "small",
+      "source_hint": "PMC8728162"
+    },
+    {
+      "pmid": "41169353",
+      "size_class": "medium",
+      "source_hint": "PMC12568354"
+    },
+    {
+      "pmid": "41017238",
+      "size_class": "medium",
+      "source_hint": "PMC12477333"
+    },
+    {
+      "pmid": "39009607",
+      "size_class": "medium",
+      "source_hint": "PMC11250857"
+    },
+    {
+      "pmid": "34711957",
+      "size_class": "medium",
+      "source_hint": "PMC7611956"
+    },
+    {
+      "pmid": "29625052",
+      "size_class": "large",
+      "source_hint": "PMC5949147"
+    },
+    {
+      "pmid": "41929321",
+      "size_class": "large",
+      "source_hint": "PMC13042129"
+    }
+  ],
+  "schema_version": "gemini_time_of_day_corpus_v1",
+  "selection_policy": {
+    "rules": [
+      "Use the same PMIDs for every study run.",
+      "Prefer PMC/Europe PMC open-access full text.",
+      "Exclude papers that require OCR, Playwright fallback, or figure analysis to be useful.",
+      "Replace any candidate that cannot be fetched consistently before the study starts."
+    ],
+    "size_classes": {
+      "large": 2,
+      "medium": 4,
+      "small": 4
+    },
+    "total_pmids": 10
+  },
+  "verified": true
+}
