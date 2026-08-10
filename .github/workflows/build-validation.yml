@@ -1,12 +1,24 @@
 name: Build Validation
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  macos-arm64-dmg:
-    name: macOS ARM64 DMG
-    runs-on: macos-14
+  quality:
+    name: Typecheck, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,25 +34,75 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+  macos-arm64-dmg:
+    name: macOS ARM64 DMG
+    if: github.event_name == 'workflow_dispatch'
+    needs: quality
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read package version
+        id: package
+        shell: bash
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
 
       - name: Build DMG
         run: npm run package:mac:local -- --publish never
 
-      - name: Verify DMG artifact exists
-        run: test -f dist/researchshop-desktop-1.0.0.dmg
+      - name: Verify DMG contents and architecture
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          dmg="dist/researchshop-desktop-${PACKAGE_VERSION}.dmg"
+          test -s "$dmg"
+          mount_dir="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_dir" -quiet || true
+            rmdir "$mount_dir" || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_dir" -quiet
+          test -d "$mount_dir/ResearchShop.app"
+          file "$mount_dir/ResearchShop.app/Contents/MacOS/ResearchShop" | grep -q arm64
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: researchshop-macos-arm64-dmg
+          name: researchshop-macos-arm64-dmg-${{ steps.package.outputs.version }}
           path: |
-            dist/researchshop-desktop-1.0.0.dmg
-            dist/researchshop-desktop-1.0.0.dmg.blockmap
+            dist/*.dmg
+            dist/*.dmg.blockmap
             dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 14
 
   windows-x64-installer:
     name: Windows x64 Installer
+    if: github.event_name == 'workflow_dispatch'
+    needs: quality
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -54,8 +116,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Read package version
+        id: package
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Build Windows installer
         run: npm run package:win -- --x64 --publish never
@@ -73,8 +139,10 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: researchshop-windows-x64
+          name: researchshop-windows-x64-${{ steps.package.outputs.version }}
           path: |
             dist/*.exe
             dist/*win.zip
             dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
