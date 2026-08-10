@@ -89,7 +89,7 @@ jobs:
           file "$mount_dir/ResearchShop.app/Contents/MacOS/ResearchShop" | grep -q arm64
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: researchshop-macos-arm64-dmg-${{ steps.package.outputs.version }}
           path: |
@@ -139,7 +139,7 @@ jobs:
           Write-Host "Zip: $($zip.FullName)"
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: researchshop-windows-x64-${{ steps.package.outputs.version }}
           path: |
