@@ -1,8 +1,13 @@
 import { spawn, execSync } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { createWriteStream, existsSync, mkdirSync, rmSync } from 'fs'
+import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { app } from 'electron'
+
+const PYTHON_RELEASE = '20261013'
+const PYTHON_VERSION = '3.12.15'
 
 function getPythonDir(): string {
   if (app.isPackaged) {
@@ -24,6 +29,66 @@ function getVenvPython(venvDir: string): string {
     return join(venvDir, 'Scripts', 'python.exe')
   }
   return join(venvDir, 'bin', 'python3')
+}
+
+function getBundledPython(): string {
+  const root = app.isPackaged
+    ? join(process.resourcesPath, 'python-runtime')
+    : join(__dirname, '../../build/python-runtime')
+  if (process.platform === 'win32') return join(root, 'python', 'python.exe')
+  return join(root, 'python', 'bin', 'python3')
+}
+
+function getRuntimeDir(): string {
+  return join(app.getPath('userData'), 'python', 'runtime')
+}
+
+function getRuntimePython(): string {
+  if (process.platform === 'win32') {
+    return join(getRuntimeDir(), 'python', 'python.exe')
+  }
+  return join(getRuntimeDir(), 'python', 'bin', 'python3')
+}
+
+function pythonArchiveName(): string {
+  const tag = `cpython-${PYTHON_VERSION}+${PYTHON_RELEASE}`
+  if (process.platform === 'win32' && process.arch === 'x64') {
+    return `${tag}-x86_64-pc-windows-msvc-install_only.tar.gz`
+  }
+  if (process.platform === 'darwin' && process.arch === 'arm64') {
+    return `${tag}-aarch64-apple-darwin-install_only.tar.gz`
+  }
+  if (process.platform === 'darwin' && process.arch === 'x64') {
+    return `${tag}-x86_64-apple-darwin-install_only.tar.gz`
+  }
+  if (process.platform === 'linux' && process.arch === 'x64') {
+    return `${tag}-x86_64-unknown-linux-gnu-install_only.tar.gz`
+  }
+  if (process.platform === 'linux' && process.arch === 'arm64') {
+    return `${tag}-aarch64-unknown-linux-gnu-install_only.tar.gz`
+  }
+  throw new Error('This computer type is not supported yet.')
+}
+
+export function getPipelinePython(): string {
+  const bundled = getBundledPython()
+  if (existsSync(bundled)) return bundled
+  if (app.isPackaged) {
+    const runtimePython = getRuntimePython()
+    if (existsSync(runtimePython)) return runtimePython
+    throw new Error('ResearchShop is still preparing. Open the app again.')
+  }
+
+  const pythonDir = getPythonDir()
+  const venvDir = getVenvDir(pythonDir)
+  const venvCandidates = [
+    join(venvDir, 'bin', 'python3'),
+    join(venvDir, 'Scripts', 'python.exe'),
+  ]
+  for (const venvPython of venvCandidates) {
+    if (existsSync(venvPython)) return venvPython
+  }
+  return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 function send(channel: string, data: unknown): void {
@@ -91,9 +156,7 @@ function findSystemPython(): string {
     return bestCmd
   }
 
-  throw new Error(
-    'Python 3 not found. Please install Python 3.10+ (e.g. via Homebrew: brew install python3).'
-  )
+  throw new Error('Python 3.10 or newer was not found for this development run.')
 }
 
 function runSpawn(command: string, args: string[], cwd: string): Promise<void> {
@@ -127,108 +190,156 @@ function runSpawn(command: string, args: string[], cwd: string): Promise<void> {
   })
 }
 
-export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: string }> {
+function hasPip(python: string): boolean {
   try {
-    const pythonDir = getPythonDir()
-    const venvDir = getVenvDir(pythonDir)
-    const venvPython = getVenvPython(venvDir)
-    const requirementsPath = join(pythonDir, 'requirements.txt')
+    execSync(`"${python}" -m pip --version`, { stdio: 'pipe', timeout: 20000 })
+    return true
+  } catch {
+    return false
+  }
+}
 
-    sendLog('ResearchShop Python Environment Setup')
-    sendLog('='.repeat(50))
-    sendLog('')
+async function downloadPrivatePython(): Promise<string> {
+  const runtimeDir = getRuntimeDir()
+  const python = getRuntimePython()
+  if (existsSync(python) && hasPip(python)) return python
 
-    if (!existsSync(requirementsPath)) {
-      return { ready: false, error: `requirements.txt not found at ${requirementsPath}` }
-    }
+  sendProgress('downloading', 'Downloading ResearchShop components...')
+  sendLog('[setup] Downloading the private Python runtime...')
+  rmSync(runtimeDir, { recursive: true, force: true })
+  mkdirSync(runtimeDir, { recursive: true })
 
-    let needsSetup = false
+  const archiveName = pythonArchiveName()
+  const archivePath = join(app.getPath('temp'), archiveName)
+  const url = `https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${archiveName}`
+  const response = await fetch(url, { headers: { 'User-Agent': 'ResearchShop' } })
+  if (!response.ok || !response.body) {
+    throw new Error('ResearchShop could not download its components. Check the internet connection and open the app again.')
+  }
+  await pipeline(Readable.fromWeb(response.body as import('stream/web').ReadableStream), createWriteStream(archivePath))
 
-    if (existsSync(venvPython)) {
-      sendProgress('checking', 'Verifying Python dependencies...')
-      sendLog(`[check] Found venv at ${venvPython}`)
-      sendLog(`[check] Verifying installed packages...`)
-      try {
-        // Use pip list instead of importing — google.genai import takes 2+ minutes cold
-        const pipList = execSync(`"${venvPython}" -m pip list --format=columns`, {
-          stdio: 'pipe',
-          timeout: 15000
-        }).toString().toLowerCase()
-        const required = ['google-genai', 'pandas', 'tqdm', 'biopython', 'trafilatura', 'lxml', 'pdfminer']
-        const missing = required.filter(pkg => !pipList.includes(pkg))
-        if (missing.length === 0) {
-          sendLog('[check] All dependencies verified ✓')
-          sendLog('')
-          sendProgress('ready', 'Python environment is ready')
-          return { ready: true }
-        }
-        sendLog(`[check] Missing packages: ${missing.join(', ')}`)
-        needsSetup = true
-      } catch {
-        sendLog('[check] Could not verify packages, reinstalling...')
-        sendLog('')
-        needsSetup = true
-      }
-    } else {
-      sendLog('[check] No virtual environment found')
-      sendLog('')
-      needsSetup = true
-    }
+  sendProgress('extracting', 'Preparing ResearchShop...')
+  await runSpawn('tar', ['-xzf', archivePath, '-C', runtimeDir], runtimeDir)
+  if (!existsSync(python) || !hasPip(python)) {
+    throw new Error('ResearchShop could not prepare its research tools. Open the app again.')
+  }
+  sendLog('[setup] Private Python runtime is ready')
+  return python
+}
 
-    if (needsSetup) {
-      sendProgress('finding-python', 'Looking for Python 3...')
-      sendLog('[setup] Searching for Python 3 installation...')
-      const systemPython = findSystemPython()
-      sendLog(`[setup] Using: ${systemPython}`)
-      sendLog('')
+const REQUIRED_PACKAGES = ['google-genai', 'pandas', 'tqdm', 'biopython', 'trafilatura', 'lxml', 'pdfminer']
 
-      if (!existsSync(venvPython)) {
-        sendProgress('creating-venv', 'Creating virtual environment...')
-        sendLog('[venv] Creating isolated virtual environment...')
-        await runSpawn(systemPython, ['-m', 'venv', venvDir], pythonDir)
-        sendLog('[venv] Virtual environment created ✓')
-        sendLog('')
-      }
+function missingPackages(python: string): string[] | null {
+  try {
+    const pipList = execSync(`"${python}" -m pip list --format=columns`, {
+      stdio: 'pipe',
+      timeout: 20000
+    }).toString().toLowerCase()
+    return REQUIRED_PACKAGES.filter(pkg => !pipList.includes(pkg))
+  } catch {
+    return null
+  }
+}
 
-      sendProgress('installing', 'Installing dependencies...')
-      sendLog('[pip] Installing packages from requirements.txt...')
-      sendLog('')
-      await runSpawn(venvPython, ['-m', 'pip', 'install', '--no-input', '-r', requirementsPath], pythonDir)
-      sendLog('')
-      sendLog('[pip] All packages installed ✓')
-      sendLog('')
+async function installRequirements(python: string, requirementsPath: string): Promise<void> {
+  if (!hasPip(python)) {
+    sendLog('[setup] Adding the package installer...')
+    await runSpawn(python, ['-m', 'ensurepip', '--upgrade'], getPythonDir())
+  }
+  sendProgress('installing', 'Installing ResearchShop components...')
+  sendLog('[setup] Installing research packages...')
+  await runSpawn(python, ['-m', 'pip', 'install', '--no-input', '--disable-pip-version-check', '-r', requirementsPath], getPythonDir())
+  const missing = missingPackages(python)
+  if (missing === null || missing.length > 0) {
+    throw new Error('ResearchShop could not finish installing its research tools. Check the internet connection and open the app again.')
+  }
+}
 
-      sendProgress('verifying', 'Verifying installation...')
-      sendLog('[verify] Checking installed packages...')
-      try {
-        const pipList = execSync(`"${venvPython}" -m pip list --format=columns`, {
-          stdio: 'pipe',
-          timeout: 15000
-        }).toString().toLowerCase()
-        const required = ['google-genai', 'pandas', 'tqdm', 'biopython', 'trafilatura', 'lxml', 'pdfminer']
-        const missing = required.filter(pkg => !pipList.includes(pkg))
-        if (missing.length > 0) {
-          return {
-            ready: false,
-            error: `Missing packages after install: ${missing.join(', ')}`
-          }
-        }
-        sendLog('[verify] All packages installed ✓')
-      } catch (err) {
-        return {
-          ready: false,
-          error: `Verification failed: ${err instanceof Error ? err.message : String(err)}`
-        }
-      }
+function friendlySetupError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/python 3\.10 or newer was not found/i.test(message)) return message
+  if (/reinstall the app/i.test(message)) return message
+  if (/internet connection/i.test(message)) return message
+  if (/open the app again/i.test(message)) return message
+  if (/still preparing/i.test(message)) return message
+  return 'ResearchShop could not finish preparing. Check the internet connection and open the app again.'
+}
 
-      sendLog('')
-      sendLog('Setup complete. Starting ResearchShop...')
-      sendProgress('ready', 'Python environment is ready')
+async function ensureDevEnv(requirementsPath: string): Promise<{ ready: boolean; error?: string }> {
+  const bundled = getBundledPython()
+  if (existsSync(bundled)) {
+    const bundledMissing = missingPackages(bundled)
+    if (bundledMissing && bundledMissing.length === 0) {
+      sendProgress('ready', 'ResearchShop is ready')
       return { ready: true }
     }
+  }
 
-    return { ready: true }
+  const pythonDir = getPythonDir()
+  const venvDir = getVenvDir(pythonDir)
+  const venvPython = getVenvPython(venvDir)
+
+  sendLog('ResearchShop Python Environment Setup')
+  sendLog('='.repeat(50))
+
+  if (existsSync(venvPython)) {
+    sendProgress('checking', 'Checking ResearchShop...')
+    const missing = missingPackages(venvPython)
+    if (missing && missing.length === 0) {
+      sendProgress('ready', 'ResearchShop is ready')
+      return { ready: true }
+    }
+    sendLog(missing ? `[check] Missing packages: ${missing.join(', ')}` : '[check] Could not verify packages')
+  } else {
+    sendProgress('finding-python', 'Preparing ResearchShop...')
+    const systemPython = findSystemPython()
+    sendLog(`[setup] Using: ${systemPython}`)
+    await runSpawn(systemPython, ['-m', 'venv', venvDir], pythonDir)
+  }
+
+  await installRequirements(venvPython, requirementsPath)
+  sendProgress('ready', 'ResearchShop is ready')
+  return { ready: true }
+}
+
+async function ensurePackagedEnv(requirementsPath: string): Promise<{ ready: boolean; error?: string }> {
+  sendProgress('checking', 'Preparing ResearchShop...')
+  const bundled = getBundledPython()
+
+  if (existsSync(bundled)) {
+    const missing = missingPackages(bundled)
+    if (missing && missing.length === 0) {
+      sendLog('[setup] Bundled research tools are ready')
+      sendProgress('ready', 'ResearchShop is ready')
+      return { ready: true }
+    }
+    sendLog(missing ? `[setup] Bundled tools are incomplete (${missing.join(', ')})` : '[setup] Bundled tools could not be checked')
+    try {
+      await installRequirements(bundled, requirementsPath)
+      sendProgress('ready', 'ResearchShop is ready')
+      return { ready: true }
+    } catch (err) {
+      sendLog(`[setup] Could not update the installed copy: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  } else {
+    sendLog('[setup] Installed research tools were not found')
+  }
+
+  const python = await downloadPrivatePython()
+  await installRequirements(python, requirementsPath)
+  sendProgress('ready', 'ResearchShop is ready')
+  return { ready: true }
+}
+
+export async function ensurePythonEnv(): Promise<{ ready: boolean; error?: string }> {
+  try {
+    const requirementsPath = join(getPythonDir(), 'requirements.txt')
+    if (!existsSync(requirementsPath)) {
+      return { ready: false, error: 'ResearchShop is missing part of its installation. Reinstall the app.' }
+    }
+    if (app.isPackaged) return await ensurePackagedEnv(requirementsPath)
+    return await ensureDevEnv(requirementsPath)
   } catch (err) {
-    return { ready: false, error: err instanceof Error ? err.message : String(err) }
+    return { ready: false, error: app.isPackaged ? friendlySetupError(err) : (err instanceof Error ? err.message : String(err)) }
   }
 }

@@ -1,4 +1,4 @@
-import { ChildProcess, spawn, execSync } from 'child_process'
+import { ChildProcess, spawn } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
@@ -7,6 +7,7 @@ import { updateJob, getJob } from './job-store'
 import { addGeminiApiCalls } from './usage-store'
 import { app } from 'electron'
 import type { RunInputSnapshot } from '../shared/run-input'
+import { getPipelinePython } from './python-setup'
 
 export interface PipelineArgs {
   query: string
@@ -33,27 +34,7 @@ let currentJobId: string | null = null
 let lastJobApiCalls = 0 // tracks cumulative count for current job (delta calculation)
 
 function getPythonPath(): string {
-  // Prefer the bundled venv if it exists
-  const pythonDir = getPythonDir()
-  const venvDir = getVenvDir(pythonDir)
-  const venvCandidates = [
-    join(venvDir, 'bin', 'python3'),
-    join(venvDir, 'Scripts', 'python.exe'),
-  ]
-  for (const venvPython of venvCandidates) {
-    if (existsSync(venvPython)) return venvPython
-  }
-
-  const candidates = ['python3', 'python']
-  for (const cmd of candidates) {
-    try {
-      execSync(`${cmd} --version`, { stdio: 'pipe' })
-      return cmd
-    } catch {
-      continue
-    }
-  }
-  throw new Error('Python 3 not found. Please install Python 3 and ensure it is in your PATH.')
+  return getPipelinePython()
 }
 
 function getPythonDir(): string {
@@ -62,13 +43,6 @@ function getPythonDir(): string {
   }
   // Dev: __dirname is out/main at runtime → ../../pipeline
   return join(__dirname, '../../pipeline')
-}
-
-function getVenvDir(pythonDir: string): string {
-  if (app.isPackaged) {
-    return join(app.getPath('userData'), 'python', '.venv')
-  }
-  return join(pythonDir, '.venv')
 }
 
 export function startPipeline(jobId: string, args: PipelineArgs): void {

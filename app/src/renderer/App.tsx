@@ -201,9 +201,11 @@ function SetupScreen({
                 <span className="text-sm text-red-300">Setup Failed</span>
               </div>
               <p className="text-xs text-white/40 leading-relaxed mb-4">{error}</p>
-              <p className="text-xs text-white/20">
-                Install Python 3.9+ and restart the app.
-              </p>
+              {/python 3 not found/i.test(error) && (
+                <p className="text-xs text-white/20">
+                  Install Python 3.10 or newer and restart the app.
+                </p>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center">
@@ -220,7 +222,7 @@ function SetupScreen({
               {stalled && (
                 <div className="mt-6 max-w-sm text-center space-y-3">
                   <p className="text-xs text-amber-300/70">
-                    Setup is taking longer than expected. The Python environment may be stuck.
+                    This is taking longer than usual.
                   </p>
                   <button
                     onClick={() => window.location.reload()}
