@@ -2,7 +2,7 @@ import { ChildProcess, spawn } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { getSettings } from './settings-store'
+import { getDefaultOutputDir, getSettings } from './settings-store'
 import { updateJob, getJob } from './job-store'
 import { addGeminiApiCalls } from './usage-store'
 import { app } from 'electron'
@@ -65,7 +65,7 @@ export function startPipeline(jobId: string, args: PipelineArgs): void {
     '--authors', JSON.stringify(args.authors),
     '--columns', JSON.stringify(args.columns),
     '--top-n', String(args.topN || 9999),
-    '--output-dir', settings.outputDirectory
+    '--output-dir', settings.outputDirectory || getDefaultOutputDir()
   ]
 
   // Pass secrets via environment variables, never as CLI args (visible in `ps aux`)

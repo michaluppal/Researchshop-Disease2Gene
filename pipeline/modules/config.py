@@ -221,5 +221,3 @@ FORENSIC_INCLUDE_FETCH_OUTCOMES = os.getenv("FORENSIC_INCLUDE_FETCH_OUTCOMES", "
 ENABLE_TABLE_CITATIONS = os.getenv("ENABLE_TABLE_CITATIONS", "true").lower() == "true"
 TABLE_MIN_DATA_CELLS = int(os.getenv("TABLE_MIN_DATA_CELLS", "4"))
 TABLE_MAX_PER_PAPER = int(os.getenv("TABLE_MAX_PER_PAPER", "20"))
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
