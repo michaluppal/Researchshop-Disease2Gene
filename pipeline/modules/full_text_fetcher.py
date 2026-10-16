@@ -89,21 +89,29 @@ _SESSION = _build_http_session()
 # ---------------------------------------------------------------------------
 
 def _get_pmcid_for_pmid(pmid: str) -> Optional[str]:
-    """Return the PMC ID for a PMID, or None if not available."""
+    """Return the PMC ID for a PMID, or None if PMC has no record."""
     try:
-        base_url = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
-        params = {'ids': pmid, 'format': 'json', 'tool': 'disease2gene', 'email': config.ENTREZ_EMAIL}
-        response = _SESSION.get(base_url, params=params, timeout=15)
+        # Entrez elink stays on eutils. The PMC idconv host answers Python
+        # clients with 403, which made every paper look paywalled.
+        params = {
+            'dbfrom': 'pubmed',
+            'db': 'pmc',
+            'id': pmid,
+            'retmode': 'json',
+            'tool': 'disease2gene',
+            'email': config.ENTREZ_EMAIL or 'researchshop@example.com',
+        }
+        response = _SESSION.get(
+            'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi',
+            params=params,
+            timeout=15,
+        )
         response.raise_for_status()
         data = response.json()
-        record = data.get('records', [{}])[0]
-        # Cross-validate: ensure the returned record's PMID matches what we asked for
-        if record.get('pmid') and str(record.get('pmid')) != str(pmid):
-            logger.warning(f"PMID mismatch in ID converter: asked for {pmid}, got {record.get('pmid')}")
-            return None
-        pmcid = record.get('pmcid')
-        if pmcid:
-            return pmcid
+        for linkset in data.get('linksets', []):
+            for item in linkset.get('linksetdbs', []):
+                if item.get('linkname') == 'pubmed_pmc' and item.get('links'):
+                    return f"PMC{item['links'][0]}"
     except Exception as e:
         logger.debug(f"PMC ID lookup failed for PMID {pmid}: {e}")
     return None

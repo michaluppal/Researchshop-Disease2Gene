@@ -67,6 +67,7 @@ def select_papers_and_fetch_metadata(
                 paywalled.append(pmid)
         if paywalled:
             papers_excluded_not_oa = len(paywalled)
+            initial_pmids.difference_update(paywalled)
             emit_log(
                 "warn",
                 f"OA gate: excluded {len(paywalled)} paywalled PMID(s) from the run",
