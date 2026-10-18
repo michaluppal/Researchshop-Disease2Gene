@@ -6,17 +6,23 @@
 
 You give ResearchShop a topic, a list of papers, or an author name. It keeps the papers whose full text is free to read, then writes a spreadsheet you can review. It runs on your computer. It is a research aid, and every row still needs a person to check it.
 
-## Download
+<p align="center">
+  <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.2/researchshop-desktop-1.0.2.dmg">
+    <img alt="Download unsigned macOS DMG" src="https://img.shields.io/badge/macOS-DMG%20unsigned-F59E0B?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
+  </a>
+  &nbsp;
+  <img alt="Windows EXE work in progress" src="https://img.shields.io/badge/Windows-EXE%20WIP-9CA3AF?style=for-the-badge&logo=windows&logoColor=white&labelColor=6B7280">
+</p>
 
-The app is the file on the [releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases/tag/v1.0.2). Ignore the green **Code** button on this page. **Source code (zip)** and **Source code (tar.gz)** are the programming files, not the app. `researchshop-v1.0.2-reproducibility.zip` is a study archive, not an installer.
+Ignore the green **Code** button on this page. **Source code (zip)** and **Source code (tar.gz)** are the programming files, not the app. `researchshop-v1.0.2-reproducibility.zip` on the [releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases/tag/v1.0.2) is a study archive, not an installer.
 
 ### Mac
 
-The download is one file: [researchshop-desktop-1.0.2.dmg](https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.2/researchshop-desktop-1.0.2.dmg).
+Click the **macOS DMG** button above. It downloads `researchshop-desktop-1.0.2.dmg`.
 
 It is for a Mac with Apple silicon (M1, M2, M3, or M4). It does not run on an older Intel Mac. Apple has not signed this copy, so macOS shows a warning the first time. The app is not damaged.
 
-1. Open the link above and let the `.dmg` file finish downloading.
+1. Wait until the `.dmg` file finishes downloading.
 2. Open the downloaded file. A window appears with the ResearchShop icon and an Applications folder.
 3. Drag **ResearchShop** onto **Applications**.
 4. Open **Applications** and double-click **ResearchShop**.
@@ -33,9 +39,7 @@ ResearchShop then opens from the Applications folder like any other app. You do 
 
 ### Windows
 
-There is no Windows installer on the download page. The old grey **Windows EXE WIP** picture was not a link, so clicking it did nothing.
-
-A setup file was built on one test laptop and was not published here. That copy is also older than the current open-access fix, so it is not the file to hand to someone else.
+The **Windows EXE WIP** button is only a label. Release v1.0.2 has no `.exe` attached, so that button cannot start a download. The setup file from the test laptop is older than the current open-access fix and is not published here.
 
 ## First launch
 
