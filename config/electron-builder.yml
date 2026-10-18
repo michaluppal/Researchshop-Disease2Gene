@@ -78,6 +78,11 @@ nsis:
   oneClick: false
   perMachine: true
   allowToChangeInstallationDirectory: true
+  installerIcon: app/resources/icon.ico
+  uninstallerIcon: app/resources/icon.ico
+  installerHeaderIcon: app/resources/icon.ico
+  installerSidebar: app/resources/installer-sidebar.bmp
+  uninstallerSidebar: app/resources/installer-sidebar.bmp
 dmg:
   artifactName: ${name}-${version}.${ext}
   background: app/resources/dmg-background.png

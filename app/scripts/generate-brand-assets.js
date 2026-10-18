@@ -131,34 +131,198 @@ try drawBackground(scale: 2, output: outputPath2x)
   resizePng(rawBackground2x, 1320, 800, join(resourcesDir, 'dmg-background@2x.png'))
 }
 
-function writeIco(pngPaths, output) {
-  const images = pngPaths.map((path) => {
-    const match = path.match(/-(\d+)\.png$/)
-    if (!match) throw new Error(`Cannot infer ICO size from ${path}`)
-    return { size: Number(match[1]), data: readFileSync(path) }
-  })
+function writeWindowsBrand(basePng, workDir) {
+  const swiftPath = join(workDir, 'generate-windows-brand.swift')
+  writeFileSync(swiftPath, `
+import AppKit
 
-  const header = Buffer.alloc(6)
-  header.writeUInt16LE(0, 0)
-  header.writeUInt16LE(1, 2)
-  header.writeUInt16LE(images.length, 4)
+let sourcePath = CommandLine.arguments[1]
+let icoPath = CommandLine.arguments[2]
+let sidebarPath = CommandLine.arguments[3]
+let sizes = [16, 24, 32, 48, 64, 128, 256]
 
-  let offset = 6 + images.length * 16
-  const entries = images.map(({ size, data }) => {
-    const entry = Buffer.alloc(16)
-    entry.writeUInt8(size === 256 ? 0 : size, 0)
-    entry.writeUInt8(size === 256 ? 0 : size, 1)
-    entry.writeUInt8(0, 2)
-    entry.writeUInt8(0, 3)
-    entry.writeUInt16LE(1, 4)
-    entry.writeUInt16LE(32, 6)
-    entry.writeUInt32LE(data.length, 8)
-    entry.writeUInt32LE(offset, 12)
-    offset += data.length
-    return entry
-  })
+guard let source = NSImage(contentsOfFile: sourcePath) else {
+  fputs("Could not read \\(sourcePath)\\n", stderr)
+  exit(1)
+}
 
-  writeFileSync(output, Buffer.concat([header, ...entries, ...images.map(({ data }) => data)]))
+func color(_ hex: Int) -> NSColor {
+  NSColor(
+    calibratedRed: CGFloat((hex >> 16) & 0xff) / 255,
+    green: CGFloat((hex >> 8) & 0xff) / 255,
+    blue: CGFloat(hex & 0xff) / 255,
+    alpha: 1
+  )
+}
+
+func bitmap(_ width: Int, _ height: Int, draw: (NSRect) -> Void) -> NSBitmapImageRep {
+  guard let rep = NSBitmapImageRep(
+    bitmapDataPlanes: nil,
+    pixelsWide: width,
+    pixelsHigh: height,
+    bitsPerSample: 8,
+    samplesPerPixel: 4,
+    hasAlpha: true,
+    isPlanar: false,
+    colorSpaceName: .deviceRGB,
+    bitmapFormat: [.thirtyTwoBitLittleEndian],
+    bytesPerRow: width * 4,
+    bitsPerPixel: 32
+  ) else {
+    fputs("Could not allocate bitmap\\n", stderr)
+    exit(1)
+  }
+  NSGraphicsContext.saveGraphicsState()
+  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+  NSGraphicsContext.current?.imageInterpolation = .high
+  draw(NSRect(x: 0, y: 0, width: width, height: height))
+  NSGraphicsContext.restoreGraphicsState()
+  return rep
+}
+
+func dibImage(_ size: Int) -> Data {
+  let rep = bitmap(size, size) { rect in
+    NSColor.clear.setFill()
+    rect.fill()
+    source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+  }
+  let pixels = rep.bitmapData!
+  var xor = Data()
+  xor.reserveCapacity(size * size * 4)
+  for y in stride(from: size - 1, through: 0, by: -1) {
+    for x in 0..<size {
+      let i = (y * size + x) * 4
+      let r = Int(pixels[i])
+      let g = Int(pixels[i + 1])
+      let b = Int(pixels[i + 2])
+      let a = Int(pixels[i + 3])
+      // AppKit stores premultiplied BGRA in this format. Windows icons want straight alpha.
+      let scale = a == 0 ? 0 : 255
+      let bb = UInt8(a == 0 ? 0 : min(255, b * scale / a))
+      let gg = UInt8(a == 0 ? 0 : min(255, g * scale / a))
+      let rr = UInt8(a == 0 ? 0 : min(255, r * scale / a))
+      xor.append(contentsOf: [bb, gg, rr, UInt8(a)])
+    }
+  }
+  let maskStride = ((size + 31) / 32) * 4
+  let mask = Data(count: maskStride * size)
+  var header = Data(count: 40)
+  header.replaceSubrange(0..<4, with: le32(40))
+  header.replaceSubrange(4..<8, with: le32(size))
+  header.replaceSubrange(8..<12, with: le32(size * 2))
+  header.replaceSubrange(12..<14, with: le16(1))
+  header.replaceSubrange(14..<16, with: le16(32))
+  let imageSize = xor.count + mask.count
+  header.replaceSubrange(20..<24, with: le32(imageSize))
+  return header + xor + mask
+}
+
+func le16(_ value: Int) -> Data {
+  var v = UInt16(value).littleEndian
+  return Data(bytes: &v, count: 2)
+}
+
+func le32(_ value: Int) -> Data {
+  var v = UInt32(value).littleEndian
+  return Data(bytes: &v, count: 4)
+}
+
+let images = sizes.map { dibImage($0) }
+var ico = Data()
+ico.append(contentsOf: le16(0))
+ico.append(contentsOf: le16(1))
+ico.append(contentsOf: le16(sizes.count))
+var offset = 6 + sizes.count * 16
+for (size, image) in zip(sizes, images) {
+  let dim = size == 256 ? 0 : size
+  ico.append(UInt8(dim))
+  ico.append(UInt8(dim))
+  ico.append(0)
+  ico.append(0)
+  ico.append(contentsOf: le16(1))
+  ico.append(contentsOf: le16(32))
+  ico.append(contentsOf: le32(image.count))
+  ico.append(contentsOf: le32(offset))
+  offset += image.count
+}
+for image in images {
+  ico.append(image)
+}
+try ico.write(to: URL(fileURLWithPath: icoPath))
+
+let sidebarWidth = 164
+let sidebarHeight = 314
+let sidebar = bitmap(sidebarWidth, sidebarHeight) { rect in
+  let gradient = NSGradient(colors: [color(0x2563EB), color(0x14B8A6)])
+  gradient?.draw(in: rect, angle: -90)
+  let iconSize: CGFloat = 108
+  let iconRect = NSRect(
+    x: (CGFloat(sidebarWidth) - iconSize) / 2,
+    y: 118,
+    width: iconSize,
+    height: iconSize
+  )
+  source.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+  let title = "ResearchShop" as NSString
+  let attrs: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
+    .foregroundColor: NSColor.white
+  ]
+  let titleSize = title.size(withAttributes: attrs)
+  title.draw(
+    at: NSPoint(x: (CGFloat(sidebarWidth) - titleSize.width) / 2, y: 86),
+    withAttributes: attrs
+  )
+}
+guard
+  let tiff = sidebar.tiffRepresentation,
+  let opaque = NSBitmapImageRep(data: tiff),
+  let png = opaque.representation(using: .png, properties: [:])
+else {
+  fputs("Could not encode installer sidebar\\n", stderr)
+  exit(1)
+}
+let sidebarPixels = sidebar.bitmapData!
+var bmpPixels = Data()
+let rowBytes = ((sidebarWidth * 3 + 3) / 4) * 4
+for y in stride(from: sidebarHeight - 1, through: 0, by: -1) {
+  var row = Data()
+  for x in 0..<sidebarWidth {
+    let i = (y * sidebarWidth + x) * 4
+    row.append(sidebarPixels[i + 2])
+    row.append(sidebarPixels[i + 1])
+    row.append(sidebarPixels[i])
+  }
+  row.append(Data(count: rowBytes - sidebarWidth * 3))
+  bmpPixels.append(row)
+}
+let pixelBytes = bmpPixels.count
+var bmp = Data()
+bmp.append(contentsOf: [0x42, 0x4d])
+bmp.append(contentsOf: le32(54 + pixelBytes))
+bmp.append(contentsOf: le16(0))
+bmp.append(contentsOf: le16(0))
+bmp.append(contentsOf: le32(54))
+bmp.append(contentsOf: le32(40))
+bmp.append(contentsOf: le32(sidebarWidth))
+bmp.append(contentsOf: le32(sidebarHeight))
+bmp.append(contentsOf: le16(1))
+bmp.append(contentsOf: le16(24))
+bmp.append(contentsOf: le32(0))
+bmp.append(contentsOf: le32(pixelBytes))
+bmp.append(contentsOf: le32(2835))
+bmp.append(contentsOf: le32(2835))
+bmp.append(contentsOf: le32(0))
+bmp.append(contentsOf: le32(0))
+bmp.append(bmpPixels)
+try bmp.write(to: URL(fileURLWithPath: sidebarPath))
+`)
+  run('swift', [
+    swiftPath,
+    basePng,
+    join(resourcesDir, 'icon.ico'),
+    join(resourcesDir, 'installer-sidebar.bmp'),
+  ])
 }
 
 const tmp = mkdtempSync('/private/tmp/researchshop-brand-')
@@ -188,16 +352,9 @@ try {
   run('iconutil', ['-c', 'icns', iconset, '-o', join(resourcesDir, 'icon.icns')])
 
   renderIconPng(baseIconPng, 1024, join(resourcesDir, 'icon.png'))
+  writeWindowsBrand(join(resourcesDir, 'icon.png'), tmp)
 
-  const icoSizes = [16, 24, 32, 48, 64, 128, 256]
-  const icoPngs = icoSizes.map((size) => {
-    const output = join(tmp, `ico-${size}.png`)
-    renderIconPng(baseIconPng, size, output)
-    return output
-  })
-  writeIco(icoPngs, join(resourcesDir, 'icon.ico'))
-
-  generateDmgBackgrounds(tmp)
+  if (!process.argv.includes('--windows-icons')) generateDmgBackgrounds(tmp)
 
   console.log('Generated ResearchShop brand assets from app/resources/icon-source.svg')
 } finally {
