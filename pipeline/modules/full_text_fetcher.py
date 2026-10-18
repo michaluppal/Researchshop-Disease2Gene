@@ -32,10 +32,13 @@ import csv
 import dataclasses
 import gzip
 import io
+import json
 import logging
 import pickle
 import re
 import time
+import urllib.parse
+import urllib.request
 import zipfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -88,32 +91,71 @@ _SESSION = _build_http_session()
 # PMC ID lookup
 # ---------------------------------------------------------------------------
 
+def _read_json_url(url: str, timeout: int = 15) -> Dict[str, Any]:
+    """GET JSON with urllib.
+
+    On Windows, python-requests gets HTTP 403 from pmc.ncbi.nlm.nih.gov.
+    The PMC ID converter now redirects there, so a requests call looks like
+    "this paper has no PMCID". urllib receives the JSON on the same machine.
+    """
+    request = urllib.request.Request(
+        url,
+        headers={'User-Agent': 'ResearchShop/1.0 (disease2gene)', 'Accept': 'application/json'},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+
+def _pmcid_from_id_converter(pmid: str) -> Optional[str]:
+    params = {
+        'ids': pmid,
+        'format': 'json',
+        'tool': 'disease2gene',
+        'email': config.ENTREZ_EMAIL or 'researchshop@example.com',
+    }
+    url = 'https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?' + urllib.parse.urlencode(params)
+    data = _read_json_url(url)
+    record = (data.get('records') or [{}])[0]
+    if record.get('pmid') and str(record.get('pmid')) != str(pmid):
+        logger.warning(f"PMID mismatch in ID converter: asked for {pmid}, got {record.get('pmid')}")
+        return None
+    pmcid = record.get('pmcid')
+    return pmcid or None
+
+
+def _pmcid_from_europepmc(pmid: str) -> Optional[str]:
+    params = {
+        'query': f'EXT_ID:{pmid} AND SRC:MED',
+        'format': 'json',
+        'resultType': 'lite',
+        'pageSize': '1',
+    }
+    url = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?' + urllib.parse.urlencode(params)
+    data = _read_json_url(url, timeout=20)
+    results = (data.get('resultList') or {}).get('result') or []
+    if not results:
+        return None
+    record = results[0]
+    returned = str(record.get('pmid') or record.get('id') or '')
+    if returned != str(pmid):
+        logger.warning(f"PMID mismatch in Europe PMC lookup: asked for {pmid}, got {returned}")
+        return None
+    return record.get('pmcid') or None
+
+
 def _get_pmcid_for_pmid(pmid: str) -> Optional[str]:
-    """Return the PMC ID for a PMID, or None if PMC has no record."""
+    """Return the PMC ID for a PMID, or None if not available."""
     try:
-        # Entrez elink stays on eutils. The PMC idconv host answers Python
-        # clients with 403, which made every paper look paywalled.
-        params = {
-            'dbfrom': 'pubmed',
-            'db': 'pmc',
-            'id': pmid,
-            'retmode': 'json',
-            'tool': 'disease2gene',
-            'email': config.ENTREZ_EMAIL or 'researchshop@example.com',
-        }
-        response = _SESSION.get(
-            'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi',
-            params=params,
-            timeout=15,
-        )
-        response.raise_for_status()
-        data = response.json()
-        for linkset in data.get('linksets', []):
-            for item in linkset.get('linksetdbs', []):
-                if item.get('linkname') == 'pubmed_pmc' and item.get('links'):
-                    return f"PMC{item['links'][0]}"
+        pmcid = _pmcid_from_id_converter(pmid)
+        if pmcid:
+            return pmcid
     except Exception as e:
-        logger.debug(f"PMC ID lookup failed for PMID {pmid}: {e}")
+        logger.warning(f"PMC ID converter failed for PMID {pmid}: {e}")
+
+    try:
+        return _pmcid_from_europepmc(pmid)
+    except Exception as e:
+        logger.debug(f"Europe PMC ID lookup failed for PMID {pmid}: {e}")
     return None
 
 
