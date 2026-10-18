@@ -2,6 +2,7 @@
 
 \usepackage[T1]{fontenc}
 \usepackage{hyperref}
+\usepackage{xurl}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{float}
@@ -16,11 +17,13 @@
 \usepackage{tabularx}
 \usepackage{array}
 \usepackage{placeins}
-\usepackage{todonotes}
 \hypersetup{hidelinks}
 \hbadness=10000
 \hfuzz=3pt
 \raggedbottom
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.8}
 \newcommand{\frontlabel}[1]{\textbf{\MakeUppercase{#1}}}
 \newcommand{\frontspaced}[1]{\textbf{\MakeUppercase{#1}}}
 
@@ -47,7 +50,7 @@
 \twocolumn[
 \begin{@twocolumnfalse}
 \vspace*{-0.7cm}
-{\Large\bfseries ResearchShop: A Desktop Application for Auditable Gene and Variant Extraction from Biomedical Literature Using Hybrid NER--LLM Architecture\par}
+{\Large\bfseries ResearchShop: Schema-Driven, Auditable Extraction of Genes, Variants, and User-Defined Fields from Biomedical Full Text\par}
 \vspace{0.45em}
 {\normalsize Micha{\l} Bujniewicz-Uppal\textsuperscript{a, *}, {\L}ukasz G\'{o}rski\textsuperscript{a, b}, Catherine Suski-Grabowski\textsuperscript{a}\par}
 \vspace{0.25em}
@@ -65,14 +68,15 @@
 \frontlabel{Keywords:}\par
 Gene-disease association\par
 Biomedical text mining\par
-Large Language Models\par
-Named Entity Recognition\par
+Large language models (LLMs)\par
+Named entity recognition (NER)\par
+Natural language processing (NLP)\par
 Hallucination mitigation\par
 Full-text processing
 &
-We present ResearchShop, a free, open-source desktop application that assists biomedical researchers with structured extraction of gene and variant associations from PubMed literature. The system combines PubTator3 Named Entity Recognition, open-access full-text parsing from PubMed Central and Europe PMC, and Google Gemini 2.5 Flash Lite extraction behind a validation-oriented pipeline. Its safeguards include HGNC gene symbol verification, source-text grounding checks, HGVS-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no ResearchShop server infrastructure; users provide their own Gemini API key and NCBI Entrez email for direct calls to external services.
+We present ResearchShop, a free, open-source desktop application that assists biomedical researchers with structured extraction of genes and variants mentioned in PubMed literature. The system combines PubTator3 named entity recognition (NER), open-access full-text parsing from PubMed Central (PMC) and Europe PMC, and extraction with the Google Gemini 2.5 Flash Lite large language model (LLM) behind a validation-oriented pipeline. Its safeguards include Human Genome Organisation (HUGO) Gene Nomenclature Committee (HGNC) gene-symbol verification, source-text grounding checks, Human Genome Variation Society (HGVS)-style variant pattern validation, citation cross-referencing using dense sequence matching, and explicit provenance fields for each output row. The application runs on consumer hardware with no ResearchShop server infrastructure; users provide their own Gemini application programming interface (API) key and National Center for Biotechnology Information (NCBI) Entrez email for direct calls to external services.
 
-The contribution of ResearchShop is a reproducible desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and CSV/XLSX export. The project includes electron-builder packaging targets for macOS, Windows, and Linux, an offline test suite for core parser and validation behavior, and audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; extracted associations require expert review before use in publications, systematic reviews, or clinical contexts.
+The contribution of ResearchShop is an auditable desktop workflow for paper discovery, open-access full-text acquisition, candidate gene discovery, LLM-assisted structured extraction, validation, and spreadsheet export. The project includes electron-builder packaging targets for macOS, Windows, and Linux, an offline test suite for core parser and validation behavior, and audit artifacts that help users inspect candidate provenance, gate drops, confidence scores, and extraction failures. ResearchShop is intended as a research acceleration tool; identified genes, variants, and user-defined fields require expert review before use in publications, systematic reviews, or clinical contexts.
 \end{tabularx}
 }
 \vspace{0.75em}
@@ -103,9 +107,7 @@ The contribution of ResearchShop is a reproducible desktop workflow for paper di
 %%====================================================================
 
 \section*{Acknowledgements}
-We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling (ICM) at the University of Warsaw. Initial development of ResearchShop was supported by an
-%USD 1,000
-Amazon Founders grant awarded to Micha{\l} Bujniewicz-Uppal for this project.
+We acknowledge the support of the Interdisciplinary Centre for Mathematical and Computational Modelling at the University of Warsaw. Initial development of ResearchShop was supported by an Amazon Founders grant awarded to Micha{\l} Bujniewicz-Uppal for this project.
 
 \section*{Declaration of Competing Interest}
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
@@ -113,6 +115,7 @@ The authors declare that they have no known competing financial interests or per
 %% References
 \begingroup
 \footnotesize
+\raggedright
 \setlength{\bibsep}{0pt}
 \bibliography{references}
 \endgroup

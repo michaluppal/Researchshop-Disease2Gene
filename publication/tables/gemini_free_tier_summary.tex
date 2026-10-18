@@ -1,6 +1,6 @@
 \begin{table}[!ht]
 \centering
-\caption{24-hour Gemini free-tier operational summary. Successful-batch summaries exclude the single upstream full-text failure.}
+\caption{24-hour Gemini free-tier operational summary. Successful-batch summaries exclude the single upstream full-text failure; candidate and row dispositions use independent denominators.}
 \label{tab:gemini-free-tier-summary}
 \scriptsize
 \setlength{\tabcolsep}{4pt}
@@ -12,11 +12,14 @@ Hourly slots & 24 \\
 Complete batches & 23/24 (95.8\%) \\
 Completed papers & 230/240 \\
 Median batch runtime & 11.6 min \\
-P95 batch runtime & 13.8 min \\
+95th-percentile batch runtime & 13.8 min \\
 Median paper runtime & 0.6 min \\
 Median calls/batch & 21.0 \\
 Total Gemini calls & 493 \\
 Median tokens/batch & 422,304 \\
+Candidate records & 8,570 \\
+Candidate records rejected & 1,311 \\
+Citation-gate row drops & 353 \\
 Quota-limited rows & 0 \\
 Timeouts & 0 \\
 Upstream failures & 1 \\
