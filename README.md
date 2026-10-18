@@ -11,7 +11,7 @@ You give ResearchShop a topic, a list of papers, or an author name. It keeps the
     <img alt="Download unsigned macOS DMG" src="https://img.shields.io/badge/macOS-DMG%20unsigned-F59E0B?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
   </a>
   &nbsp;
-  <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.2/ResearchShop-Setup-1.0.2.exe">
+  <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.2/ResearchShop-Windows-Setup-1.0.2.exe">
     <img alt="Download Windows setup" src="https://img.shields.io/badge/Windows-Setup%20EXE-0078D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=111827">
   </a>
 </p>
@@ -41,7 +41,7 @@ ResearchShop then opens from the Applications folder like any other app. You do 
 
 ### Windows
 
-Click the **Windows Setup EXE** button above. It downloads `ResearchShop-Setup-1.0.2.exe` (about 208 MB). The download is large because the installer already contains the app’s own Python. You do not install Python yourself.
+Click the **Windows Setup EXE** button above. It downloads `ResearchShop-Windows-Setup-1.0.2.exe` (about 209 MB). The download is large because the installer already contains the app’s own Python. You do not install Python yourself. Use this file, not an older `ResearchShop-Setup-1.0.2.exe` still sitting in Downloads. Windows can keep the old icon on a file that keeps the same name.
 
 1. Open the downloaded file.
 2. If Windows says it protected your PC, choose **More info**, then **Run anyway**. The setup is not signed by Microsoft.
