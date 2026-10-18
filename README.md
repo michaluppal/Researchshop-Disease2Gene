@@ -11,7 +11,9 @@ You give ResearchShop a topic, a list of papers, or an author name. It keeps the
     <img alt="Download unsigned macOS DMG" src="https://img.shields.io/badge/macOS-DMG%20unsigned-F59E0B?style=for-the-badge&logo=apple&logoColor=white&labelColor=111827">
   </a>
   &nbsp;
-  <img alt="Windows EXE work in progress" src="https://img.shields.io/badge/Windows-EXE%20WIP-9CA3AF?style=for-the-badge&logo=windows&logoColor=white&labelColor=6B7280">
+  <a href="https://github.com/michaluppal/Researchshop-Disease2Gene/releases/download/v1.0.2/ResearchShop-Setup-1.0.2.exe">
+    <img alt="Download Windows setup" src="https://img.shields.io/badge/Windows-Setup%20EXE-0078D4?style=for-the-badge&logo=windows&logoColor=white&labelColor=111827">
+  </a>
 </p>
 
 Ignore the green **Code** button on this page. **Source code (zip)** and **Source code (tar.gz)** are the programming files, not the app. `researchshop-v1.0.2-reproducibility.zip` on the [releases page](https://github.com/michaluppal/Researchshop-Disease2Gene/releases/tag/v1.0.2) is a study archive, not an installer.
@@ -39,7 +41,12 @@ ResearchShop then opens from the Applications folder like any other app. You do 
 
 ### Windows
 
-The **Windows EXE WIP** button is only a label. Release v1.0.2 has no `.exe` attached, so that button cannot start a download. The setup file from the test laptop is older than the current open-access fix and is not published here.
+Click the **Windows Setup EXE** button above. It downloads `ResearchShop-Setup-1.0.2.exe` (about 208 MB). The download is large because the installer already contains the app’s own Python. You do not install Python yourself.
+
+1. Open the downloaded file.
+2. If Windows says it protected your PC, choose **More info**, then **Run anyway**. The setup is not signed by Microsoft.
+3. Approve the permission prompt. The installer asks where to put ResearchShop. The usual folder is `C:\Program Files\ResearchShop`.
+4. When it finishes, open **ResearchShop** from the Start menu.
 
 ## First launch
 
@@ -77,7 +84,7 @@ A high confidence score means the gene was found in the text and matched a known
 | Need | What to use |
 |------|-------------|
 | macOS app on a new Apple silicon Mac | the `.dmg` above |
-| Windows app for a researcher | not published yet |
+| Windows app for a researcher | the **Windows Setup EXE** button above |
 | Change the program | the commands below |
 | Repeat the tests | the reproducibility commands below |
 
